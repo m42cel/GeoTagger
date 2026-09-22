@@ -17,6 +17,18 @@ import { bandLabel, bandShortLabel, bandTitle, zoneBands } from './zone-bands.js
  * observed periods are solid, and the stretches where the answer is merely the nearest
  * rule are hatched, so a crossing reads as the interval it actually is.
  */
+/**
+ * Whether a label fits the room a band has.
+ *
+ * Estimated from the text rather than compared against one width for every band: a
+ * fixed threshold has to be set for the longest label a band might carry, and then a
+ * crossing — the shortest label and the one most worth reading — loses its offsets to
+ * a bare arrow in a band with room to spare.
+ */
+function fits(text: string, availablePx: number): boolean {
+  return text !== '' && availablePx >= text.length * 6 + 14;
+}
+
 export function ZoneRibbon({
   scale,
   rules,
@@ -47,6 +59,9 @@ export function ZoneRibbon({
         const visible = Math.min(right, scale.widthPx) - Math.max(left, 0);
 
         const kind = band.observed ? 'observed' : band.crossing ? 'crossing' : 'inferred';
+        const full = bandLabel(band);
+        const short = bandShortLabel(band);
+        const label = fits(full, visible) ? full : fits(short, visible) ? short : '';
         return (
           <div
             key={`${band.fromMs}-${band.toMs}-${i}`}
@@ -54,11 +69,11 @@ export function ZoneRibbon({
             style={{ left, width }}
             title={bandTitle(band)}
           >
-            {visible >= 52 && (
+            {label !== '' && (
               // Slides with the viewport so a period wider than the screen keeps its
               // name on show instead of leaving it off the left edge.
               <span className="zone-label" style={{ marginLeft: Math.max(0, -left) }}>
-                {visible >= 150 ? bandLabel(band) : bandShortLabel(band)}
+                {label}
               </span>
             )}
           </div>

@@ -496,12 +496,17 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .zone-band.observed {
   color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
   border-left: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
 }
-.zone-band.observed.alt { background: color-mix(in srgb, var(--fg) 13%, transparent); }
+.zone-band.observed.alt { background: color-mix(in srgb, var(--fg) 17%, transparent); }
 
-/* Hatching says "inferred" without borrowing a colour that means something else. */
+/*
+ * Hatching says "inferred" without borrowing a colour that means something else. It
+ * stays lighter than the solid periods on purpose: at 50% duty it averages well under
+ * their fill, so what is known reads as the more present thing and the gaps as texture
+ * over the empty ground — which is the right way round.
+ */
 .zone-band.inferred,
 .zone-band.crossing {
   background: repeating-linear-gradient(
