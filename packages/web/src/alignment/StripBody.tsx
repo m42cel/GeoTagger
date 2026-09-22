@@ -15,13 +15,23 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  * holding thousands of files stays responsive.
  */
 
-/** Width of a thumbnail on the axis, and the spacing at which they collide. */
-const THUMB_PX = 34;
+/**
+ * Width of a thumbnail on the axis, and the spacing at which they collide. Big enough
+ * that two photos of the same beach can be told apart, which is what aligning by
+ * content asks of them.
+ */
+const THUMB_PX = 84;
 /** Above this many files in view, thumbnails stop being readable. */
-const DENSITY_THRESHOLD_PX_PER_FILE = 6;
-const LANE_HEIGHT_PX = 46;
+const DENSITY_THRESHOLD_PX_PER_FILE = 12;
+const LANE_HEIGHT_PX = 104;
 
 export const STRIP_LANE_HEIGHT = LANE_HEIGHT_PX;
+/**
+ * A frame is centred on its instant, so it reaches half its width either side of it.
+ * The strip's own frame has to be padded by at least that much or its first and last
+ * thumbnails hang outside it.
+ */
+export const STRIP_THUMB_HALF_PX = THUMB_PX / 2;
 
 export interface StripFiles {
   /** The strip's files in effective-time order. */

@@ -8,13 +8,53 @@ import { exiftool } from '../metadata/reader.js';
 /** Two cached tiers (SPEC §10.1 step 6): eager grid thumbnails, on-demand previews. */
 export type ThumbTier = 'thumb' | 'preview';
 
-export const TIER_SIZE: Record<ThumbTier, number> = { thumb: 160, preview: 1280 };
+/**
+ * The grid tier is sized for the alignment view's film-strip frames at twice the
+ * pixel density, which is what a retina display asks of an 84 px frame.
+ */
+export const TIER_SIZE: Record<ThumbTier, number> = { thumb: 256, preview: 1280 };
+
+/**
+ * The pixel size is part of the cache path, so changing a tier invalidates it.
+ * Without that, raising a tier would leave every folder scanned before the change
+ * serving yesterday's smaller image for good — the cache is on disk and keyed only
+ * by file id.
+ */
+function tierDir(tier: ThumbTier): string {
+  return `${tier}-${TIER_SIZE[tier]}`;
+}
+
+/**
+ * Matches any tier directory, this build's or an older build's — including the
+ * unsuffixed names used before the size was part of the path, which are stale by
+ * definition now that every current name carries one.
+ */
+const TIER_DIR_RE = /^(thumb|preview)(-\d+)?$/;
 
 export function thumbPath(thumbsDir: string, fileId: number, tier: ThumbTier): string {
   // Two hex levels of fan-out, so a 5,000-file folder never puts 5,000 entries in
   // one directory — which some NAS filesystems handle poorly.
   const bucket = (fileId % 256).toString(16).padStart(2, '0');
-  return path.join(thumbsDir, tier, bucket, `${fileId}.jpg`);
+  return path.join(thumbsDir, tierDir(tier), bucket, `${fileId}.jpg`);
+}
+
+/**
+ * Deletes cache directories left by an older tier size, which nothing will read
+ * again. Only directories named like a tier are touched: this runs over a directory
+ * inside the user's photo folder, and nothing else in there is GeoTagger's to remove.
+ */
+export function pruneStaleThumbTiers(thumbsDir: string): void {
+  const current = new Set((Object.keys(TIER_SIZE) as ThumbTier[]).map(tierDir));
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(thumbsDir, { withFileTypes: true });
+  } catch {
+    return; // nothing cached yet
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || current.has(entry.name) || !TIER_DIR_RE.test(entry.name)) continue;
+    fs.rmSync(path.join(thumbsDir, entry.name), { recursive: true, force: true });
+  }
 }
 
 export function thumbExists(thumbsDir: string, fileId: number, tier: ThumbTier): boolean {
@@ -123,13 +163,17 @@ export function applyOrientation(pipeline: sharp.Sharp, orientation: number | nu
   }
 }
 
+/** What a camera's own `ThumbnailImage` is worth: typically 160 px, never more. */
+const EMBEDDED_THUMBNAIL_PX = 160;
+
 /**
  * Pulls a JPEG preview out of the file's own metadata. Tries the largest first:
  * `JpgFromRaw` and `PreviewImage` are full-size-ish, `ThumbnailImage` is typically
- * 160 px and only usable for the small tier.
+ * 160 px and so only satisfies a tier no larger than that — asking a bigger tier to
+ * accept it would cache a small image under a large name, since nothing here enlarges.
  */
 async function extractEmbeddedPreview(absPath: string, size: number): Promise<Buffer | null> {
-  const tags = size <= TIER_SIZE.thumb
+  const tags = size <= EMBEDDED_THUMBNAIL_PX
     ? ['JpgFromRaw', 'PreviewImage', 'ThumbnailImage']
     : ['JpgFromRaw', 'PreviewImage'];
   for (const tag of tags) {

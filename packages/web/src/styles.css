@@ -349,14 +349,28 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .lane-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
-.lane-row { position: relative; border-bottom: 1px solid var(--line); }
+/*
+ * Rows and layers are geometry, not targets. Each segment's layer spans the whole row
+ * — it is what a body drag translates — so two segments of a cut strip overlap
+ * completely, and whichever is drawn last would otherwise swallow every click meant
+ * for the other. Only the real controls take the pointer; anything else falls through
+ * to the canvas, where it pans.
+ */
+.lane-row { position: relative; border-bottom: 1px solid var(--line); pointer-events: none; }
 
-.strip-layer { position: absolute; inset: 0; }
+.strip-layer { position: absolute; inset: 0; pointer-events: none; }
+/*
+ * Two segments' padded frames still overlap by a frame's width where they meet, so
+ * the selected one is raised: once picked, all of it — thumbnails and stretch handles
+ * included — is reachable even at that seam.
+ */
+.strip-layer.selected { z-index: 2; }
 .strip-layer.selected .strip-hit { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .strip-layer.locked .strip-hit { cursor: not-allowed; border-style: dashed; }
 
 .strip-hit {
   position: absolute;
+  pointer-events: auto;
   top: 4px;
   bottom: 4px;
   border: 1px solid var(--line);
@@ -381,15 +395,19 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   cursor: pointer;
 }
 .shot.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/*
+ * `contain`, not `cover`: a square frame that crops a portrait photo to its middle
+ * band hides the very thing the frame is there to show.
+ */
+.shot img { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--bg); }
 
 .stack-count {
   position: absolute;
   right: 0;
   bottom: 0;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1;
-  padding: 1px 3px;
+  padding: 2px 4px;
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
 }
@@ -399,9 +417,10 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 /* Handles appear only on selection, so a strip cannot be stretched by accident. */
 .handle {
   position: absolute;
+  pointer-events: auto;
   top: 8px;
+  bottom: 8px;
   width: 8px;
-  height: 30px;
   padding: 0;
   border: 1px solid var(--accent);
   border-radius: 4px;
@@ -410,6 +429,29 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 
 .cursor-line { position: absolute; top: 0; bottom: 22px; width: 1px; background: var(--accent); opacity: 0.5; pointer-events: none; }
+
+/*
+ * Where the last click landed — the same hairline as the moving cursor, left behind.
+ * It outlives the hover, so the cut button and `c` have a visible target.
+ */
+.cut-marker {
+  position: absolute;
+  top: 0;
+  bottom: 22px;
+  width: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.selection-actions kbd {
+  font: inherit;
+  font-size: 10px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+}
 
 .drag-readout {
   position: absolute;
@@ -436,6 +478,36 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   white-space: nowrap;
 }
 .tick.major { color: var(--fg); font-weight: 600; }
+
+/*
+ * The time scrollbar sits under the canvas only — it scrolls the axis, not the lane
+ * headers beside it. The content element is a proxy: its width is the whole trip at
+ * the current zoom, which is what gives the thumb its size and travel.
+ */
+.time-scrollbar {
+  grid-column: 2;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.time-scroll-content { height: 1px; }
+
+/* Forced visible: macOS hides overlay scrollbars, and an invisible one is no control. */
+.time-scrollbar::-webkit-scrollbar {
+  height: 12px;
+  -webkit-appearance: none;
+}
+.time-scrollbar::-webkit-scrollbar-track { background: var(--bg); }
+.time-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fg) 35%, transparent);
+  border: 3px solid var(--bg);
+  border-radius: 6px;
+}
+.time-scrollbar::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--fg) 55%, transparent); }
+@supports (scrollbar-width: thin) {
+  .time-scrollbar { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--fg) 35%, transparent) var(--bg); }
+}
 
 /* ---- selection panel ---- */
 
@@ -468,6 +540,29 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .drift { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .selection-actions { display: flex; gap: 8px; }
+
+.selection-file { display: flex; align-items: flex-start; gap: 14px; }
+
+/*
+ * On the axis a photo is a film-strip frame; here it is large enough to recognise the
+ * moment, which is how an alignment is actually judged (SPEC §6.2).
+ */
+.file-preview {
+  max-height: 280px;
+  max-width: 46%;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.file-preview.empty {
+  display: grid;
+  place-items: center;
+  width: 200px;
+  height: 140px;
+  font-size: 12px;
+}
+.selection-file .file-detail { flex: 1; min-width: 0; }
 
 .file-detail {
   margin: 4px 0 0;

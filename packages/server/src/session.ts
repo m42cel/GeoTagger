@@ -4,6 +4,7 @@ import type { GroupingMode, SessionState } from '@geotagger/shared';
 import type { Config } from './config.js';
 import { FolderStore } from './db/store.js';
 import { Scanner } from './scan/scanner.js';
+import { pruneStaleThumbTiers } from './thumbs/generator.js';
 import { StripService } from './strips/service.js';
 import { resolveWithinRoot, toRelPath } from './paths.js';
 
@@ -36,6 +37,8 @@ export class Session {
       throw new Error(`Not a folder: ${relPath}`);
     }
     const store = FolderStore.open(absPath);
+    // Opening is the one moment this is free: the cache is about to be read from.
+    pruneStaleThumbTiers(store.thumbsDir);
     return new Session(absPath, toRelPath(config.photoRoot, absPath), store, config, log);
   }
 

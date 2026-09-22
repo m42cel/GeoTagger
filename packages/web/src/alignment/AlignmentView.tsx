@@ -22,8 +22,15 @@ import { errorText } from '../App.js';
 import { ObservationsPanel } from './ObservationsPanel.js';
 import { SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
+import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
-import { buildStripFiles, StripBody, STRIP_LANE_HEIGHT, type PreviewRamp } from './StripBody.js';
+import {
+  buildStripFiles,
+  StripBody,
+  STRIP_LANE_HEIGHT,
+  STRIP_THUMB_HALF_PX,
+  type PreviewRamp,
+} from './StripBody.js';
 import {
   msAt,
   panBy,
@@ -48,8 +55,12 @@ import {
  */
 
 const LANE_ROW_PX = STRIP_LANE_HEIGHT + 12;
-/** Padding either side of a strip so its end thumbnails are inside its drag area. */
-const STRIP_PAD_PX = 22;
+/**
+ * Padding either side of a strip so its end thumbnails are inside its frame and its
+ * drag area. Derived from the frame width rather than guessed: the two went out of
+ * step the moment the thumbnails grew, and the end frames hung outside the strip.
+ */
+const STRIP_PAD_PX = STRIP_THUMB_HALF_PX + 6;
 
 type Drag =
   | {
@@ -99,6 +110,12 @@ export function AlignmentView({
   /** Multi-select, for building a strip by hand (SPEC §4.4 "Manual"). */
   const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<number>>(() => new Set());
   const [cursorMs, setCursorMs] = useState<number | null>(null);
+  /**
+   * Where the last click landed, and so where the next cut goes. It stays put and
+   * stays drawn: reaching the cut button means moving the pointer off the strip, so a
+   * cut point that died with the hover could never be used (SPEC §4.3).
+   */
+  const [markMs, setMarkMs] = useState<number | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
 
@@ -308,9 +325,26 @@ export function AlignmentView({
 
   // ---- keyboard ----------------------------------------------------------
 
+  /** Cuts the selected strip, and takes focus back so `c` keeps working afterwards. */
+  const cutAt = (atMs: number): void => {
+    if (selectedStrip === null || selectedStrip.locked) return;
+    run(api.cut(selectedStrip.id, atMs));
+    canvasRef.current?.focus();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Alt') setSnapDisabled(true);
     if (selectedStrip === null || selectedStrip.locked) return;
+
+    // `c` cuts where the pointer is, without the round trip to the button that made
+    // the pointer leave the strip in the first place.
+    if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (markMs === null) return;
+      e.preventDefault();
+      cutAt(markMs);
+      return;
+    }
+
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const step = nudgeSeconds({ shift: e.shiftKey, ctrlOrMeta: e.ctrlKey || e.metaKey });
@@ -500,6 +534,10 @@ export function AlignmentView({
           tabIndex={0}
           onKeyDown={onKeyDown}
           onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
+          onPointerDownCapture={(e) => {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
+          }}
           onPointerDown={startPan}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -508,7 +546,10 @@ export function AlignmentView({
           onWheel={(e) => {
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
+            // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
+            // plain vertical wheel changes the zoom.
             if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
+            else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
             else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
           }}
         >
@@ -566,6 +607,7 @@ export function AlignmentView({
             </div>
           ))}
 
+          {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
           {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
 
           {drag?.kind === 'body' && (
@@ -582,6 +624,12 @@ export function AlignmentView({
 
           <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
         </div>
+
+        <TimeScrollbar
+          scale={scale}
+          bounds={bounds}
+          onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
+        />
         </div>
 
         <ObservationsPanel
@@ -607,12 +655,12 @@ export function AlignmentView({
         strip={selectedStrip}
         fileCountLabel={`${selectedStrip?.fileCount.toLocaleString() ?? 0} files`}
         mergeTargetId={mergeTargetId}
-        cursorMs={cursorMs}
+        cutAtMs={markMs}
         displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
         selectedFile={selectedFileId === null ? null : fileById.get(selectedFileId) ?? null}
         selectedLine={selectedLine}
         onSetOffsets={(start, end) => selectedStrip && run(api.setOffset(selectedStrip.id, start, end))}
-        onCut={(at) => selectedStrip && run(api.cut(selectedStrip.id, at))}
+        onCut={cutAt}
         onMerge={(rightId) => selectedStrip && run(api.merge(selectedStrip.id, rightId))}
         onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}
         onSetUtcOffset={(minutes) => selectedStrip && run(api.setStripUtcOffset(selectedStrip.id, minutes))}

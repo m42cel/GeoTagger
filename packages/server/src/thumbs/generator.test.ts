@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { applyOrientation } from './generator.js';
+import { applyOrientation, pruneStaleThumbTiers, thumbPath, TIER_SIZE } from './generator.js';
 
 const JPEG = { quality: 100, chromaSubsampling: '4:4:4' } as const;
 
@@ -88,5 +91,61 @@ describe('applyOrientation', () => {
       const out = await applyOrientation(sharp(src), value).jpeg(JPEG).toBuffer();
       expect(await quadrants(out)).toBe('RGBW');
     }
+  });
+});
+
+/**
+ * The cache lives inside the user's photo folder and outlives any one build, so the
+ * two things that matter are that a tier's size reaches its path — otherwise a raised
+ * tier silently serves the old, smaller image for ever — and that pruning it cannot
+ * reach anything that is not GeoTagger's.
+ */
+describe('the thumbnail cache', () => {
+  function tempThumbsDir(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'geotagger-thumbs-'));
+  }
+
+  function touch(file: string): void {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'x');
+  }
+
+  it('keys a path by the tier and its pixel size', () => {
+    const p = thumbPath('/state/thumbs', 42, 'thumb');
+    expect(p).toContain(`thumb-${TIER_SIZE.thumb}`);
+    expect(path.basename(p)).toBe('42.jpg');
+  });
+
+  it('deletes an older tier size and keeps the current ones', () => {
+    const dir = tempThumbsDir();
+    touch(path.join(dir, 'thumb-160', '2a', '1.jpg'));
+    // The layout before the size was part of the path.
+    touch(path.join(dir, 'thumb', '2a', '1.jpg'));
+    touch(thumbPath(dir, 1, 'thumb'));
+    touch(thumbPath(dir, 1, 'preview'));
+
+    pruneStaleThumbTiers(dir);
+
+    expect(fs.existsSync(path.join(dir, 'thumb-160'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'thumb'))).toBe(false);
+    expect(fs.existsSync(thumbPath(dir, 1, 'thumb'))).toBe(true);
+    expect(fs.existsSync(thumbPath(dir, 1, 'preview'))).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('leaves anything that is not a tier directory alone', () => {
+    const dir = tempThumbsDir();
+    touch(path.join(dir, 'holiday', 'DSC001.jpg'));
+    touch(path.join(dir, 'loose.jpg'));
+
+    pruneStaleThumbTiers(dir);
+
+    expect(fs.existsSync(path.join(dir, 'holiday', 'DSC001.jpg'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'loose.jpg'))).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('says nothing about a folder that has never been scanned', () => {
+    expect(() => pruneStaleThumbTiers(path.join(os.tmpdir(), 'geotagger-absent-xyz'))).not.toThrow();
   });
 });

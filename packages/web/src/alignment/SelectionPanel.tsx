@@ -21,7 +21,7 @@ export function SelectionPanel({
   strip,
   fileCountLabel,
   mergeTargetId,
-  cursorMs,
+  cutAtMs,
   displayUtcOffsetMinutes,
   selectedFile,
   selectedLine,
@@ -35,7 +35,8 @@ export function SelectionPanel({
   strip: StripRecord | null;
   fileCountLabel: string;
   mergeTargetId: number | null;
-  cursorMs: number | null;
+  /** Where a cut would land: the last place the pointer was over the canvas. */
+  cutAtMs: number | null;
   displayUtcOffsetMinutes: number;
   selectedFile: FileRecord | null;
   selectedLine: TimelineFile | null;
@@ -101,11 +102,15 @@ export function SelectionPanel({
         <button
           type="button"
           className="ghost"
-          disabled={strip.locked || cursorMs === null}
-          title={cursorMs === null ? 'Point at the axis to place the cut' : undefined}
-          onClick={() => cursorMs !== null && onCut(cursorMs)}
+          disabled={strip.locked || cutAtMs === null}
+          title={
+            cutAtMs === null
+              ? 'Point at the axis to place the cut'
+              : 'Cuts where the pointer last was — or press c without leaving the strip'
+          }
+          onClick={() => cutAtMs !== null && onCut(cutAtMs)}
         >
-          ✂ cut at cursor
+          ✂ cut at cursor <kbd>c</kbd>
         </button>
         <button
           type="button"
@@ -122,32 +127,61 @@ export function SelectionPanel({
       </div>
 
       {selectedFile && selectedLine && (
-        <dl className="file-detail">
-          <dt>file</dt>
-          <dd>{selectedFile.filename}</dd>
-          <dt>reads</dt>
-          <dd>
-            {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}{' '}
-            <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
-              {SOURCE_LABEL[selectedFile.captureTimeSource]}
-              {weakSource(selectedFile.captureTimeSource) && ' — weak source'}
-            </em>
-          </dd>
-          <dt>corrected</dt>
-          <dd>
-            {selectedLine.effectiveMs === null
-              ? '—'
-              : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
-            <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
-          </dd>
-          <dd className="pin-action">
-            <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
-              set true time…
-            </button>
-          </dd>
-        </dl>
+        <div className="selection-file">
+          <FilePreview file={selectedFile} />
+          <dl className="file-detail">
+            <dt>file</dt>
+            <dd>{selectedFile.filename}</dd>
+            <dt>reads</dt>
+            <dd>
+              {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}{' '}
+              <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
+                {SOURCE_LABEL[selectedFile.captureTimeSource]}
+                {weakSource(selectedFile.captureTimeSource) && ' — weak source'}
+              </em>
+            </dd>
+            <dt>corrected</dt>
+            <dd>
+              {selectedLine.effectiveMs === null
+                ? '—'
+                : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
+              <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
+            </dd>
+            <dd className="pin-action">
+              <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
+                set true time…
+              </button>
+            </dd>
+          </dl>
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The selected file at the 1280 px preview tier (SPEC §10.1).
+ *
+ * On the axis a photo is a film-strip frame, which is the right size for reading a
+ * pattern of activity and too small for recognising the moment itself — and
+ * recognising it is how an alignment gets judged. The preview is fetched on demand,
+ * so it costs nothing until a file is actually picked.
+ */
+function FilePreview({ file }: { file: FileRecord }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [file.id]);
+
+  if (failed) {
+    return <div className="file-preview empty muted">no preview</div>;
+  }
+  return (
+    <img
+      className="file-preview"
+      src={`/api/files/${file.id}/preview`}
+      alt={file.filename}
+      title={file.relPath}
+      onError={() => setFailed(true)}
+    />
   );
 }
 
