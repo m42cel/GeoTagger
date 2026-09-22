@@ -26,6 +26,11 @@ export function buildServer(config: Config): BuiltServer {
     // Media paths can be long; the default 8 kB header limit is unrelated but the
     // body limit matters once persist batches arrive in phase 1.
     bodyLimit: 8 * 1024 * 1024,
+    // scan-stream and persist are long-lived SSE responses that Fastify's default
+    // 'idle' close policy never sees as idle. Without this, app.close() blocks on
+    // them until the client disconnects, so `docker stop` stalls out its grace
+    // period and gets SIGKILLed instead of shutting down.
+    forceCloseConnections: true,
   });
 
   const sessions = new SessionManager(config, (msg, err) => app.log.warn({ err }, msg));
