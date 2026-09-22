@@ -111,9 +111,7 @@ export interface RegroupRequest {
 }
 
 export interface SetOffsetRequest {
-  offsetStartSeconds: number;
-  /** Omit for a constant offset; give it only when a stretch handle was dragged. */
-  offsetEndSeconds?: number;
+  offsetSeconds: number;
 }
 
 export interface CutRequest {

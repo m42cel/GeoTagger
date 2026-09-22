@@ -22,13 +22,7 @@ import { SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
-import {
-  buildStripFiles,
-  StripBody,
-  STRIP_LANE_ROW_PX,
-  STRIP_THUMB_HALF_PX,
-  type PreviewRamp,
-} from './StripBody.js';
+import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
 import {
   msAt,
   panBy,
@@ -66,24 +60,13 @@ type Drag =
       pointerId: number;
       startX: number;
       startY: number;
-      baseStart: number;
-      baseEnd: number;
+      baseOffset: number;
       lane: number;
       /** Pixels the strip has been moved horizontally, after snapping. */
       shiftPx: number;
       deltaSeconds: number;
       targetLane: number;
       snap: SnapKind;
-    }
-  | {
-      kind: 'stretch';
-      stripId: number;
-      pointerId: number;
-      end: 'start' | 'end';
-      startX: number;
-      baseStart: number;
-      baseEnd: number;
-      preview: PreviewRamp;
     }
   | { kind: 'pan'; pointerId: number; startX: number; startMs: number }
   | null;
@@ -198,30 +181,12 @@ export function AlignmentView({
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      baseStart: strip.offsetStartSeconds,
-      baseEnd: strip.offsetEndSeconds,
+      baseOffset: strip.offsetSeconds,
       lane: strip.lane,
       shiftPx: 0,
       deltaSeconds: 0,
       targetLane: strip.lane,
       snap: 'none',
-    });
-  };
-
-  const startStretchDrag = (e: React.PointerEvent, strip: StripRecord, end: 'start' | 'end'): void => {
-    if (strip.locked) return;
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setSelectedStripId(strip.id);
-    setDrag({
-      kind: 'stretch',
-      stripId: strip.id,
-      pointerId: e.pointerId,
-      end,
-      startX: e.clientX,
-      baseStart: strip.offsetStartSeconds,
-      baseEnd: strip.offsetEndSeconds,
-      preview: { offsetStartSeconds: strip.offsetStartSeconds, offsetEndSeconds: strip.offsetEndSeconds },
     });
   };
 
@@ -238,20 +203,10 @@ export function AlignmentView({
       return;
     }
 
-    if (drag.kind === 'stretch') {
-      const deltaSeconds = (dx * scale.msPerPx) / 1000;
-      const preview =
-        drag.end === 'start'
-          ? { offsetStartSeconds: drag.baseStart + deltaSeconds, offsetEndSeconds: drag.baseEnd }
-          : { offsetStartSeconds: drag.baseStart, offsetEndSeconds: drag.baseEnd + deltaSeconds };
-      setDrag({ ...drag, preview });
-      return;
-    }
-
     // Body drag: one constant shift for every file in the strip, with magnetic
     // snapping unless Alt is held (SPEC §4.3).
     const rawDelta = (dx * scale.msPerPx) / 1000;
-    const candidate = drag.baseStart + rawDelta;
+    const candidate = drag.baseOffset + rawDelta;
     const moving = sampleInstants(shiftedInstants(stripFiles.get(drag.stripId)?.instants ?? [], rawDelta), 200);
     const snap = computeSnap({
       candidateOffsetSeconds: candidate,
@@ -260,7 +215,7 @@ export function AlignmentView({
       toleranceMs: snapToleranceMs(scale.msPerPx),
       enabled: !snapDisabled && !e.altKey,
     });
-    const deltaSeconds = snap.offsetSeconds - drag.baseStart;
+    const deltaSeconds = snap.offsetSeconds - drag.baseOffset;
     const dy = e.clientY - drag.startY;
     setDrag({
       ...drag,
@@ -277,14 +232,6 @@ export function AlignmentView({
     setDrag(null);
     if (finished.kind === 'pan') return;
 
-    if (finished.kind === 'stretch') {
-      const { offsetStartSeconds, offsetEndSeconds } = finished.preview;
-      if (offsetStartSeconds !== finished.baseStart || offsetEndSeconds !== finished.baseEnd) {
-        run(api.setOffset(finished.stripId, Math.round(offsetStartSeconds), Math.round(offsetEndSeconds)));
-      }
-      return;
-    }
-
     const moved = Math.round(finished.deltaSeconds) !== 0;
     const laneChanged = finished.targetLane !== finished.lane;
     if (!moved && !laneChanged) return;
@@ -292,11 +239,7 @@ export function AlignmentView({
     // A drag can be both a shift and a lane move; the offset goes first, because the
     // lane the strip is allowed to land in depends on where it now sits in time.
     const offsetCall = moved
-      ? api.setOffset(
-          finished.stripId,
-          Math.round(finished.baseStart + finished.deltaSeconds),
-          Math.round(finished.baseEnd + finished.deltaSeconds),
-        )
+      ? api.setOffset(finished.stripId, Math.round(finished.baseOffset + finished.deltaSeconds))
       : Promise.resolve(null);
 
     run(
@@ -332,13 +275,7 @@ export function AlignmentView({
     e.preventDefault();
     const step = nudgeSeconds({ shift: e.shiftKey, ctrlOrMeta: e.ctrlKey || e.metaKey });
     const delta = e.key === 'ArrowLeft' ? -step : step;
-    run(
-      api.setOffset(
-        selectedStrip.id,
-        selectedStrip.offsetStartSeconds + delta,
-        selectedStrip.offsetEndSeconds + delta,
-      ),
-    );
+    run(api.setOffset(selectedStrip.id, selectedStrip.offsetSeconds + delta));
   };
 
   // ---- actions -----------------------------------------------------------
@@ -498,7 +435,7 @@ export function AlignmentView({
                       type="button"
                       className="chip"
                       disabled={strip.locked}
-                      title="Back to zero offset and no stretch"
+                      title="Back to zero offset"
                       onClick={() => run(api.resetStrip(strip.id))}
                     >
                       reset
@@ -538,11 +475,9 @@ export function AlignmentView({
           {lanes.map((lane, laneIndex) => (
             <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
               {lane.map((strip) => {
-                const dragging = drag?.kind !== 'pan' && drag?.stripId === strip.id ? drag : null;
-                const shiftPx = dragging?.kind === 'body' ? dragging.shiftPx : 0;
-                const preview = dragging?.kind === 'stretch' ? dragging.preview : null;
-                const laneShift =
-                  dragging?.kind === 'body' ? (dragging.targetLane - dragging.lane) * STRIP_LANE_ROW_PX : 0;
+                const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
+                const shiftPx = dragging?.shiftPx ?? 0;
+                const laneShift = dragging === null ? 0 : (dragging.targetLane - dragging.lane) * STRIP_LANE_ROW_PX;
                 return (
                   <div
                     key={strip.id}
@@ -556,33 +491,13 @@ export function AlignmentView({
                       onClick={() => setSelectedStripId(strip.id)}
                     />
                     <StripBody
-                      strip={strip}
                       stripFiles={stripFiles.get(strip.id)}
                       scale={scale}
-                      preview={preview}
                       fileById={fileById}
                       selectedFileIds={selectedFileIds}
                       onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
                       onPinFile={pin}
                     />
-                    {selectedStripId === strip.id && !strip.locked && (
-                      <>
-                        <button
-                          type="button"
-                          className="handle"
-                          style={{ left: (strip.firstEffectiveMs === null ? 0 : xOf(scale, strip.firstEffectiveMs)) - STRIP_PAD_PX }}
-                          title="Stretch the start: a ramp across the strip is linear clock drift"
-                          onPointerDown={(e) => startStretchDrag(e, strip, 'start')}
-                        />
-                        <button
-                          type="button"
-                          className="handle"
-                          style={{ left: (strip.lastEffectiveMs === null ? 0 : xOf(scale, strip.lastEffectiveMs)) + STRIP_PAD_PX - 8 }}
-                          title="Stretch the end: a ramp across the strip is linear clock drift"
-                          onPointerDown={(e) => startStretchDrag(e, strip, 'end')}
-                        />
-                      </>
-                    )}
                   </div>
                 );
               })}
@@ -599,7 +514,7 @@ export function AlignmentView({
               // during a drag, and half of it clipped is worse than none.
               style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
             >
-              {formatOffset(drag.baseStart + drag.deltaSeconds)}
+              {formatOffset(drag.baseOffset + drag.deltaSeconds)}
               {drag.snap !== 'none' && <em> snapped to {drag.snap === 'photo' ? 'a photo' : `the ${drag.snap}`}</em>}
             </div>
           )}
@@ -622,7 +537,7 @@ export function AlignmentView({
         displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
         selectedFile={selectedFileId === null ? null : fileById.get(selectedFileId) ?? null}
         selectedLine={selectedLine}
-        onSetOffsets={(start, end) => selectedStrip && run(api.setOffset(selectedStrip.id, start, end))}
+        onSetOffset={(seconds) => selectedStrip && run(api.setOffset(selectedStrip.id, seconds))}
         onCut={cutAt}
         onMerge={(rightId) => selectedStrip && run(api.merge(selectedStrip.id, rightId))}
         onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}

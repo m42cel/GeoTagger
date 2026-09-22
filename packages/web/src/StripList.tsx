@@ -63,9 +63,7 @@ export function StripList({
             <span className="muted">
               {strip.fileCount.toLocaleString()} files
               {strip.firstCaptureMs !== null && ` · ${span(strip.firstCaptureMs, strip.lastCaptureMs)}`}
-              {strip.offsetStartSeconds !== 0 || strip.offsetEndSeconds !== 0
-                ? ` · ${formatOffset(strip.offsetStartSeconds)}`
-                : ''}
+              {strip.offsetSeconds !== 0 ? ` · ${formatOffset(strip.offsetSeconds)}` : ''}
               {strip.locked && ' · locked'}
             </span>
           </li>

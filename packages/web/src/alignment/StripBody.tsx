@@ -1,6 +1,4 @@
-import { useMemo } from 'react';
-import type { FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
-import { offsetSecondsAt } from '@geotagger/shared';
+import type { FileRecord, TimelineFile } from '@geotagger/shared';
 import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
 
 /**
@@ -64,50 +62,29 @@ export function buildStripFiles(files: readonly TimelineFile[]): Map<number, Str
   return out;
 }
 
-/** A candidate ramp being dragged, before it has been committed to the server. */
-export interface PreviewRamp {
-  offsetStartSeconds: number;
-  offsetEndSeconds: number;
-}
-
 export function StripBody({
-  strip,
   stripFiles,
   scale,
-  preview,
   fileById,
   selectedFileIds,
   onSelectFile,
   onPinFile,
 }: {
-  strip: StripRecord;
   stripFiles: StripFiles | undefined;
   scale: TimeScale;
-  /** Non-null only while a stretch is in progress; a body drag moves the whole element. */
-  preview: PreviewRamp | null;
   fileById: Map<number, FileRecord>;
   selectedFileIds: ReadonlySet<number>;
   onSelectFile: (fileId: number, additive: boolean) => void;
   onPinFile: (fileId: number) => void;
 }) {
-  const positions = useMemo(() => {
-    if (!stripFiles) return [];
-    if (preview === null) return stripFiles.instants;
-    // A stretch changes each file's correction by a different amount, so the whole
-    // strip is repositioned rather than translated.
-    const ramp = { ...preview, firstCaptureMs: strip.firstCaptureMs, lastCaptureMs: strip.lastCaptureMs };
-    return stripFiles.files.map((f) => {
-      const base = (f.effectiveMs as number) - f.offsetSeconds * 1000;
-      return base + offsetSecondsAt(ramp, f.rawCaptureMs) * 1000;
-    });
-  }, [stripFiles, preview, strip.firstCaptureMs, strip.lastCaptureMs]);
-
-  if (!stripFiles || positions.length === 0) {
+  if (!stripFiles || stripFiles.instants.length === 0) {
     return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
   }
 
-  // Positions stay ascending under any ramp the UI can produce, so the visible slice
-  // is found by binary search rather than by scanning the whole strip.
+  // A correction is one constant across the strip, so the whole element is translated
+  // during a drag and these instants never move under it: the visible slice is found
+  // by binary search rather than by scanning the whole strip.
+  const positions = stripFiles.instants;
   const from = Math.max(0, lowerBound(positions, msAt(scale, -THUMB_PX)) - 1);
   const to = Math.min(positions.length, lowerBound(positions, msAt(scale, scale.widthPx + THUMB_PX)) + 1);
 

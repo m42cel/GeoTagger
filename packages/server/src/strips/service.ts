@@ -165,10 +165,10 @@ export class StripService {
 
   // ---- offsets, locking, reset -------------------------------------------
 
-  setOffsets(id: number, startSeconds: number, endSeconds?: number): void {
+  setOffset(id: number, seconds: number): void {
     const strip = this.requireUnlocked(id);
     this.pushUndo();
-    this.store.setStripOffsets(id, startSeconds, endSeconds ?? startSeconds);
+    this.store.setStripOffset(id, seconds);
     this.settleLanes(strip.id);
   }
 
@@ -183,11 +183,11 @@ export class StripService {
     this.store.setStripLocked(id, locked);
   }
 
-  /** Back to zero offset and no stretch. Cuts are structure, and survive (SPEC §4.3). */
+  /** Back to zero offset. Cuts are structure, and survive (SPEC §4.3). */
   reset(id: number): void {
     this.requireUnlocked(id);
     this.pushUndo();
-    this.store.setStripOffsets(id, 0, 0);
+    this.store.setStripOffset(id, 0);
     this.settleLanes(id);
   }
 
@@ -228,7 +228,7 @@ export class StripService {
 
     this.pushUndo();
     const rightId = this.store.transact(() => {
-      this.store.setStripOffsets(strip.id, plan.left.offsetStartSeconds, plan.left.offsetEndSeconds);
+      this.store.setStripOffset(strip.id, plan.left.offsetSeconds);
       // Assigning a file to the new segment moves it out of the old one by itself:
       // every file belongs to exactly one strip (SPEC §8.2).
       return this.store.createStrip(
@@ -238,8 +238,7 @@ export class StripService {
           ordinal: strip.ordinal + 1,
           groupingSource: strip.groupingSource,
           parentStripId: originId(strip),
-          offsetStartSeconds: plan.right.offsetStartSeconds,
-          offsetEndSeconds: plan.right.offsetEndSeconds,
+          offsetSeconds: plan.right.offsetSeconds,
           utcOffsetOverrideMinutes: strip.utcOffsetOverrideMinutes,
         },
         plan.right.fileIds,
@@ -250,8 +249,8 @@ export class StripService {
   }
 
   /**
-   * Merges two adjacent segments of the same origin (SPEC §4.3). The result ramps from
-   * the left segment's start offset to the right segment's end offset.
+   * Merges two adjacent segments of the same origin (SPEC §4.3). The result takes the
+   * left segment's offset.
    */
   merge(leftId: number, rightId: number): number {
     const left = this.requireUnlocked(leftId);
@@ -276,14 +275,9 @@ export class StripService {
     const plan = planMerge(
       {
         fileIds: this.membersOf(timeline, first.id).map((m) => m.fileId),
-        offsetStartSeconds: first.offsetStartSeconds,
-        firstCaptureMs: first.firstCaptureMs,
+        offsetSeconds: first.offsetSeconds,
       },
-      {
-        fileIds: this.membersOf(timeline, second.id).map((m) => m.fileId),
-        offsetEndSeconds: second.offsetEndSeconds,
-        lastCaptureMs: second.lastCaptureMs,
-      },
+      { fileIds: this.membersOf(timeline, second.id).map((m) => m.fileId) },
     );
 
     // Whichever of the two is the family's origin has to be the row that survives, or
@@ -293,7 +287,7 @@ export class StripService {
 
     this.pushUndo();
     this.store.transact(() => {
-      this.store.setStripOffsets(keep.id, plan.offsetStartSeconds, plan.offsetEndSeconds);
+      this.store.setStripOffset(keep.id, plan.offsetSeconds);
       this.store.assignFilesToStrip(keep.id, plan.fileIds);
       this.store.setStripLabel(keep.id, first.label);
       this.store.applyLaneLayout([{ id: keep.id, lane: first.lane, ordinal: first.ordinal }]);
@@ -367,7 +361,7 @@ export class StripService {
     const pinned = planPin(strip, file.effectiveMs, target - displayUtcOffsetMinutes * MINUTE_MS);
 
     this.pushUndo();
-    this.store.setStripOffsets(strip.id, pinned.offsetStartSeconds, pinned.offsetEndSeconds);
+    this.store.setStripOffset(strip.id, pinned);
     this.settleLanes(strip.id);
   }
 
@@ -404,7 +398,7 @@ export class StripService {
   private membersOf(timeline: Timeline, stripId: number): SegmentMember[] {
     return timeline.files
       .filter((f) => f.stripId === stripId)
-      .map((f) => ({ fileId: f.id, rawCaptureMs: f.rawCaptureMs, effectiveMs: f.effectiveMs }));
+      .map((f) => ({ fileId: f.id, effectiveMs: f.effectiveMs }));
   }
 }
 

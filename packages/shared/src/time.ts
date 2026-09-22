@@ -31,59 +31,14 @@ export function msToNaive(ms: number): string {
   return new Date(Math.round(ms)).toISOString().slice(0, 19);
 }
 
-/** The part of a strip needed to compute a correction; the full record has more. */
-export interface OffsetRamp {
-  offsetStartSeconds: number;
-  offsetEndSeconds: number;
-  /** Bounds over the strip's *uncorrected* capture times, epoch ms. */
-  firstCaptureMs: number | null;
-  lastCaptureMs: number | null;
-}
-
-/**
- * The clock correction a strip applies to one of its files (SPEC §4.3).
- *
- * ```
- * offset(f) = o_start + (o_end - o_start) × (t_f - t0) / (t1 - t0)
- * ```
- *
- * where `t0`/`t1` are the strip's first and last raw capture times. With
- * `o_end == o_start` this is a constant shift, which is the normal case; a difference
- * between the two is linear clock drift.
- *
- * A strip whose files all share one timestamp has no span for a ramp to run over, so
- * the start offset applies throughout — which is why the stretch handles are disabled
- * on such a strip rather than producing a division by zero.
- */
-export function offsetSecondsAt(ramp: OffsetRamp, rawCaptureMs: number | null): number {
-  const { offsetStartSeconds: o0, offsetEndSeconds: o1, firstCaptureMs: t0, lastCaptureMs: t1 } = ramp;
-  if (o0 === o1) return o0;
-  if (rawCaptureMs === null || t0 === null || t1 === null || t1 === t0) return o0;
-  const fraction = clamp01((rawCaptureMs - t0) / (t1 - t0));
-  return o0 + (o1 - o0) * fraction;
-}
-
-function clamp01(v: number): number {
-  if (!Number.isFinite(v)) return 0;
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-/** True when the strip's files span no time at all, so a ramp is undefined. */
-export function rampIsDefined(ramp: OffsetRamp): boolean {
-  return (
-    ramp.firstCaptureMs !== null &&
-    ramp.lastCaptureMs !== null &&
-    ramp.lastCaptureMs > ramp.firstCaptureMs
-  );
-}
-
 /**
  * The absolute instant a file sits at, in epoch ms.
  *
  * The raw reading is a wall clock in the file's own zone (UTC for video), so the
- * resolved offset is subtracted to reach UTC, and the strip's correction is added on
- * top. This is `effective(f) = t_f + offset(f) + utc_offset_resolution` from §4.3,
- * with the sign of the last term made explicit.
+ * resolved offset is subtracted to reach UTC, and the strip's correction — one
+ * constant for every file in the strip (SPEC §4.3) — is added on top. This is
+ * `effective(f) = t_f + offset + utc_offset_resolution` from §4.3, with the sign of
+ * the last term made explicit.
  */
 export function effectiveMs(
   rawCaptureMs: number,
@@ -91,14 +46,6 @@ export function effectiveMs(
   utcOffsetMinutes: number,
 ): number {
   return rawCaptureMs - utcOffsetMinutes * MINUTE_MS + offsetSeconds * 1000;
-}
-
-/** Drift in seconds per hour across a stretched strip; 0 when it is not stretched. */
-export function driftSecondsPerHour(ramp: OffsetRamp): number {
-  if (!rampIsDefined(ramp)) return 0;
-  const hours = ((ramp.lastCaptureMs as number) - (ramp.firstCaptureMs as number)) / HOUR_MS;
-  if (hours <= 0) return 0;
-  return (ramp.offsetEndSeconds - ramp.offsetStartSeconds) / hours;
 }
 
 /**

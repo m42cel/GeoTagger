@@ -98,7 +98,7 @@ describe('persist and revert against a real JPEG', () => {
     const strip = service.strips().strips[0];
     expect(strip).toBeDefined();
     // The camera was an hour and two minutes fast.
-    service.setOffsets((strip as { id: number }).id, -3732);
+    service.setOffset((strip as { id: number }).id, -3732);
 
     const plan = planFor(context());
     expect(plan.correctedTimestamps).toBe(1);
@@ -140,7 +140,7 @@ describe('persist and revert against a real JPEG', () => {
     store.folderUtcOffsetMinutes = 120;
     service.regroup('device');
     const strip = service.strips().strips.find((s) => s.fileCount > 0);
-    service.setOffsets((strip as { id: number }).id, 600);
+    service.setOffset((strip as { id: number }).id, 600);
 
     // Something else rewrites the file after GeoTagger scanned it.
     const foreignEdit: Record<string, string> = { 'EXIF:Artist': 'Someone else' };

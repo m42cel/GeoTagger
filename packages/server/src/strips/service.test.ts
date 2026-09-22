@@ -122,23 +122,16 @@ describe('offsets and locking (SPEC §4.3)', () => {
 
   it('shifts every file in a strip by a constant offset', () => {
     const sony = stripFor('sony');
-    service.setOffsets(sony.id, 3600);
+    service.setOffset(sony.id, 3600);
     const moved = service.timeline().files.filter((f) => f.stripId === sony.id);
     expect(moved.map((f) => f.offsetSeconds)).toEqual([3600, 3600]);
     expect(moved[0]?.effectiveMs).toBe(at('2024-07-12T07:00:00'));
   });
 
-  it('ramps the offset across a stretched strip', () => {
-    const sony = stripFor('sony');
-    service.setOffsets(sony.id, 0, 3600);
-    const moved = service.timeline().files.filter((f) => f.stripId === sony.id);
-    expect(moved.map((f) => f.offsetSeconds)).toEqual([0, 3600]);
-  });
-
   it('refuses every change to a locked strip', () => {
     const sony = stripFor('sony');
     service.setLocked(sony.id, true);
-    expect(() => service.setOffsets(sony.id, 60)).toThrow(/locked/i);
+    expect(() => service.setOffset(sony.id, 60)).toThrow(/locked/i);
     expect(() => service.reset(sony.id)).toThrow(/locked/i);
     expect(() => service.cut(sony.id, at('2024-07-12T09:30:00'))).toThrow(/locked/i);
     expect(() => service.moveToLane(sony.id, 3)).toThrow(/locked/i);
@@ -148,7 +141,7 @@ describe('offsets and locking (SPEC §4.3)', () => {
 
   it('leaves a locked strip fully readable, so it stays a snap target', () => {
     const sony = stripFor('sony');
-    service.setOffsets(sony.id, 1800);
+    service.setOffset(sony.id, 1800);
     service.setLocked(sony.id, true);
     const after = stripFor('sony');
     expect(after.locked).toBe(true);
@@ -157,15 +150,13 @@ describe('offsets and locking (SPEC §4.3)', () => {
     expect(service.timeline().files.filter((f) => f.stripId === sony.id)).toHaveLength(2);
   });
 
-  it('resets offset and stretch in one go, and can be undone', () => {
+  it('resets the offset, and can be undone', () => {
     const sony = stripFor('sony');
-    service.setOffsets(sony.id, 600, 900);
+    service.setOffset(sony.id, 600);
     service.reset(sony.id);
-    expect(stripFor('sony').offsetStartSeconds).toBe(0);
-    expect(stripFor('sony').offsetEndSeconds).toBe(0);
+    expect(stripFor('sony').offsetSeconds).toBe(0);
     expect(service.undo()).toBe(true);
-    expect(stripFor('sony').offsetStartSeconds).toBe(600);
-    expect(stripFor('sony').offsetEndSeconds).toBe(900);
+    expect(stripFor('sony').offsetSeconds).toBe(600);
   });
 });
 
@@ -206,19 +197,18 @@ describe('cutting, merging and lanes (SPEC §4.3)', () => {
     expect(lane(rightId)).toBe(lane(leftId));
 
     // Drag the right segment back past the left one.
-    service.setOffsets(rightId, -4 * 3600);
+    service.setOffset(rightId, -4 * 3600);
     expect(lane(rightId)).not.toBe(lane(leftId));
   });
 
-  it('merges two segments back, ramping from the left start to the right end', () => {
+  it('merges two segments back under the left segment’s offset', () => {
     const { leftId, rightId } = service.cut(sony.id, at('2024-07-12T08:30:00'));
-    service.setOffsets(leftId, 100, 200);
-    service.setOffsets(rightId, 300, 400);
+    service.setOffset(leftId, 100);
+    service.setOffset(rightId, 300);
     const mergedId = service.merge(leftId, rightId);
     const merged = service.strips().strips.find((s) => s.id === mergedId) as StripRecord;
     expect(merged.fileCount).toBe(6);
-    expect(merged.offsetStartSeconds).toBe(100);
-    expect(merged.offsetEndSeconds).toBe(400);
+    expect(merged.offsetSeconds).toBe(100);
   });
 
   it('refuses to merge two strips that were never one', () => {
@@ -250,9 +240,9 @@ describe('cutting, merging and lanes (SPEC §4.3)', () => {
 
   it('collapses a lane left empty by a merge', () => {
     const { leftId, rightId } = service.cut(sony.id, at('2024-07-12T08:30:00'));
-    service.setOffsets(rightId, -4 * 3600);
+    service.setOffset(rightId, -4 * 3600);
     const lanesAfterCut = new Set(service.strips().strips.map((s) => s.lane)).size;
-    service.setOffsets(rightId, 0);
+    service.setOffset(rightId, 0);
     service.merge(leftId, rightId);
     expect(new Set(service.strips().strips.map((s) => s.lane)).size).toBeLessThan(lanesAfterCut);
   });
@@ -295,11 +285,11 @@ describe('grouping (SPEC §4.4)', () => {
 
   it('rebuilds from subfolders, discarding offsets', () => {
     service.regroup('device');
-    service.setOffsets(stripFor('sony').id, 3600);
+    service.setOffset(stripFor('sony').id, 3600);
     service.regroup('subfolder');
     const strips = service.strips().strips;
     expect(strips.map((s) => s.label).sort()).toEqual(['a', 'b']);
-    expect(strips.every((s) => s.offsetStartSeconds === 0)).toBe(true);
+    expect(strips.every((s) => s.offsetSeconds === 0)).toBe(true);
   });
 
   it('makes a strip out of a hand-picked selection', () => {
@@ -315,10 +305,10 @@ describe('grouping (SPEC §4.4)', () => {
     service.regroup('device');
     const sony = stripFor('sony');
     service.cut(sony.id, at('2024-07-12T10:30:00'));
-    service.setOffsets(stripFor('phone').id, 600);
+    service.setOffset(stripFor('phone').id, 600);
     service.resetAll();
     expect(service.strips().strips).toHaveLength(2);
-    expect(service.strips().strips.every((s) => s.offsetStartSeconds === 0)).toBe(true);
+    expect(service.strips().strips.every((s) => s.offsetSeconds === 0)).toBe(true);
 
     service.undo();
     expect(service.strips().strips).toHaveLength(3);

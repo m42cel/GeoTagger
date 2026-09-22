@@ -1,20 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  driftSecondsPerHour,
   effectiveMs,
   formatOffset,
   formatUtcOffset,
   msToNaive,
   naiveToMs,
-  offsetSecondsAt,
   parseOffsetSeconds,
   parseUtcOffsetMinutes,
-  rampIsDefined,
-  HOUR_MS,
 } from './time.js';
-
-const t0 = naiveToMs('2024-07-12T10:00:00') as number;
-const t1 = naiveToMs('2024-07-12T20:00:00') as number;
 
 describe('naiveToMs', () => {
   it('reads a wall clock as if it were UTC', () => {
@@ -29,40 +22,6 @@ describe('naiveToMs', () => {
     expect(naiveToMs(null)).toBeNull();
     expect(naiveToMs('')).toBeNull();
     expect(naiveToMs('not a date')).toBeNull();
-  });
-});
-
-describe('offsetSecondsAt', () => {
-  const constant = { offsetStartSeconds: 3732, offsetEndSeconds: 3732, firstCaptureMs: t0, lastCaptureMs: t1 };
-  const stretched = { offsetStartSeconds: 3720, offsetEndSeconds: 4264, firstCaptureMs: t0, lastCaptureMs: t1 };
-
-  it('applies a constant offset to every file', () => {
-    expect(offsetSecondsAt(constant, t0)).toBe(3732);
-    expect(offsetSecondsAt(constant, (t0 + t1) / 2)).toBe(3732);
-    expect(offsetSecondsAt(constant, t1)).toBe(3732);
-  });
-
-  it('ramps linearly across a stretched strip', () => {
-    expect(offsetSecondsAt(stretched, t0)).toBe(3720);
-    expect(offsetSecondsAt(stretched, (t0 + t1) / 2)).toBe(3992);
-    expect(offsetSecondsAt(stretched, t1)).toBe(4264);
-  });
-
-  it('clamps outside the strip rather than extrapolating the ramp', () => {
-    expect(offsetSecondsAt(stretched, t0 - HOUR_MS)).toBe(3720);
-    expect(offsetSecondsAt(stretched, t1 + HOUR_MS)).toBe(4264);
-  });
-
-  it('falls back to the start offset where a ramp is undefined', () => {
-    const single = { offsetStartSeconds: 60, offsetEndSeconds: 120, firstCaptureMs: t0, lastCaptureMs: t0 };
-    expect(rampIsDefined(single)).toBe(false);
-    expect(offsetSecondsAt(single, t0)).toBe(60);
-    expect(offsetSecondsAt({ ...single, firstCaptureMs: null, lastCaptureMs: null }, null)).toBe(60);
-  });
-
-  it('reports drift per hour', () => {
-    expect(driftSecondsPerHour(stretched)).toBeCloseTo(54.4, 5);
-    expect(driftSecondsPerHour(constant)).toBe(0);
   });
 });
 

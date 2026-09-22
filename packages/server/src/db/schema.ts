@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -67,8 +67,7 @@ CREATE TABLE IF NOT EXISTS strips (
   label                 TEXT NOT NULL,
   grouping_source       TEXT NOT NULL,
   parent_strip_id       INTEGER REFERENCES strips(id),
-  offset_start_seconds  INTEGER NOT NULL DEFAULT 0,
-  offset_end_seconds    INTEGER NOT NULL DEFAULT 0,
+  offset_seconds        INTEGER NOT NULL DEFAULT 0,
   locked                INTEGER NOT NULL DEFAULT 0,
   utc_offset_override_minutes INTEGER,
   created_at            INTEGER NOT NULL
@@ -145,6 +144,29 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
   addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
+  collapseOffsetRamp(db);
+}
+
+/**
+ * Schema 2 stored a correction as a ramp — one offset at the strip's first file and
+ * another at its last — for the stretch gesture that schema 3 drops (SPEC §4.3). The
+ * start offset *is* the correction for every strip that was never stretched, and is
+ * the honest reading of one that was: the ramp is gone, so the whole strip takes the
+ * offset its earliest file had.
+ *
+ * The old columns are dropped rather than left behind, because `snapshotStrips` reads
+ * a strip row with `SELECT *` and feeds it straight back to a named-parameter insert;
+ * a column nothing binds would make every undo throw.
+ */
+function collapseOffsetRamp(db: Database.Database): void {
+  const columns = (db.pragma('table_info(strips)') as { name: string }[]).map((c) => c.name);
+  if (!columns.includes('offset_start_seconds')) return;
+  if (!columns.includes('offset_seconds')) {
+    db.exec('ALTER TABLE strips ADD COLUMN offset_seconds INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec('UPDATE strips SET offset_seconds = offset_start_seconds');
+  db.exec('ALTER TABLE strips DROP COLUMN offset_start_seconds');
+  db.exec('ALTER TABLE strips DROP COLUMN offset_end_seconds');
 }
 
 function addColumnIfMissing(

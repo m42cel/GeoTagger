@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { FolderStore, contentSig, signatureOf, type ScannedFile } from './store.js';
 
 let folder: string;
@@ -183,10 +184,53 @@ describe('metadata and strips', () => {
   it('starts strips with zero offset and unlocked, ready for phase 1', () => {
     const a = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
     store.replaceStrips('device', [{ label: 'Camera A', lane: 0, ordinal: 0, fileIds: [a] }]);
-    expect(store.listStrips()[0]).toMatchObject({
-      offsetStartSeconds: 0,
-      offsetEndSeconds: 0,
-      locked: false,
-    });
+    expect(store.listStrips()[0]).toMatchObject({ offsetSeconds: 0, locked: false });
+  });
+});
+
+describe('schema 2 → 3 — the offset ramp collapses to one offset', () => {
+  /** A `.geotagger/edits.sqlite` as a GeoTagger with the stretch gesture left it. */
+  function writeSchema2Store(dir: string): void {
+    fs.mkdirSync(path.join(dir, '.geotagger'), { recursive: true });
+    const db = new Database(path.join(dir, '.geotagger', 'edits.sqlite'));
+    db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta (key, value) VALUES ('schema_version', '2'), ('grouping_mode', 'device');
+      CREATE TABLE strips (
+        id                    INTEGER PRIMARY KEY,
+        lane                  INTEGER NOT NULL DEFAULT 0,
+        ordinal               INTEGER NOT NULL DEFAULT 0,
+        label                 TEXT NOT NULL,
+        grouping_source       TEXT NOT NULL,
+        parent_strip_id       INTEGER REFERENCES strips(id),
+        offset_start_seconds  INTEGER NOT NULL DEFAULT 0,
+        offset_end_seconds    INTEGER NOT NULL DEFAULT 0,
+        locked                INTEGER NOT NULL DEFAULT 0,
+        created_at            INTEGER NOT NULL
+      );
+      INSERT INTO strips (id, label, grouping_source, offset_start_seconds, offset_end_seconds, created_at)
+      VALUES (1, 'sony', 'device', 3720, 4264, 1), (2, 'phone', 'device', 0, 0, 1);
+    `);
+    db.close();
+  }
+
+  it('keeps the correction a stretched strip had at its first file', () => {
+    const old = fs.mkdtempSync(path.join(os.tmpdir(), 'geotagger-schema2-'));
+    writeSchema2Store(old);
+    const migrated = FolderStore.open(old);
+    try {
+      expect(migrated.listStrips().map((s) => [s.label, s.offsetSeconds])).toEqual([
+        ['sony', 3720],
+        ['phone', 0],
+      ]);
+      // Undo snapshots a strip row with SELECT * and replays it through a named-parameter
+      // insert, so a leftover ramp column would break every undo on a migrated folder.
+      const snapshot = migrated.snapshotStrips();
+      expect(() => migrated.restoreStrips(snapshot)).not.toThrow();
+      expect(migrated.listStrips()).toHaveLength(2);
+    } finally {
+      migrated.close();
+      fs.rmSync(old, { recursive: true, force: true });
+    }
   });
 });

@@ -388,9 +388,9 @@ export class FolderStore {
       this.db.exec('DELETE FROM strip_files');
       this.db.exec('DELETE FROM strips');
       const insertStrip = this.db.prepare(
-        `INSERT INTO strips (lane, ordinal, label, grouping_source, offset_start_seconds,
-                             offset_end_seconds, locked, created_at)
-         VALUES (?, ?, ?, ?, 0, 0, 0, ?)`,
+        `INSERT INTO strips (lane, ordinal, label, grouping_source, offset_seconds,
+                             locked, created_at)
+         VALUES (?, ?, ?, ?, 0, 0, ?)`,
       );
       const insertMember = this.db.prepare(
         'INSERT INTO strip_files (strip_id, file_id) VALUES (?, ?)',
@@ -408,7 +408,7 @@ export class FolderStore {
     const rows = this.db
       .prepare<[], {
         id: number; lane: number; ordinal: number; label: string; grouping_source: string;
-        parent_strip_id: number | null; offset_start_seconds: number; offset_end_seconds: number;
+        parent_strip_id: number | null; offset_seconds: number;
         locked: number; utc_offset_override_minutes: number | null;
         created_at: number; file_count: number;
         first_capture: string | null; last_capture: string | null;
@@ -430,8 +430,7 @@ export class FolderStore {
       label: r.label,
       groupingSource: r.grouping_source as GroupingMode,
       parentStripId: r.parent_strip_id,
-      offsetStartSeconds: r.offset_start_seconds,
-      offsetEndSeconds: r.offset_end_seconds,
+      offsetSeconds: r.offset_seconds,
       locked: r.locked !== 0,
       utcOffsetOverrideMinutes: r.utc_offset_override_minutes,
       createdAt: r.created_at,
@@ -485,10 +484,8 @@ export class FolderStore {
 
   // ---- strip edits (SPEC §4.3) -------------------------------------------
 
-  setStripOffsets(id: number, startSeconds: number, endSeconds: number): void {
-    this.db
-      .prepare('UPDATE strips SET offset_start_seconds = ?, offset_end_seconds = ? WHERE id = ?')
-      .run(Math.round(startSeconds), Math.round(endSeconds), id);
+  setStripOffset(id: number, seconds: number): void {
+    this.db.prepare('UPDATE strips SET offset_seconds = ? WHERE id = ?').run(Math.round(seconds), id);
   }
 
   setStripLocked(id: number, locked: boolean): void {
@@ -528,8 +525,7 @@ export class FolderStore {
       ordinal: number;
       groupingSource: GroupingMode;
       parentStripId?: number | null;
-      offsetStartSeconds?: number;
-      offsetEndSeconds?: number;
+      offsetSeconds?: number;
       locked?: boolean;
       utcOffsetOverrideMinutes?: number | null;
     },
@@ -538,9 +534,9 @@ export class FolderStore {
     const info = this.db
       .prepare(
         `INSERT INTO strips (lane, ordinal, label, grouping_source, parent_strip_id,
-                             offset_start_seconds, offset_end_seconds, locked,
+                             offset_seconds, locked,
                              utc_offset_override_minutes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         strip.lane,
@@ -548,8 +544,7 @@ export class FolderStore {
         strip.label,
         strip.groupingSource,
         strip.parentStripId ?? null,
-        Math.round(strip.offsetStartSeconds ?? 0),
-        Math.round(strip.offsetEndSeconds ?? 0),
+        Math.round(strip.offsetSeconds ?? 0),
         strip.locked === true ? 1 : 0,
         strip.utcOffsetOverrideMinutes ?? null,
         Date.now(),
@@ -615,10 +610,10 @@ export class FolderStore {
       this.db.exec('DELETE FROM strips');
       const insertStrip = this.db.prepare(
         `INSERT INTO strips (id, lane, ordinal, label, grouping_source, parent_strip_id,
-                             offset_start_seconds, offset_end_seconds, locked,
+                             offset_seconds, locked,
                              utc_offset_override_minutes, created_at)
          VALUES (@id, @lane, @ordinal, @label, @grouping_source, @parent_strip_id,
-                 @offset_start_seconds, @offset_end_seconds, @locked,
+                 @offset_seconds, @locked,
                  @utc_offset_override_minutes, @created_at)`,
       );
       const insertMember = this.db.prepare('INSERT INTO strip_files (strip_id, file_id) VALUES (?, ?)');

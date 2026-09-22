@@ -357,8 +357,8 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .strip-layer { position: absolute; inset: 0; pointer-events: none; }
 /*
  * Two segments' padded frames still overlap by a frame's width where they meet, so
- * the selected one is raised: once picked, all of it — thumbnails and stretch handles
- * included — is reachable even at that seam.
+ * the selected one is raised: once picked, all of its thumbnails are reachable even
+ * at that seam.
  */
 .strip-layer.selected { z-index: 2; }
 .strip-layer.selected .strip-hit { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -407,20 +407,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   padding: 2px 4px;
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
-}
-
-/* Handles appear only on selection, so a strip cannot be stretched by accident. */
-.handle {
-  position: absolute;
-  pointer-events: auto;
-  top: 8px;
-  bottom: 8px;
-  width: 8px;
-  padding: 0;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--bg);
-  cursor: ew-resize;
 }
 
 .cursor-line { position: absolute; top: 0; bottom: 22px; width: 1px; background: var(--accent); opacity: 0.5; pointer-events: none; }
@@ -532,7 +518,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .offset-field.narrow { width: 80px; }
 .offset-field:disabled { opacity: 0.5; }
-.drift { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .selection-actions { display: flex; gap: 8px; }
 

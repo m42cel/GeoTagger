@@ -52,8 +52,8 @@ export const api = {
   // ---- alignment view (SPEC §4.3) ----------------------------------------
 
   timeline: () => request<TimelineResponse>('/api/timeline'),
-  setOffset: (stripId: number, offsetStartSeconds: number, offsetEndSeconds?: number) =>
-    post(`/api/strips/${stripId}/offset`, { offsetStartSeconds, offsetEndSeconds }),
+  setOffset: (stripId: number, offsetSeconds: number) =>
+    post(`/api/strips/${stripId}/offset`, { offsetSeconds }),
   cut: (stripId: number, atEffectiveMs: number) => post(`/api/strips/${stripId}/cut`, { atEffectiveMs }),
   merge: (leftStripId: number, rightStripId: number) =>
     post('/api/strips/merge', { leftStripId, rightStripId }),

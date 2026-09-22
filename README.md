@@ -29,9 +29,9 @@ Phase 0, the foundation:
 Phase 1, time correction:
 
 - **the alignment view** — a shared, zoomable, proportional time axis with one lane per
-  strip. Drag a strip's body to shift every file in it; drag the handles on a selected
-  strip to stretch it, which is linear clock drift. Magnetic snapping pulls a strip onto
-  the photos of other lanes and onto whole minutes and hours (hold `Alt` to disable it);
+  strip. Drag a strip's body to shift every file in it by one constant offset. Magnetic
+  snapping pulls a strip onto the photos of other lanes and onto whole minutes and
+  hours (hold `Alt` to disable it);
   `←`/`→` nudge by a second, `Shift` by a minute, `Ctrl`/`Cmd` by an hour. Strips show
   photo thumbnails at every zoom level; colliding thumbnails stack with a count and
   separate as you zoom in. Only the visible window is drawn.

@@ -50,12 +50,11 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
 
   app.post<{ Params: { id: string }; Body: SetOffsetRequest }>('/api/strips/:id/offset', async (req, reply) => {
     const id = parseId(req.params.id);
-    const start = req.body?.offsetStartSeconds;
-    if (id === null || typeof start !== 'number' || !Number.isFinite(start)) {
-      return badRequest(reply, 'offsetStartSeconds must be a number of seconds.');
+    const seconds = req.body?.offsetSeconds;
+    if (id === null || typeof seconds !== 'number' || !Number.isFinite(seconds)) {
+      return badRequest(reply, 'offsetSeconds must be a number of seconds.');
     }
-    const end = req.body.offsetEndSeconds;
-    sessions.require().strips.setOffsets(id, start, typeof end === 'number' && Number.isFinite(end) ? end : undefined);
+    sessions.require().strips.setOffset(id, seconds);
     return timeline();
   });
 

@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { CaptureTimeSource, FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
 import {
-  driftSecondsPerHour,
   formatInstant,
   formatOffset,
   formatUtcOffset,
   parseOffsetSeconds,
   parseUtcOffsetMinutes,
-  rampIsDefined,
 } from '@geotagger/shared';
 
 /**
@@ -25,7 +23,7 @@ export function SelectionPanel({
   displayUtcOffsetMinutes,
   selectedFile,
   selectedLine,
-  onSetOffsets,
+  onSetOffset,
   onCut,
   onMerge,
   onReset,
@@ -40,7 +38,7 @@ export function SelectionPanel({
   displayUtcOffsetMinutes: number;
   selectedFile: FileRecord | null;
   selectedLine: TimelineFile | null;
-  onSetOffsets: (startSeconds: number, endSeconds: number) => void;
+  onSetOffset: (seconds: number) => void;
   onCut: (atMs: number) => void;
   onMerge: (rightStripId: number) => void;
   onReset: () => void;
@@ -50,13 +48,10 @@ export function SelectionPanel({
   if (strip === null) {
     return (
       <div className="selection-panel muted">
-        Select a strip to set its offset exactly, stretch it, cut it or lock it.
+        Select a strip to set its offset exactly, cut it or lock it.
       </div>
     );
   }
-
-  const stretchable = rampIsDefined(strip);
-  const drift = driftSecondsPerHour(strip);
 
   return (
     <div className="selection-panel">
@@ -69,25 +64,8 @@ export function SelectionPanel({
       <div className="selection-fields">
         <label>
           offset
-          <OffsetField
-            value={strip.offsetStartSeconds}
-            disabled={strip.locked}
-            onCommit={(seconds) =>
-              onSetOffsets(seconds, strip.offsetEndSeconds + (seconds - strip.offsetStartSeconds))
-            }
-          />
+          <OffsetField value={strip.offsetSeconds} disabled={strip.locked} onCommit={onSetOffset} />
         </label>
-        <label title={stretchable ? undefined : 'All files in this strip share one timestamp, so a ramp is undefined.'}>
-          end
-          <OffsetField
-            value={strip.offsetEndSeconds}
-            disabled={strip.locked || !stretchable}
-            onCommit={(seconds) => onSetOffsets(strip.offsetStartSeconds, seconds)}
-          />
-        </label>
-        <span className="muted drift">
-          {drift === 0 ? 'no drift' : `drift ≈ ${drift.toFixed(1)} s/hour`}
-        </span>
         <label>
           UTC
           <UtcField

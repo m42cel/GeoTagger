@@ -22,10 +22,8 @@ export interface StripRecord {
    * came from the same strip, which is what merging is allowed between.
    */
   parentStripId: number | null;
-  /** Clock correction in seconds at the strip's first file. */
-  offsetStartSeconds: number;
-  /** Clock correction in seconds at the strip's last file; differs only when stretched. */
-  offsetEndSeconds: number;
+  /** Clock correction in seconds, applied to every file in the strip alike. */
+  offsetSeconds: number;
   locked: boolean;
   /** A UTC offset typed in for this strip, overriding what §4.2 would infer. */
   utcOffsetOverrideMinutes: number | null;
