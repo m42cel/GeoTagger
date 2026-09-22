@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   FileRecord,
   GroupingMode,
   StripRecord,
-  TimeObservationsResponse,
   TimelineResponse,
 } from '@geotagger/shared';
 import {
@@ -19,7 +18,6 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
-import { ObservationsPanel } from './ObservationsPanel.js';
 import { SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
@@ -100,12 +98,12 @@ export function AlignmentView({
 }) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
-  const [observations, setObservations] = useState<TimeObservationsResponse | null>(null);
-  /** Set when a strip moves after the observations were computed, so they read stale. */
-  const [observationsStale, setObservationsStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [scale, setScale] = useState<TimeScale>({ startMs: Date.now(), msPerPx: 60_000, widthPx: 800 });
+  // Width starts at zero rather than at a guess: every guess is wrong, and the fit
+  // below waits for a real measurement instead of laying the trip out over a width
+  // the canvas never had.
+  const [scale, setScale] = useState<TimeScale>({ startMs: Date.now(), msPerPx: 60_000, widthPx: 0 });
   const [selectedStripId, setSelectedStripId] = useState<number | null>(null);
   /** Multi-select, for building a strip by hand (SPEC §4.4 "Manual"). */
   const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<number>>(() => new Set());
@@ -120,57 +118,43 @@ export function AlignmentView({
   const [snapDisabled, setSnapDisabled] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const widthObserverRef = useRef<ResizeObserver | null>(null);
   const fittedRef = useRef(false);
 
-  const loadObservations = useCallback(() => {
-    api
-      .observations()
-      .then((data) => {
-        setObservations(data);
-        setObservationsStale(false);
-      })
-      .catch((err: unknown) => setError(errorText(err)));
-  }, []);
-
-  const load = useCallback(() => {
+  useEffect(() => {
     Promise.all([api.timeline(), api.files()])
       .then(([t, f]) => {
         setTimeline(t);
         setFiles(f.files);
       })
       .catch((err: unknown) => setError(errorText(err)));
-    // The observations are computed once on arrival rather than after every drag:
-    // they are a check on the work, and recomputing a ±48 h correlation on each
-    // pointer-up would cost more than it tells anyone.
-    loadObservations();
-  }, [loadObservations]);
-
-  useEffect(load, [load]);
+  }, []);
 
   const run = useCallback((promise: Promise<TimelineResponse>) => {
     // Mutating calls answer with the whole timeline, so one response redraws
     // everything a strip change can touch: lanes, ordinals and inherited offsets.
-    promise
-      .then((next) => {
-        setTimeline(next);
-        // The observations were computed against the alignment as it was; saying so
-        // is cheaper and more honest than re-running a ±48 h correlation per drag.
-        setObservationsStale(true);
-      })
-      .catch((err: unknown) => setError(errorText(err)));
+    promise.then(setTimeline).catch((err: unknown) => setError(errorText(err)));
   }, []);
 
   // ---- geometry ----------------------------------------------------------
 
-  useLayoutEffect(() => {
-    const element = canvasRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => {
-      setScale((s) => ({ ...s, widthPx: element.clientWidth }));
-    });
+  /**
+   * Measures the canvas as a ref callback rather than in an effect, because the canvas
+   * is not in the DOM on the first render — the view is still loading the timeline —
+   * and an effect that runs then observes nothing and never runs again. That is how
+   * the width got stuck at its initial guess, culling every thumbnail beyond it.
+   */
+  const attachCanvas = useCallback((element: HTMLDivElement | null) => {
+    canvasRef.current = element;
+    widthObserverRef.current?.disconnect();
+    widthObserverRef.current = null;
+    if (element === null) return;
+    const measure = (): void =>
+      setScale((s) => (s.widthPx === element.clientWidth ? s : { ...s, widthPx: element.clientWidth }));
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
-    setScale((s) => ({ ...s, widthPx: element.clientWidth }));
-    return () => observer.disconnect();
+    widthObserverRef.current = observer;
+    measure();
   }, []);
 
   const bounds = useMemo(() => boundsOf(timeline), [timeline]);
@@ -491,8 +475,7 @@ export function AlignmentView({
         />
       )}
 
-      <div className="align-main">
-        <div className="align-grid">
+      <div className="align-grid">
         <div className="lane-headers">
           {lanes.map((lane, i) => (
             <div className="lane-header" key={i} style={{ height: LANE_ROW_PX }}>
@@ -530,7 +513,7 @@ export function AlignmentView({
 
         <div
           className="lane-canvas"
-          ref={canvasRef}
+          ref={attachCanvas}
           tabIndex={0}
           onKeyDown={onKeyDown}
           onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
@@ -629,25 +612,6 @@ export function AlignmentView({
           scale={scale}
           bounds={bounds}
           onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
-        />
-        </div>
-
-        <ObservationsPanel
-          data={observations}
-          stale={observationsStale}
-          onRefresh={loadObservations}
-          onApply={(stripId, offsetSeconds) => {
-            setSelectedStripId(stripId);
-            const strip = timeline.strips.find((s) => s.id === stripId);
-            if (!strip) return;
-            run(
-              api.setOffset(
-                stripId,
-                strip.offsetStartSeconds + offsetSeconds,
-                strip.offsetEndSeconds + offsetSeconds,
-              ),
-            );
-          }}
         />
       </div>
 

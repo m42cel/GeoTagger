@@ -32,9 +32,9 @@ Phase 1, time correction:
   strip. Drag a strip's body to shift every file in it; drag the handles on a selected
   strip to stretch it, which is linear clock drift. Magnetic snapping pulls a strip onto
   the photos of other lanes and onto whole minutes and hours (hold `Alt` to disable it);
-  `←`/`→` nudge by a second, `Shift` by a minute, `Ctrl`/`Cmd` by an hour. Colliding
-  thumbnails stack with a count and separate as you zoom in; below the readable
-  threshold, strips render as activity density bars. Only the visible window is drawn.
+  `←`/`→` nudge by a second, `Shift` by a minute, `Ctrl`/`Cmd` by an hour. Strips show
+  photo thumbnails at every zoom level; colliding thumbnails stack with a count and
+  separate as you zoom in. Only the visible window is drawn.
 - **cut, merge, lock and reset** — cut a strip where a camera's clock changed partway
   through the trip; segments stay in one lane until dragging makes them overlap, at
   which point the moved one is promoted to a lane of its own. Locking freezes a strip
@@ -46,9 +46,6 @@ Phase 1, time correction:
   establish the offset over each period of the trip by an offline timezone lookup, and
   local-time-only files in that period inherit it. Overridable per strip; asked for once
   when the folder holds nothing to inherit from.
-- **advisory observations** — satellite time against each camera's own clock, and
-  shot-density correlation between strips with a confidence figure. Nothing is ever
-  applied automatically.
 - **the file writer** — persist dialog and per-file progress, one ExifTool write per
   file, each one re-read and verified, originals preserved in a custom XMP namespace,
   staleness checks against files that changed on disk, per-file revert, and an
@@ -98,7 +95,7 @@ npm run dev:web                         # Vite on :5173, proxying /api to the ba
 
 ```
 packages/shared   domain types, and the time arithmetic both ends need
-packages/server   Fastify API, scanner, metadata, strips, observations, writer, store
+packages/server   Fastify API, scanner, metadata, strips, writer, store
 packages/web      React UI, including the alignment view
 ```
 

@@ -323,25 +323,6 @@ is warned, and the change is undoable.
 Grouping exists only in this view. The map treats all files as one collective timeline with no
 per-device separation anywhere.
 
-### 4.5 Advisory observations
-
-Alongside the alignment view, the application reports observations. **Nothing is ever applied
-automatically or pre-selected from them.**
-
-- **GPSDateTime comparison** — for any file that has a GPS fix, its satellite UTC time versus its
-  own clock gives an exact offset for that moment. Useless for a camera without GPS hardware;
-  free and exact where it applies.
-- **Shot-density correlation** — compares *when* each device was shooting by sliding one strip's
-  timeline across another (±48 h, one-minute steps) and scoring pattern overlap. Requires no GPS:
-  the intervals within a device's own timeline are intact even when its absolute clock is wrong,
-  so the shift at the correlation peak is the offset. Reported with a confidence figure derived
-  from the peak-to-runner-up ratio, and reported as "no clear match" when that ratio is weak.
-
-  Limits, stated in the UI: it needs overlapping usage of both devices, it assumes a constant
-  offset across the compared window, and sparse or very regular shooting can produce a wrong
-  peak. It is a sanity check on an alignment the user made, not a source of truth — which is why
-  it is a readout rather than a button that moves strips.
-
 ## 5. Position interpolation
 
 All calculations use effective timestamps and great-circle geometry.
@@ -475,10 +456,10 @@ No map. A shared, zoomable time axis with one lane per strip.
    [ ✂ cut at cursor ]  [ merge ]  [ reset ]
 ```
 
-**Zoom levels** run from whole trip down to minutes. Colliding thumbnails collapse into a stack
-with a count and separate as you zoom in. Below the zoom threshold where thumbnails would be
-unreadable, strips render as **activity density bars** — which is the right representation for
-pattern alignment at trip scale anyway, and the reason the shapes above are legible at all.
+**Zoom levels** run from whole trip down to minutes. Strips always render as photo thumbnails,
+at every zoom level: aligning by hand means recognising the same moment on two devices, and an
+abstract density bar cannot be recognised. Colliding thumbnails collapse into a stack with a
+count and separate as you zoom in.
 
 **Rendering is virtualised**: only files inside the visible time window are drawn, so a lane
 holding thousands of files stays responsive.
@@ -486,8 +467,6 @@ holding thousands of files stays responsive.
 Each file's timestamp **source** is shown on selection, and sources weaker than an explicit EXIF
 capture tag — filename, mtime — are visibly flagged, because a wrong timestamp corrupts
 interpolation invisibly.
-
-Observations (§4.5) appear in a collapsible panel beside the lanes.
 
 Applying is implicit: strip offsets live in the edit store as soon as they change, exactly like
 positions, and reach the files only on persist.
@@ -807,7 +786,6 @@ POST   /api/strips/:id/lane            move to another lane
 POST   /api/strips/:id/lock            lock / unlock
 POST   /api/strips/:id/reset           zero the offset and stretch
 POST   /api/strips/reset-all           rebuild every strip from the grouping mode
-GET    /api/time-observations          advisory analyses
 POST   /api/persist                    write, with progress stream
 GET    /api/oplog
 GET    /api/settings  ·  POST /api/settings
@@ -893,8 +871,6 @@ Focused on the areas where a mistake is silent and expensive:
   disables it.
 - **Interpolation** — great-circle positions, the reachability bound including the documented
   worked example, extrapolation, one-anchor and zero-anchor cases, antimeridian crossing.
-- **Shot-density correlation** — recovers a known injected offset from synthetic timelines;
-  reports low confidence on sparse or non-overlapping input.
 - **Metadata round-trip** — write then re-read against sample JPEG, HEIC, PNG, MP4 and MOV
   fixtures; revert restores byte-equivalent metadata; a file that never had GPS ends up with
   none again.
@@ -920,7 +896,7 @@ Focused on the areas where a mistake is silent and expensive:
    Mitigated by preview extraction, persistent caching and incremental rescans; worth measuring
    early against a real folder.
 4. **Alignment view rendering** — a proportional time axis with thousands of thumbnails needs
-   virtualisation and the density-bar fallback to stay smooth; and at trip zoom one pixel covers
+   virtualisation and thumbnail stacking to stay smooth; and at trip zoom one pixel covers
    minutes, so the numeric field and keyboard nudge are not optional conveniences but the only
    way to reach second-level precision. Both are specified, both need measuring.
 5. **Leaflet with thousands of DOM markers** — clustering should keep the rendered count low
@@ -946,7 +922,7 @@ form a complete, shippable application with no map in it at all.
 | Phase | Scope |
 | --- | --- |
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
-| **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, stretch handles, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, advisory observations, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
+| **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, stretch handles, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray |
 | **3 — Editing** | Selection, detail panel, drag, confirm, revert, multi-select, filmstrip, status filters |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert. *Feature-complete release.* |

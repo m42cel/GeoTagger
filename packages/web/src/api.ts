@@ -11,7 +11,6 @@ import type {
   ScanStatus,
   SessionState,
   StripsResponse,
-  TimeObservationsResponse,
   TimelineResponse,
 } from '@geotagger/shared';
 
@@ -68,7 +67,6 @@ export const api = {
   pinTrueTime: (fileId: number, trueLocalIso: string) =>
     post('/api/strips/pin-true-time', { fileId, trueLocalIso }),
   setFolderUtcOffset: (utcOffsetMinutes: number) => post('/api/session/utc-offset', { utcOffsetMinutes }),
-  observations: () => request<TimeObservationsResponse>('/api/time-observations'),
   answerTimestampQuestion: () =>
     request<SessionState>('/api/session/timestamp-question', { method: 'POST' }),
 

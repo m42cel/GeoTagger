@@ -10,12 +10,9 @@ import type {
   SetOffsetRequest,
   StripUtcOffsetRequest,
   StripsResponse,
-  TimeObservationsResponse,
   TimelineResponse,
 } from '@geotagger/shared';
-import { CORRELATION_LIMITS } from '@geotagger/shared';
 import type { SessionManager } from '../session.js';
-import { buildObservations } from '../observations/service.js';
 
 /**
  * The alignment view's API (SPEC §10.2).
@@ -139,16 +136,6 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
     }
     sessions.require().store.folderUtcOffsetMinutes = minutes;
     return timeline();
-  });
-
-  app.get('/api/time-observations', async (): Promise<TimeObservationsResponse> => {
-    const session = sessions.require();
-    const current = session.strips.timeline();
-    return {
-      observations: buildObservations(session.store.listFiles(), current.strips, current),
-      correlationLimits: CORRELATION_LIMITS,
-      computedAt: Date.now(),
-    };
   });
 }
 

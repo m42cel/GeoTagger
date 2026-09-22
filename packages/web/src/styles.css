@@ -288,10 +288,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .align-toolbar select { font: inherit; text-transform: none; letter-spacing: 0; }
 .align-toolbar .primary { margin-left: auto; }
 
-/* Observations sit beside the lanes (SPEC §6.2), and collapse out of the way. */
-.align-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
-@media (max-width: 1100px) { .align-main { grid-template-columns: 1fr; } }
-
 .align-grid {
   display: grid;
   grid-template-columns: 190px 1fr;
@@ -411,8 +407,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
 }
-
-.density-bar { position: absolute; bottom: 4px; background: var(--accent); opacity: 0.6; border-radius: 1px; }
 
 /* Handles appear only on selection, so a strip cannot be stretched by accident. */
 .handle {
@@ -575,15 +569,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .file-detail dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .file-detail dd.pin-action { grid-column: 2; font-family: inherit; margin-top: 4px; }
 .file-detail em { font-style: normal; color: var(--muted); }
-
-/* ---- observations (SPEC §4.5) ---- */
-
-.observations summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
-.observation-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
-.observation-list li { border-left: 2px solid var(--line); padding-left: 10px; }
-.observation-list p { margin: 2px 0 6px; }
-.observation-list em { font-style: normal; color: var(--weak); }
-.limits { color: var(--muted); font-size: 12px; margin: 12px 0 0; padding-left: 18px; }
 
 /* ---- persist dialog (SPEC §9.1) ---- */
 

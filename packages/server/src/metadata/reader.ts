@@ -133,8 +133,8 @@ export function metadataFromTags(
       captureTimeRaw: capture.source === 'none' ? null : capture.localIso,
       captureTimeSource: capture.source,
       captureUtcOffsetMinutes: capture.utcOffsetMinutes,
-      // Kept even when another source won the capture time: satellite UTC against the
-      // camera's own clock is the exact-offset observation of SPEC §4.5.
+      // Kept even when another source won the capture time: satellite UTC is the one
+      // reading independent of the camera's own clock.
       gpsTimeUtc: candidates['exif:GPSDateTime']?.localIso ?? null,
       origGpsPresent: gps !== null,
       origLat: gps?.lat ?? null,

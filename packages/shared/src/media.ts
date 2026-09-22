@@ -92,10 +92,9 @@ export interface FileRecord {
   /**
    * Satellite UTC from the file's GPS fix, naive ISO, when it carried one.
    *
-   * Kept alongside the resolved capture time rather than folded into it because the
-   * two together are the whole of the GPSDateTime observation (SPEC §4.5): the gap
+   * Kept alongside the resolved capture time rather than folded into it: the gap
    * between what the satellite said and what the camera's own clock said is that
-   * camera's error at that moment.
+   * camera's error at that moment, and only the two side by side show it.
    */
   gpsTimeUtc: string | null;
   origGpsPresent: boolean;
