@@ -112,19 +112,25 @@ export function SelectionPanel({
             <dd>{selectedFile.filename}</dd>
             <dt>reads</dt>
             <dd>
-              {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}{' '}
+              {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}
+              {selectedFile.captureUtcOffsetMinutes !== null &&
+                ` ${formatUtcOffset(selectedFile.captureUtcOffsetMinutes)}`}{' '}
               <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
                 {SOURCE_LABEL[selectedFile.captureTimeSource]}
                 {weakSource(selectedFile.captureTimeSource) && ' — weak source'}
               </em>
             </dd>
-            <dt>corrected</dt>
-            <dd>
-              {selectedLine.effectiveMs === null
-                ? '—'
-                : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
-              <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
-            </dd>
+            {corrects(selectedFile, selectedLine) && (
+              <>
+                <dt>corrected</dt>
+                <dd>
+                  {selectedLine.effectiveMs === null
+                    ? '—'
+                    : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
+                  <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
+                </dd>
+              </>
+            )}
             <dd className="pin-action">
               <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
                 set true time…
@@ -257,6 +263,21 @@ const UTC_SOURCE_LABEL: Record<TimelineFile['utcOffsetSource'], string> = {
   folder: 'answered for the folder',
   assumed: 'assumed UTC',
 };
+
+/**
+ * Whether the correction line says anything the “reads” line did not.
+ *
+ * A file that states its own offset and sits on an unshifted strip is already fully
+ * described by what it reads: repeating the same instant under a “corrected” label
+ * invites the user to hunt for a difference that is not there. The line earns its place
+ * only when the strip actually moves the clock, or when the offset we would write comes
+ * from somewhere other than the file itself — inheritance, a strip or file override,
+ * the folder's answer, or the assumed-UTC fallback.
+ */
+function corrects(file: FileRecord, line: TimelineFile): boolean {
+  if (line.offsetSeconds !== 0) return true;
+  return file.captureUtcOffsetMinutes === null || line.utcOffsetSource !== 'file';
+}
 
 /**
  * A time recovered from a filename or an mtime is flagged, because a wrong timestamp
