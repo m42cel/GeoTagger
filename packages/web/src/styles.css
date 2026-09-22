@@ -289,6 +289,9 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .align-toolbar .primary { margin-left: auto; }
 
 .align-grid {
+  /* The two rows reserved at the foot of the canvas: the zone ribbon, then the axis. */
+  --axis-h: 22px;
+  --ribbon-h: 18px;
   display: grid;
   grid-template-columns: 190px 1fr;
   border: 1px solid var(--line);
@@ -341,7 +344,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: var(--bg);
   touch-action: none;
   outline: none;
-  padding-bottom: 22px;
+  padding-bottom: calc(var(--ribbon-h) + var(--axis-h));
 }
 .lane-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
@@ -409,7 +412,15 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   color: #fff;
 }
 
-.cursor-line { position: absolute; top: 0; bottom: 22px; width: 1px; background: var(--accent); opacity: 0.5; pointer-events: none; }
+.cursor-line {
+  position: absolute;
+  top: 0;
+  bottom: calc(var(--ribbon-h) + var(--axis-h));
+  width: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+  pointer-events: none;
+}
 
 /*
  * Where the last click landed — the same hairline as the moving cursor, left behind.
@@ -418,7 +429,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .cut-marker {
   position: absolute;
   top: 0;
-  bottom: 22px;
+  bottom: calc(var(--ribbon-h) + var(--axis-h));
   width: 1px;
   background: var(--accent);
   pointer-events: none;
@@ -449,7 +460,70 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .drag-readout em { font-style: normal; opacity: 0.7; }
 
-.time-axis { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; border-top: 1px solid var(--line); }
+/*
+ * The trip's UTC offset periods (SPEC §4.2), between the lanes and the axis — it
+ * belongs to the axis, not to any lane, because a zone is a property of where the trip
+ * was rather than of which camera was carried.
+ *
+ * Periods are told apart by alternating tint rather than by hues of their own: the
+ * offset is written in the band, so a palette would add something to learn and something
+ * to keep legible in both themes without adding meaning. The drawing encodes confidence
+ * instead — solid where GPS-bearing files observed the zone, hatched where the answer is
+ * only the nearest period, which is what makes a crossing read as the interval it is.
+ */
+.zone-ribbon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--axis-h);
+  height: var(--ribbon-h);
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.zone-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.zone-band.observed {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+}
+.zone-band.observed.alt { background: color-mix(in srgb, var(--fg) 13%, transparent); }
+
+/* Hatching says "inferred" without borrowing a colour that means something else. */
+.zone-band.inferred,
+.zone-band.crossing {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--fg) 12%, transparent) 4px 8px
+  );
+}
+
+/*
+ * A crossing is the one band worth interrupting the eye for: the clock changes inside
+ * it, and its width is the honest width of the doubt.
+ */
+.zone-band.crossing {
+  color: var(--fg);
+  border-left: 1px solid color-mix(in srgb, var(--fg) 45%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--fg) 45%, transparent);
+}
+
+.zone-label { padding: 0 6px; }
+
+.time-axis { position: absolute; left: 0; right: 0; bottom: 0; height: var(--axis-h); border-top: 1px solid var(--line); }
 .tick {
   position: absolute;
   top: 2px;
@@ -506,6 +580,12 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .selection-fields { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .selection-fields label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+/* What §4.2 settled on, beside the field that overrides it — a readout, not a control. */
+.utc-resolved {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: help;
+}
 .offset-field {
   font: inherit;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

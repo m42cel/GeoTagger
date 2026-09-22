@@ -3,6 +3,7 @@ import type {
   FileRecord,
   GroupingMode,
   StripRecord,
+  TimelineFile,
   TimelineResponse,
 } from '@geotagger/shared';
 import {
@@ -18,10 +19,11 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
-import { SelectionPanel } from './SelectionPanel.js';
+import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
+import { ZoneRibbon } from './ZoneRibbon.js';
 import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
 import {
   msAt,
@@ -333,6 +335,10 @@ export function AlignmentView({
   };
 
   const mergeTargetId = useMemo(() => nextSegmentId(timeline?.strips ?? [], selectedStrip), [timeline, selectedStrip]);
+  const utcSummary = useMemo(
+    () => stripUtcSummary(timeline?.files ?? [], selectedStripId),
+    [timeline, selectedStripId],
+  );
   // The detail block describes one file; with several picked, it is the last one.
   const selectedFileId = selectedFileIds.size === 0 ? null : ([...selectedFileIds].pop() as number);
   const selectedLine = timeline?.files.find((f) => f.id === selectedFileId) ?? null;
@@ -519,6 +525,11 @@ export function AlignmentView({
             </div>
           )}
 
+          <ZoneRibbon
+            scale={scale}
+            rules={timeline.utcOffsetRules}
+            folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+          />
           <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
         </div>
 
@@ -541,6 +552,7 @@ export function AlignmentView({
         onCut={cutAt}
         onMerge={(rightId) => selectedStrip && run(api.merge(selectedStrip.id, rightId))}
         onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}
+        utcSummary={utcSummary}
         onSetUtcOffset={(minutes) => selectedStrip && run(api.setStripUtcOffset(selectedStrip.id, minutes))}
         onPin={() => selectedFileId !== null && pin(selectedFileId)}
       />
@@ -581,6 +593,30 @@ function groupByLane(strips: readonly StripRecord[]): StripRecord[][] {
   }
   for (const lane of lanes) lane.sort((a, b) => a.ordinal - b.ordinal);
   return lanes;
+}
+
+/**
+ * What UTC offsets a strip's files actually resolve to, in time order.
+ *
+ * Worth stating next to the field that overrides it, because the two are easy to
+ * confuse: the field holds what was *typed*, usually nothing, while this is what §4.2
+ * settled on. A strip that crossed a border while nobody cut it shows two offsets here
+ * — which is correct, and invisible anywhere else.
+ */
+function stripUtcSummary(files: readonly TimelineFile[], stripId: number | null): StripUtcSummary | null {
+  if (stripId === null) return null;
+  const lines = files
+    .filter((f) => f.stripId === stripId && f.effectiveMs !== null)
+    .sort((a, b) => (a.effectiveMs as number) - (b.effectiveMs as number));
+  if (lines.length === 0) return null;
+
+  const offsets: number[] = [];
+  const sources = new Set<TimelineFile['utcOffsetSource']>();
+  for (const line of lines) {
+    if (offsets[offsets.length - 1] !== line.utcOffsetMinutes) offsets.push(line.utcOffsetMinutes);
+    sources.add(line.utcOffsetSource);
+  }
+  return { offsets, source: sources.size === 1 ? (lines[0] as TimelineFile).utcOffsetSource : null };
 }
 
 /** The segment immediately after this one in its family — the one `merge` accepts. */

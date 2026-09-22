@@ -15,12 +15,21 @@ import {
  * typing and keyboard nudging are the only ways to reach the second-level precision the
  * correction actually needs (SPEC §14.4).
  */
+/** What SPEC §4.2 settled on for a strip's files, as `stripUtcSummary` gathers it. */
+export interface StripUtcSummary {
+  /** Distinct offsets across the strip in time order; more than one means it crossed. */
+  offsets: number[];
+  /** Where they came from, or null when the strip's files do not agree on that. */
+  source: TimelineFile['utcOffsetSource'] | null;
+}
+
 export function SelectionPanel({
   strip,
   fileCountLabel,
   mergeTargetId,
   cutAtMs,
   displayUtcOffsetMinutes,
+  utcSummary,
   selectedFile,
   selectedLine,
   onSetOffset,
@@ -36,6 +45,7 @@ export function SelectionPanel({
   /** Where a cut would land: the last place the pointer was over the canvas. */
   cutAtMs: number | null;
   displayUtcOffsetMinutes: number;
+  utcSummary: StripUtcSummary | null;
   selectedFile: FileRecord | null;
   selectedLine: TimelineFile | null;
   onSetOffset: (seconds: number) => void;
@@ -74,6 +84,12 @@ export function SelectionPanel({
             onCommit={onSetUtcOffset}
           />
         </label>
+        {utcSummary && utcSummary.offsets.length > 0 && (
+          <span className="utc-resolved muted" title={utcResolvedTitle(utcSummary)}>
+            resolves to {utcSummary.offsets.map(formatUtcOffset).join(' → ')}
+            {utcSummary.source !== null && ` · ${UTC_SOURCE_LABEL[utcSummary.source]}`}
+          </span>
+        )}
       </div>
 
       <div className="selection-actions">
@@ -263,6 +279,18 @@ const UTC_SOURCE_LABEL: Record<TimelineFile['utcOffsetSource'], string> = {
   folder: 'answered for the folder',
   assumed: 'assumed UTC',
 };
+
+function utcResolvedTitle(summary: StripUtcSummary): string {
+  if (summary.offsets.length > 1) {
+    return (
+      'This strip spans a UTC offset change — its files resolve to more than one offset.\n' +
+      'Nothing needs cutting for that: the offset is resolved per file from where it lands in time.'
+    );
+  }
+  return summary.source === null
+    ? "The strip's files do not all get their offset from the same place."
+    : `Every file in this strip: ${UTC_SOURCE_LABEL[summary.source]}.`;
+}
 
 /**
  * Whether the correction line says anything the “reads” line did not.

@@ -462,13 +462,32 @@ No map. A shared, zoomable time axis with one lane per strip.
  SONY ILCE-7M4  [ lock ] [reset] │    ■■ ■▅   ■▅█▃      ■■■▆ │   +1h 02m 12s
                                  │                           │
  DJI Mini 4     [ lock ] [reset] │        ■▅            ■■   │   +2h 00m
+                                 ├───────────────────────────┤
+                                 │+02:00 Berlin░░░+09:00 Tokyo│  ← UTC offset periods
                                  └───────────────────────────┘
                                   09:00    12:00    15:00  18:00
 
  selected: SONY ILCE-7M4 · 896 files · 12–21 Jul
-   offset  [ +1h 02m 12s ]   UTC [ inherited ]
+   offset  [ +1h 02m 12s ]   UTC [ inherited ]   resolves to +02:00 · inherited from GPS
    [ ✂ cut at cursor ]  [ merge ]  [ reset ]
 ```
+
+**The UTC offset periods of §4.2 are drawn as a ribbon** between the lanes and the axis. It sits
+with the axis rather than in any lane, because a timezone is a property of where the trip *was*,
+not of which camera was carried — so a strip that crossed a border needs no cut to show it, and
+none to be corrected: the offset is resolved per file from where that file lands in time.
+
+Periods are told apart by alternating tint rather than by colours of their own; the offset is
+written in the band, and a palette would add something to learn without adding meaning. What the
+drawing does encode is **confidence**. The rules deliberately do not tile the timeline: between
+the last GPS fix in one zone and the first in the next, nothing observed the crossing, and a file
+there simply takes the nearer period. So observed stretches are drawn solid and the gaps hatched
+(`░` above), which makes a border crossing read as the interval of doubt it actually is instead
+of a hard line at an instant nobody knows.
+
+The selection panel states what the strip's files **resolved to**, beside the field that
+overrides it — two offsets where a strip spans a crossing. The field holds what was typed,
+usually nothing; the readout is what §4.2 settled on, and the two are otherwise easy to confuse.
 
 **Zoom levels** run from whole trip down to minutes. Strips always render as photo thumbnails,
 at every zoom level: aligning by hand means recognising the same moment on two devices, and an
@@ -963,6 +982,7 @@ form a complete, shippable application with no map in it at all.
 | Cut in place, auto-promote on overlap | Every cut opens a new lane | Keeps vertical space compact until overlap actually requires separation |
 | Automatic detection stays advisory | One-click auto-align | The user knows which device is wrong; the app cannot |
 | UTC offset inherited from GPS-bearing files | Derived from a file's own interpolated position | That would be circular for exactly the files that need it |
+| One UTC offset ribbon on the axis, tinted by confidence | A colour per zone, applied to the strips | The zone belongs to the trip, not to a device; and hatching the unobserved gaps says the one thing a hue cannot — where the crossing is merely inferred |
 | Reachability-bound uncertainty | Time-gap tiers, distance-based radius | Correctly reflects that one minute of walking covers little ground |
 | Single plain path, all devices | Time gradient, per-device colours | Simplicity; the collection is one timeline |
 | Unlimited extrapolation | Refusing beyond a threshold | Every file must be on the map to be draggable |
