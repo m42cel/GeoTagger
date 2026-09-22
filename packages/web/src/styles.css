@@ -376,12 +376,12 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .strip-hit:active { cursor: grabbing; }
 
-.strip-body { position: absolute; top: 5px; left: 0; right: 0; pointer-events: none; }
+/* Spans the whole row: the frames inside it are centred by their own offset. */
+.strip-body { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
 .strip-body.empty { display: none; }
 
 .shot {
   position: absolute;
-  top: 0;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -392,10 +392,11 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .shot.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 /*
- * `contain`, not `cover`: a square frame that crops a portrait photo to its middle
- * band hides the very thing the frame is there to show.
+ * `cover`: the frame is filled by the middle of the photo, its long edge cropped
+ * away. Letterboxing every landscape shot cost more of the picture than the crop
+ * does, and left the strip looking like a row of stamps rather than a film strip.
  */
-.shot img { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--bg); }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--bg); }
 
 .stack-count {
   position: absolute;

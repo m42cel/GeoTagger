@@ -15,14 +15,26 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  */
 
 /**
- * Width of a thumbnail on the axis, and the spacing at which they collide. Big enough
- * that two photos of the same beach can be told apart, which is what aligning by
- * content asks of them.
+ * Height of a lane row. Everything vertical below is derived from it, so a frame
+ * fills the strip it sits in rather than floating in its top half.
  */
-const THUMB_PX = 84;
-const LANE_HEIGHT_PX = 104;
+const LANE_ROW_PX = 116;
+/**
+ * What a frame has to clear inside the row: `.strip-hit` sits 4 px in and draws a
+ * 1 px border, and a selected frame paints a 2 px ring outside itself. Leaving room
+ * for both is what keeps a selection from crossing the strip's own border.
+ */
+const FRAME_INSET_PX = 5;
+const SELECT_RING_PX = 2;
+const THUMB_TOP_PX = FRAME_INSET_PX + SELECT_RING_PX;
+/**
+ * Width of a thumbnail on the axis, and the spacing at which they collide. It is the
+ * lane's height less that clearance top and bottom: big enough that two photos of the
+ * same beach can be told apart, which is what aligning by content asks of them.
+ */
+const THUMB_PX = LANE_ROW_PX - 2 * THUMB_TOP_PX;
 
-export const STRIP_LANE_HEIGHT = LANE_HEIGHT_PX;
+export const STRIP_LANE_ROW_PX = LANE_ROW_PX;
 /**
  * A frame is centred on its instant, so it reaches half its width either side of it.
  * The strip's own frame has to be padded by at least that much or its first and last
@@ -91,7 +103,7 @@ export function StripBody({
   }, [stripFiles, preview, strip.firstCaptureMs, strip.lastCaptureMs]);
 
   if (!stripFiles || positions.length === 0) {
-    return <div className="strip-body empty" style={{ height: LANE_HEIGHT_PX }} />;
+    return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
   }
 
   // Positions stay ascending under any ramp the UI can produce, so the visible slice
@@ -158,7 +170,7 @@ function Thumbnails({
   }
 
   return (
-    <div className="strip-body" style={{ height: LANE_HEIGHT_PX }}>
+    <div className="strip-body" style={{ height: LANE_ROW_PX }}>
       {clusters.map((c) => {
         const record = fileById.get(c.fileId);
         return (
@@ -166,7 +178,7 @@ function Thumbnails({
             type="button"
             key={c.fileId}
             className={`shot${c.selected ? ' selected' : ''}`}
-            style={{ left: c.x - THUMB_PX / 2, width: THUMB_PX, height: THUMB_PX }}
+            style={{ left: c.x - THUMB_PX / 2, top: THUMB_TOP_PX, width: THUMB_PX, height: THUMB_PX }}
             title={record?.filename ?? ''}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}

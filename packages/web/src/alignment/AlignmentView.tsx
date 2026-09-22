@@ -25,7 +25,7 @@ import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import {
   buildStripFiles,
   StripBody,
-  STRIP_LANE_HEIGHT,
+  STRIP_LANE_ROW_PX,
   STRIP_THUMB_HALF_PX,
   type PreviewRamp,
 } from './StripBody.js';
@@ -52,7 +52,6 @@ import {
  * change and reach the files only on persist (SPEC §6.2).
  */
 
-const LANE_ROW_PX = STRIP_LANE_HEIGHT + 12;
 /**
  * Padding either side of a strip so its end thumbnails are inside its frame and its
  * drag area. Derived from the frame width rather than guessed: the two went out of
@@ -267,7 +266,7 @@ export function AlignmentView({
       ...drag,
       deltaSeconds,
       shiftPx: (deltaSeconds * 1000) / scale.msPerPx,
-      targetLane: Math.max(0, drag.lane + Math.round(dy / LANE_ROW_PX)),
+      targetLane: Math.max(0, drag.lane + Math.round(dy / STRIP_LANE_ROW_PX)),
       snap: snap.kind,
     });
   };
@@ -478,7 +477,7 @@ export function AlignmentView({
       <div className="align-grid">
         <div className="lane-headers">
           {lanes.map((lane, i) => (
-            <div className="lane-header" key={i} style={{ height: LANE_ROW_PX }}>
+            <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
               <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
                 {lane[0]?.label ?? ''}
                 {lane.length > 1 && <em> ·{lane.length} segments</em>}
@@ -537,13 +536,13 @@ export function AlignmentView({
           }}
         >
           {lanes.map((lane, laneIndex) => (
-            <div className="lane-row" key={laneIndex} style={{ height: LANE_ROW_PX }}>
+            <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
               {lane.map((strip) => {
                 const dragging = drag?.kind !== 'pan' && drag?.stripId === strip.id ? drag : null;
                 const shiftPx = dragging?.kind === 'body' ? dragging.shiftPx : 0;
                 const preview = dragging?.kind === 'stretch' ? dragging.preview : null;
                 const laneShift =
-                  dragging?.kind === 'body' ? (dragging.targetLane - dragging.lane) * LANE_ROW_PX : 0;
+                  dragging?.kind === 'body' ? (dragging.targetLane - dragging.lane) * STRIP_LANE_ROW_PX : 0;
                 return (
                   <div
                     key={strip.id}

@@ -9,8 +9,11 @@ import { exiftool } from '../metadata/reader.js';
 export type ThumbTier = 'thumb' | 'preview';
 
 /**
- * The grid tier is sized for the alignment view's film-strip frames at twice the
- * pixel density, which is what a retina display asks of an 84 px frame.
+ * The grid tier is sized for the alignment view's film-strip frames. Those frames are
+ * square and crop to fill, so what has to cover them is the image's *short* edge:
+ * 256 on the long edge leaves roughly 170 across a 3:2 frame, a little under twice
+ * the density a retina display would ask of a 102 px frame. Raising it is a cache
+ * rebuild, so it stays here until the softness is worth one.
  */
 export const TIER_SIZE: Record<ThumbTier, number> = { thumb: 256, preview: 1280 };
 
