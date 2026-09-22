@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.geotagger/
+cache/
+.DS_Store
+.env

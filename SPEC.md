@@ -907,9 +907,12 @@ Focused on the areas where a mistake is silent and expensive:
 
 ## 14. Risks and open questions
 
-1. **HEIC decoding in the container** — the bundled libvips may lack HEVC-based HEIC support
-   for licensing reasons. Mitigated by preferring embedded preview extraction, with ffmpeg as
-   fallback. To be verified when the image is first built.
+1. ~~**HEIC decoding in the container**~~ — **resolved in phase 0.** Confirmed: the libvips
+   bundled with `sharp` carries a libheif with no HEVC decoding plugin, and it will not load
+   the system one (the ABI does not match), so it cannot decode HEIC in the container at all.
+   The designed mitigation holds — embedded preview extraction first, ffmpeg as fallback — but
+   it needs **ffmpeg 7.1**, which decodes HEIF stills; bookworm's 5.1 does not. The image base
+   is therefore `node:22-trixie-slim` rather than bookworm.
 2. **OSM tile policy** — the default provider forbids bulk downloading, so "pre-download area"
    is disabled for it and PMTiles is the offline route. Terms should be re-checked before
    release.

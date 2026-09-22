@@ -1,0 +1,31 @@
+{
+  "name": "geotagger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build -w @geotagger/shared && npm run build -w @geotagger/server && npm run build -w @geotagger/web",
+    "dev": "npm run dev -w @geotagger/server",
+    "dev:web": "npm run dev -w @geotagger/web",
+    "test": "vitest run",
+    "typecheck": "tsc -b --force && tsc -p packages/server/tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true,
+    "esbuild@0.25.12": true
+  }
+}

@@ -1,0 +1,18 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+cache
+
+# Incremental-build state from the host. Without this, `tsc -b` inside the image sees
+# a build it thinks is already done and emits nothing at all, producing an image with
+# empty dist/ directories that still builds successfully.
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+.DS_Store
+**/.DS_Store
+.env
+Dockerfile
+docker-compose.yml
