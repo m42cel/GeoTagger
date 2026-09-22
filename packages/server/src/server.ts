@@ -9,6 +9,11 @@ import { PathConfinementError } from './paths.js';
 import { registerFolderRoutes } from './routes/folders.js';
 import { registerSessionRoutes } from './routes/session.js';
 import { registerFileRoutes } from './routes/files.js';
+import { registerStripRoutes } from './routes/strips.js';
+import { registerPersistRoutes } from './routes/persist.js';
+import { StripOperationError } from './strips/service.js';
+import { configureExiftool } from './metadata/reader.js';
+import { ensureExiftoolConfig } from './write/exiftool-config.js';
 
 export interface BuiltServer {
   app: FastifyInstance;
@@ -25,10 +30,25 @@ export function buildServer(config: Config): BuiltServer {
 
   const sessions = new SessionManager(config, (msg, err) => app.log.warn({ err }, msg));
 
+  // ExifTool's launch arguments are fixed for the life of the process, so the config
+  // that declares GeoTagger's XMP namespace has to be in place before the first read.
+  const exiftoolConfig = ensureExiftoolConfig(config.stateDir);
+  if (exiftoolConfig === null) {
+    app.log.warn(
+      'could not write the ExifTool config; original values will be kept in the edit store only (SPEC §9.3)',
+    );
+  }
+  configureExiftool(exiftoolConfig);
+
   app.setErrorHandler((rawError, _req, reply) => {
     const err = rawError as Error & { statusCode?: number; code?: string };
     if (err instanceof NoSessionError) {
       return reply.code(409).send({ error: 'no_session', message: err.message });
+    }
+    if (err instanceof StripOperationError) {
+      // A refused strip edit is an answer to the user, not a fault: a locked strip, a
+      // cut outside a strip, two segments that are not adjacent.
+      return reply.code(err.statusCode).send({ error: err.code, message: err.message });
     }
     if (err instanceof PathConfinementError) {
       // Containment of a path-traversal mistake, not an authentication failure.
@@ -54,6 +74,8 @@ export function buildServer(config: Config): BuiltServer {
   registerFolderRoutes(app, config, sessions);
   registerSessionRoutes(app, sessions);
   registerFileRoutes(app, sessions);
+  registerStripRoutes(app, sessions);
+  registerPersistRoutes(app, sessions);
 
   registerWebUi(app);
 

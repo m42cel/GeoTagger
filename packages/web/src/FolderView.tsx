@@ -11,8 +11,19 @@ import { errorText } from './App.js';
 import { ScanProgress } from './ScanProgress.js';
 import { FileGrid } from './FileGrid.js';
 import { StripList } from './StripList.js';
+import { TimestampQuestion } from './TimestampQuestion.js';
+import { PersistDialog } from './PersistDialog.js';
+import { AlignmentView } from './alignment/AlignmentView.js';
 
-/** What an open folder shows once phase 0 has scanned it. */
+/**
+ * What an open folder shows, following the startup flow of SPEC §6.1: the scan, then
+ * the timestamp question, then the work.
+ *
+ * Phase 1 finishes at the alignment view; the map that the question's other answer
+ * leads to is phase 2.
+ */
+type View = 'question' | 'files' | 'alignment';
+
 export function FolderView({
   session,
   onSessionChange,
@@ -24,6 +35,8 @@ export function FolderView({
   const [data, setData] = useState<FilesResponse | null>(null);
   const [strips, setStrips] = useState<StripsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<View>(session.timestampQuestionPending ? 'question' : 'files');
+  const [persisting, setPersisting] = useState(false);
 
   const refresh = useCallback(() => {
     Promise.all([api.files(), api.strips()])
@@ -51,21 +64,51 @@ export function FolderView({
     return unsubscribe;
   }, [refresh, session.folderId]);
 
-  const regroup = useCallback(
-    (mode: GroupingMode) => {
-      api
-        .regroup(mode)
-        .then(setStrips)
-        .catch((err: unknown) => setError(errorText(err)));
+  const answerQuestion = useCallback(
+    (next: View) => {
+      setView(next);
+      // Recorded so reopening a folder whose clocks were sorted out weeks ago does
+      // not ask again; the alignment view stays reachable either way.
+      api.answerTimestampQuestion().then(onSessionChange).catch(() => undefined);
     },
-    [],
+    [onSessionChange],
   );
+
+  const regroup = useCallback((mode: GroupingMode) => {
+    api.regroup(mode).then(setStrips).catch((err: unknown) => setError(errorText(err)));
+  }, []);
 
   const rescan = useCallback(() => {
     api.rescan().then(onSessionChange).catch((err: unknown) => setError(errorText(err)));
   }, [onSessionChange]);
 
-  const files = data?.files ?? [];
+  if (view === 'question') {
+    return (
+      <section className="folder-view">
+        <ScanProgress status={scan} onRescan={rescan} />
+        <TimestampQuestion
+          onFixTimestamps={() => answerQuestion('alignment')}
+          onSkip={() => answerQuestion('files')}
+        />
+      </section>
+    );
+  }
+
+  if (view === 'alignment') {
+    return (
+      <section className="folder-view">
+        {persisting && (
+          <PersistDialog
+            onClose={(wrote) => {
+              setPersisting(false);
+              if (wrote) refresh();
+            }}
+          />
+        )}
+        <AlignmentView onBack={() => setView('files')} onOpenPersist={() => setPersisting(true)} />
+      </section>
+    );
+  }
 
   return (
     <section className="folder-view">
@@ -79,18 +122,27 @@ export function FolderView({
         </p>
       )}
 
-      {/*
-        The timestamp question of SPEC §6.1 belongs here, but both of its answers lead
-        to views that do not exist yet — the alignment view is phase 1 and the map is
-        phase 2 — so phase 0 shows the scan result instead of asking it.
-      */}
-      <div className="panels">
-        <StripList
-          strips={strips}
-          devices={data?.devices ?? []}
-          onRegroup={regroup}
+      <div className="view-actions">
+        <button type="button" className="primary" onClick={() => setView('alignment')}>
+          Fix timestamps
+        </button>
+        <button type="button" className="ghost" onClick={() => setPersisting(true)}>
+          Persist changes…
+        </button>
+      </div>
+
+      {persisting && (
+        <PersistDialog
+          onClose={(wrote) => {
+            setPersisting(false);
+            if (wrote) refresh();
+          }}
         />
-        <FileGrid files={files} assignments={strips?.assignments ?? {}} />
+      )}
+
+      <div className="panels">
+        <StripList strips={strips} devices={data?.devices ?? []} onRegroup={regroup} />
+        <FileGrid files={data?.files ?? []} assignments={strips?.assignments ?? {}} />
       </div>
     </section>
   );

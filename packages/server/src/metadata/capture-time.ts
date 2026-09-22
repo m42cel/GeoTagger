@@ -1,4 +1,9 @@
 import type { CaptureTime, CaptureTimeSource } from '@geotagger/shared';
+import { naiveToMs } from '@geotagger/shared';
+
+// Re-exported so callers reach one implementation of the naive-to-ms convention; it
+// lives in the shared package because the browser needs the same arithmetic (§4.3).
+export { naiveToMs };
 
 /**
  * One date candidate, reduced to the only two things that matter: the wall-clock
@@ -112,11 +117,4 @@ export function parseTimestampFromFilename(filename: string): string | null {
     if (isPlausible(iso)) return iso;
   }
   return null;
-}
-
-/** Naive local ISO string to epoch ms, read as if UTC. Ordering and differences only. */
-export function naiveToMs(localIso: string): number | null {
-  if (!localIso) return null;
-  const ms = Date.parse(`${localIso}Z`);
-  return Number.isFinite(ms) ? ms : null;
 }

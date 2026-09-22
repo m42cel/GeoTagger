@@ -4,6 +4,7 @@ import { kindForExtension } from '@geotagger/shared';
 import type { ScannedFile } from '../db/store.js';
 import { GEOTAGGER_DIR } from '../db/store.js';
 import { toRelPath } from '../paths.js';
+import { signatureOf } from '../db/store.js';
 
 /** Directories that never hold the user's media and cost time to descend into. */
 const SKIP_DIRS = new Set([
@@ -63,13 +64,14 @@ export function* walkMedia(root: string): Generator<ScannedFile> {
       } catch {
         continue;
       }
+      const { sizeBytes, mtime } = signatureOf(stat);
       yield {
         relPath: toRelPath(root, abs),
         filename: entry.name,
         ext,
         kind,
-        sizeBytes: stat.size,
-        mtime: Math.floor(stat.mtimeMs),
+        sizeBytes,
+        mtime,
       };
     }
   }

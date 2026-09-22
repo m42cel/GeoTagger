@@ -1,0 +1,255 @@
+import { useEffect, useState } from 'react';
+import type { CaptureTimeSource, FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
+import {
+  driftSecondsPerHour,
+  formatInstant,
+  formatOffset,
+  formatUtcOffset,
+  parseOffsetSeconds,
+  parseUtcOffsetMinutes,
+  rampIsDefined,
+} from '@geotagger/shared';
+
+/**
+ * The detail strip under the lanes (SPEC §6.2).
+ *
+ * The numeric fields are not a convenience: at trip zoom one pixel covers minutes, so
+ * typing and keyboard nudging are the only ways to reach the second-level precision the
+ * correction actually needs (SPEC §14.4).
+ */
+export function SelectionPanel({
+  strip,
+  fileCountLabel,
+  mergeTargetId,
+  cursorMs,
+  displayUtcOffsetMinutes,
+  selectedFile,
+  selectedLine,
+  onSetOffsets,
+  onCut,
+  onMerge,
+  onReset,
+  onSetUtcOffset,
+  onPin,
+}: {
+  strip: StripRecord | null;
+  fileCountLabel: string;
+  mergeTargetId: number | null;
+  cursorMs: number | null;
+  displayUtcOffsetMinutes: number;
+  selectedFile: FileRecord | null;
+  selectedLine: TimelineFile | null;
+  onSetOffsets: (startSeconds: number, endSeconds: number) => void;
+  onCut: (atMs: number) => void;
+  onMerge: (rightStripId: number) => void;
+  onReset: () => void;
+  onSetUtcOffset: (minutes: number | null) => void;
+  onPin: () => void;
+}) {
+  if (strip === null) {
+    return (
+      <div className="selection-panel muted">
+        Select a strip to set its offset exactly, stretch it, cut it or lock it.
+      </div>
+    );
+  }
+
+  const stretchable = rampIsDefined(strip);
+  const drift = driftSecondsPerHour(strip);
+
+  return (
+    <div className="selection-panel">
+      <div className="selection-head">
+        <strong>{strip.label}</strong>
+        <span className="muted">{fileCountLabel}</span>
+        {strip.locked && <span className="badge locked">locked</span>}
+      </div>
+
+      <div className="selection-fields">
+        <label>
+          offset
+          <OffsetField
+            value={strip.offsetStartSeconds}
+            disabled={strip.locked}
+            onCommit={(seconds) =>
+              onSetOffsets(seconds, strip.offsetEndSeconds + (seconds - strip.offsetStartSeconds))
+            }
+          />
+        </label>
+        <label title={stretchable ? undefined : 'All files in this strip share one timestamp, so a ramp is undefined.'}>
+          end
+          <OffsetField
+            value={strip.offsetEndSeconds}
+            disabled={strip.locked || !stretchable}
+            onCommit={(seconds) => onSetOffsets(strip.offsetStartSeconds, seconds)}
+          />
+        </label>
+        <span className="muted drift">
+          {drift === 0 ? 'no drift' : `drift ≈ ${drift.toFixed(1)} s/hour`}
+        </span>
+        <label>
+          UTC
+          <UtcField
+            value={strip.utcOffsetOverrideMinutes}
+            disabled={strip.locked}
+            onCommit={onSetUtcOffset}
+          />
+        </label>
+      </div>
+
+      <div className="selection-actions">
+        <button
+          type="button"
+          className="ghost"
+          disabled={strip.locked || cursorMs === null}
+          title={cursorMs === null ? 'Point at the axis to place the cut' : undefined}
+          onClick={() => cursorMs !== null && onCut(cursorMs)}
+        >
+          ✂ cut at cursor
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          disabled={mergeTargetId === null || strip.locked}
+          title={mergeTargetId === null ? 'No adjacent segment of this strip to merge with' : undefined}
+          onClick={() => mergeTargetId !== null && onMerge(mergeTargetId)}
+        >
+          merge
+        </button>
+        <button type="button" className="ghost" disabled={strip.locked} onClick={onReset}>
+          reset
+        </button>
+      </div>
+
+      {selectedFile && selectedLine && (
+        <dl className="file-detail">
+          <dt>file</dt>
+          <dd>{selectedFile.filename}</dd>
+          <dt>reads</dt>
+          <dd>
+            {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}{' '}
+            <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
+              {SOURCE_LABEL[selectedFile.captureTimeSource]}
+              {weakSource(selectedFile.captureTimeSource) && ' — weak source'}
+            </em>
+          </dd>
+          <dt>corrected</dt>
+          <dd>
+            {selectedLine.effectiveMs === null
+              ? '—'
+              : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
+            <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
+          </dd>
+          <dd className="pin-action">
+            <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
+              set true time…
+            </button>
+          </dd>
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/** A text field that keeps what was typed until it parses, so a half-typed offset survives. */
+function OffsetField({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled: boolean;
+  onCommit: (seconds: number) => void;
+}) {
+  const [text, setText] = useState(() => formatOffset(value));
+  useEffect(() => setText(formatOffset(value)), [value]);
+
+  const commit = (): void => {
+    const parsed = parseOffsetSeconds(text);
+    if (parsed === null || parsed === value) setText(formatOffset(value));
+    else onCommit(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      className="offset-field"
+      value={text}
+      disabled={disabled}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') setText(formatOffset(value));
+        // The lanes below nudge on arrow keys; inside a text field they belong to the
+        // caret.
+        e.stopPropagation();
+      }}
+    />
+  );
+}
+
+function UtcField({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number | null;
+  disabled: boolean;
+  onCommit: (minutes: number | null) => void;
+}) {
+  const [text, setText] = useState(() => (value === null ? '' : formatUtcOffset(value)));
+  useEffect(() => setText(value === null ? '' : formatUtcOffset(value)), [value]);
+
+  return (
+    <input
+      type="text"
+      className="offset-field narrow"
+      value={text}
+      disabled={disabled}
+      placeholder="inherited"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        if (text.trim() === '') {
+          if (value !== null) onCommit(null);
+          return;
+        }
+        const parsed = parseUtcOffsetMinutes(text);
+        if (parsed === null) setText(value === null ? '' : formatUtcOffset(value));
+        else if (parsed !== value) onCommit(parsed);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        e.stopPropagation();
+      }}
+    />
+  );
+}
+
+const SOURCE_LABEL: Record<CaptureTimeSource, string> = {
+  'exif:DateTimeOriginal': 'EXIF original',
+  'exif:CreateDate': 'EXIF created',
+  'quicktime:CreateDate': 'QuickTime UTC',
+  'xmp:DateCreated': 'XMP',
+  'exif:GPSDateTime': 'GPS satellite',
+  filename: 'filename',
+  'file:ModifyDate': 'file mtime',
+  none: 'no date',
+};
+
+const UTC_SOURCE_LABEL: Record<TimelineFile['utcOffsetSource'], string> = {
+  file: 'from the file',
+  inherited: 'inherited from GPS',
+  strip: 'set on the strip',
+  'file-override': 'set on the file',
+  folder: 'answered for the folder',
+  assumed: 'assumed UTC',
+};
+
+/**
+ * A time recovered from a filename or an mtime is flagged, because a wrong timestamp
+ * corrupts interpolation invisibly (SPEC §6.2).
+ */
+function weakSource(source: CaptureTimeSource): boolean {
+  return source === 'filename' || source === 'file:ModifyDate' || source === 'none';
+}

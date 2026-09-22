@@ -6,12 +6,13 @@ corrects the camera clocks those timestamps depend on.
 
 See [SPEC.md](SPEC.md) for the full design.
 
-## Status — phase 0 (foundation)
+## Status — phase 1 (time correction)
 
-The scanning foundation is in place. There is no map and no time correction yet;
-phase 1 adds the alignment view, phase 2 the map.
+**A usable release: a standalone timestamp-correction tool.** There is no map yet —
+that is phase 2 — but phases 0 and 1 together are a complete application for putting a
+folder's clocks right and writing the result back to the files.
 
-What works today:
+Phase 0, the foundation:
 
 - server-side folder browser rooted at `PHOTO_ROOT`, with recursive media counts and
   a recent-folders list
@@ -24,6 +25,34 @@ What works today:
   frames and as the HEIC fallback — all rendered the right way up, including the
   embedded previews that carry no orientation of their own
 - the per-folder SQLite edit store in `.geotagger/`, with size+mtime change detection
+
+Phase 1, time correction:
+
+- **the alignment view** — a shared, zoomable, proportional time axis with one lane per
+  strip. Drag a strip's body to shift every file in it; drag the handles on a selected
+  strip to stretch it, which is linear clock drift. Magnetic snapping pulls a strip onto
+  the photos of other lanes and onto whole minutes and hours (hold `Alt` to disable it);
+  `←`/`→` nudge by a second, `Shift` by a minute, `Ctrl`/`Cmd` by an hour. Colliding
+  thumbnails stack with a count and separate as you zoom in; below the readable
+  threshold, strips render as activity density bars. Only the visible window is drawn.
+- **cut, merge, lock and reset** — cut a strip where a camera's clock changed partway
+  through the trip; segments stay in one lane until dragging makes them overlap, at
+  which point the moved one is promoted to a lane of its own. Locking freezes a strip
+  against every change while leaving it a snap target for the others.
+- **set true time** — right-click a photo and enter the real time from a clock in the
+  shot; its whole strip shifts so it lands there, correcting the files before it as
+  well as after it.
+- **UTC offset inheritance** — files carrying both coordinates and a trustworthy clock
+  establish the offset over each period of the trip by an offline timezone lookup, and
+  local-time-only files in that period inherit it. Overridable per strip; asked for once
+  when the folder holds nothing to inherit from.
+- **advisory observations** — satellite time against each camera's own clock, and
+  shot-density correlation between strips with a confidence figure. Nothing is ever
+  applied automatically.
+- **the file writer** — persist dialog and per-file progress, one ExifTool write per
+  file, each one re-read and verified, originals preserved in a custom XMP namespace,
+  staleness checks against files that changed on disk, per-file revert, and an
+  operation log.
 
 ## Running it
 
@@ -61,17 +90,21 @@ npm run dev:web                         # Vite on :5173, proxying /api to the ba
 | `PORT` | `8080` | |
 | `TILE_CACHE_DIR` | `/cache/tiles` | Map tiles (phase 2) |
 | `PMTILES_DIR` | `/cache/pmtiles` | Offline archives (phase 5) |
-| `STATE_DIR` | parent of `TILE_CACHE_DIR` | Recent-folders list |
+| `STATE_DIR` | parent of `TILE_CACHE_DIR` | Recent-folders list, ExifTool config |
 | `SCAN_CONCURRENCY` | `2` | Parallel metadata reads and thumbnail renders |
 | `LOG_LEVEL` | `info` | |
 
 ## Layout
 
 ```
-packages/shared   domain types shared by both ends
-packages/server   Fastify API, scanner, metadata, thumbnails, SQLite store
-packages/web      React UI
+packages/shared   domain types, and the time arithmetic both ends need
+packages/server   Fastify API, scanner, metadata, strips, observations, writer, store
+packages/web      React UI, including the alignment view
 ```
+
+The clock arithmetic of SPEC §4.3 lives in `packages/shared` rather than on the server
+because the browser recomputes it on every pointer move while a strip is being dragged,
+where a round trip per frame is not an option.
 
 ## Tests
 

@@ -1,5 +1,5 @@
 import type { FileRecord, DeviceRecord } from './media.js';
-import type { GroupingMode, StripRecord } from './strips.js';
+import type { GroupingMode, StripRecord, TimelineFile, UtcOffsetRule } from './strips.js';
 
 /** One entry in the server-side folder browser (SPEC §6.1). */
 export interface FolderEntry {
@@ -60,6 +60,8 @@ export interface SessionState {
   folderId: string;
   fileCount: number;
   groupingMode: GroupingMode;
+  /** True until the timestamp question of SPEC §6.1 has been answered for this folder. */
+  timestampQuestionPending: boolean;
   scan: ScanStatus;
 }
 
@@ -77,13 +79,83 @@ export interface StripsResponse {
   strips: StripRecord[];
   /** file id -> strip id, for every file in the folder. */
   assignments: Record<number, number>;
+  /** True while there is a strip change to undo (SPEC §4.3, §4.4). */
+  canUndo: boolean;
+}
+
+/**
+ * Everything the alignment view needs in one response: the strips, and where every
+ * file lands on the absolute timeline once §4.2 and §4.3 have been applied.
+ *
+ * It is one request rather than several because the view is useless with a partial
+ * answer, and the browser recomputes the §4.3 arithmetic itself while dragging.
+ */
+export interface TimelineResponse extends StripsResponse {
+  files: TimelineFile[];
+  utcOffsetRules: UtcOffsetRule[];
+  /** The offset the axis labels are drawn in — the folder's most common one. */
+  displayUtcOffsetMinutes: number;
+  /**
+   * True when no file in the folder knows its UTC offset, so §4.2 has nothing to
+   * inherit from and the user has to be asked once.
+   */
+  needsUtcOffsetAnswer: boolean;
+  folderUtcOffsetMinutes: number | null;
 }
 
 export interface RegroupRequest {
   mode: GroupingMode;
+  /** For `manual`: the files to make one strip from. */
+  fileIds?: number[];
+  label?: string;
+}
+
+export interface SetOffsetRequest {
+  offsetStartSeconds: number;
+  /** Omit for a constant offset; give it only when a stretch handle was dragged. */
+  offsetEndSeconds?: number;
+}
+
+export interface CutRequest {
+  /** Where to cut, as an absolute instant on the shared axis. */
+  atEffectiveMs: number;
+}
+
+export interface MergeRequest {
+  leftStripId: number;
+  rightStripId: number;
+}
+
+export interface LaneRequest {
+  lane: number;
+}
+
+export interface LockRequest {
+  locked: boolean;
+}
+
+export interface PinTrueTimeRequest {
+  fileId: number;
+  /** The real wall clock of that one file, naive ISO, in the display offset. */
+  trueLocalIso: string;
+}
+
+export interface StripUtcOffsetRequest {
+  /** Minutes east of UTC, or null to go back to what §4.2 infers. */
+  utcOffsetMinutes: number | null;
+}
+
+export interface FolderUtcOffsetRequest {
+  utcOffsetMinutes: number;
 }
 
 export interface ApiError {
   error: string;
   message: string;
+}
+
+/** The answer to the startup question of SPEC §6.1 step 4, remembered per folder. */
+export interface TimestampQuestionState {
+  /** True until the user has answered it once for this folder. */
+  pending: boolean;
 }

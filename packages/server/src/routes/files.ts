@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { FilesResponse, RegroupRequest, StripsResponse } from '@geotagger/shared';
+import type { FilesResponse } from '@geotagger/shared';
 import type { SessionManager } from '../session.js';
 import { generateThumb, thumbPath, type ThumbTier } from '../thumbs/generator.js';
 
@@ -11,29 +11,6 @@ export function registerFileRoutes(app: FastifyInstance, sessions: SessionManage
   });
 
   app.get('/api/devices', async () => sessions.require().store.listDevices());
-
-  app.get('/api/strips', async (): Promise<StripsResponse> => {
-    const session = sessions.require();
-    return {
-      groupingMode: session.store.groupingMode,
-      strips: session.store.listStrips(),
-      assignments: session.store.stripAssignments(),
-    };
-  });
-
-  app.post<{ Body: RegroupRequest }>('/api/strips/regroup', async (req, reply): Promise<StripsResponse> => {
-    const session = sessions.require();
-    const mode = req.body?.mode;
-    if (mode !== 'device' && mode !== 'subfolder' && mode !== 'manual') {
-      return reply.code(400).send({ error: 'bad_request', message: `Unknown grouping mode: ${String(mode)}` });
-    }
-    session.regroup(mode);
-    return {
-      groupingMode: session.store.groupingMode,
-      strips: session.store.listStrips(),
-      assignments: session.store.stripAssignments(),
-    };
-  });
 
   app.get<{ Params: { id: string } }>('/api/files/:id/thumb', (req, reply) =>
     serveThumb(sessions, req.params.id, 'thumb', reply),

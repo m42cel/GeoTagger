@@ -1,15 +1,15 @@
 import type { DeviceRecord, GroupingMode, StripsResponse } from '@geotagger/shared';
+import { formatOffset } from '@geotagger/shared';
 
 const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
   { mode: 'device', label: 'By device', hint: 'Make, model and serial from EXIF' },
   { mode: 'subfolder', label: 'By subfolder', hint: 'Useful when already sorted by camera or person' },
-  { mode: 'manual', label: 'Manual', hint: 'Build strips by selecting files (phase 1)' },
+  { mode: 'manual', label: 'Manual', hint: 'Pick the files in the alignment view and make a strip from them' },
 ];
 
 /**
- * The strips a folder was grouped into (SPEC §4.4). Phase 0 builds them and shows
- * them; dragging them on a shared time axis to correct clocks is phase 1, so the
- * offsets displayed here are all zero.
+ * The strips a folder was grouped into (SPEC §4.4), as a plain list. Correcting the
+ * clocks happens in the alignment view; this is the overview beside the file grid.
  */
 export function StripList({
   strips,
@@ -33,7 +33,9 @@ export function StripList({
             type="button"
             className={`mode${strips.groupingMode === mode ? ' active' : ''}`}
             title={hint}
-            disabled={mode === 'manual'}
+            // A manual strip is made from a selection, and the selection is made on
+            // the time axis — there is nothing to select here.
+            disabled={mode === 'manual' && strips.groupingMode !== 'manual'}
             onClick={() => {
               // Switching mode rebuilds from scratch, discarding cuts and offsets
               // (SPEC §4.4), so the user is warned before it happens.
@@ -61,6 +63,10 @@ export function StripList({
             <span className="muted">
               {strip.fileCount.toLocaleString()} files
               {strip.firstCaptureMs !== null && ` · ${span(strip.firstCaptureMs, strip.lastCaptureMs)}`}
+              {strip.offsetStartSeconds !== 0 || strip.offsetEndSeconds !== 0
+                ? ` · ${formatOffset(strip.offsetStartSeconds)}`
+                : ''}
+              {strip.locked && ' · locked'}
             </span>
           </li>
         ))}

@@ -16,9 +16,26 @@ import {
  * `exiftool-vendored` (SPEC §2).
  */
 let shared: ExifTool | null = null;
+let configPath: string | null = null;
+
+/**
+ * Points ExifTool at the config declaring GeoTagger's XMP namespace (SPEC §9.3).
+ *
+ * `-config` has to be the very first argument ExifTool sees, so it goes in front of
+ * the `-stay_open` pair the process is launched with. Must be called before the first
+ * read: the process lives for the life of the server and its launch args are fixed.
+ */
+export function configureExiftool(path: string | null): void {
+  if (shared !== null) throw new Error('ExifTool is already running; configure it before the first read');
+  configPath = path;
+}
 
 export function exiftool(): ExifTool {
-  shared ??= new ExifTool({ taskTimeoutMillis: 20_000, maxProcs: 1 });
+  shared ??= new ExifTool({
+    taskTimeoutMillis: 20_000,
+    maxProcs: 1,
+    exiftoolArgs: [...(configPath === null ? [] : ['-config', configPath]), '-stay_open', 'True', '-@', '-'],
+  });
   return shared;
 }
 
@@ -100,7 +117,8 @@ export function metadataFromTags(
   tags: RawTags,
   filename: string,
 ): { metadata: FileMetadata; device: ReturnType<typeof collectDevice> } {
-  const capture = resolveCaptureTime(collectDateCandidates(tags), filename);
+  const candidates = collectDateCandidates(tags);
+  const capture = resolveCaptureTime(candidates, filename);
   const gps = collectGps(tags);
   const dims = collectDimensions(tags);
   const device = collectDevice(tags);
@@ -115,6 +133,9 @@ export function metadataFromTags(
       captureTimeRaw: capture.source === 'none' ? null : capture.localIso,
       captureTimeSource: capture.source,
       captureUtcOffsetMinutes: capture.utcOffsetMinutes,
+      // Kept even when another source won the capture time: satellite UTC against the
+      // camera's own clock is the exact-offset observation of SPEC §4.5.
+      gpsTimeUtc: candidates['exif:GPSDateTime']?.localIso ?? null,
       origGpsPresent: gps !== null,
       origLat: gps?.lat ?? null,
       origLon: gps?.lon ?? null,

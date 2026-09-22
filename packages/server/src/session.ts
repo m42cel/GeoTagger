@@ -4,7 +4,7 @@ import type { GroupingMode, SessionState } from '@geotagger/shared';
 import type { Config } from './config.js';
 import { FolderStore } from './db/store.js';
 import { Scanner } from './scan/scanner.js';
-import { buildStrips } from './strips/grouping.js';
+import { StripService } from './strips/service.js';
 import { resolveWithinRoot, toRelPath } from './paths.js';
 
 export type Logger = (msg: string, err?: unknown) => void;
@@ -18,6 +18,7 @@ export type Logger = (msg: string, err?: unknown) => void;
 export class Session {
   readonly store: FolderStore;
   readonly scanner: Scanner;
+  readonly strips: StripService;
   readonly absPath: string;
   readonly relPath: string;
 
@@ -26,6 +27,7 @@ export class Session {
     this.relPath = relPath;
     this.store = store;
     this.scanner = new Scanner(store, absPath, config, log);
+    this.strips = new StripService(store);
   }
 
   static open(config: Config, relPath: string, log: Logger): Session {
@@ -44,23 +46,13 @@ export class Session {
       folderId: this.store.folderId,
       fileCount: this.store.fileCount(),
       groupingMode: this.store.groupingMode,
+      timestampQuestionPending: !this.store.timestampQuestionAnswered,
       scan: this.scanner.getStatus(),
     };
   }
 
-  /**
-   * Rebuilds every strip from the current grouping mode. Switching mode discards
-   * cuts and offsets, which is why the UI warns first (SPEC §4.4).
-   */
   regroup(mode: GroupingMode): void {
-    if (mode === 'manual') {
-      // Manual strips are built by selecting files; the rebuild is a no-op beyond
-      // recording the mode, and the existing strips are kept.
-      this.store.groupingMode = 'manual';
-      return;
-    }
-    const built = buildStrips(mode, this.store.listFiles(), this.store.listDevices());
-    this.store.replaceStrips(mode, built);
+    this.strips.regroup(mode);
   }
 
   /**
@@ -72,12 +64,18 @@ export class Session {
    * first capture, so a stale set would show the wrong lane order.
    */
   regroupIfNeeded(): void {
+    const files = this.store.listFiles();
+    // The periods of SPEC §4.2 come from the files that know their own offset, so
+    // they can only change when the set of files does — recomputing them here rather
+    // than per request keeps a timezone lookup off the read path.
+    this.strips.refreshUtcOffsetRules(files);
+
     const mode = this.store.groupingMode;
     if (mode === 'manual') return;
     const summary = this.scanner.getStatus().summary;
     const contentMoved = summary !== null && (summary.added > 0 || summary.changed > 0 || summary.missing > 0);
     if (this.store.listStrips().length === 0 || this.store.unassignedFileIds().length > 0 || contentMoved) {
-      this.regroup(mode);
+      this.strips.rebuildAfterScan(mode);
     }
   }
 

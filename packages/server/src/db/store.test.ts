@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FolderStore, type ScannedFile } from './store.js';
+import { FolderStore, contentSig, signatureOf, type ScannedFile } from './store.js';
 
 let folder: string;
 let store: FolderStore;
@@ -26,6 +26,18 @@ beforeEach(() => {
 afterEach(() => {
   store.close();
   fs.rmSync(folder, { recursive: true, force: true });
+});
+
+describe('signatureOf — SPEC §8.3 change detection', () => {
+  it('reduces a sub-millisecond mtime the same way every caller does', () => {
+    // A scan that floors and a write that rounds disagree about every file whose
+    // mtime has a fraction, and each one then looks as though somebody else had
+    // changed it underneath the app.
+    const stat = { size: 525, mtimeMs: 1_790_092_978_112.589 };
+    expect(signatureOf(stat).mtime).toBe(1_790_092_978_112);
+    expect(signatureOf(stat).sig).toBe(contentSig(525, 1_790_092_978_112));
+    expect(signatureOf({ size: 525, mtimeMs: 1_790_092_978_112.999 }).sig).toBe(signatureOf(stat).sig);
+  });
 });
 
 describe('FolderStore — SPEC §8.1 location', () => {
@@ -125,6 +137,7 @@ describe('metadata and strips', () => {
         captureTimeRaw: '2024-07-12T14:32:10',
         captureTimeSource: 'exif:DateTimeOriginal',
         captureUtcOffsetMinutes: 120,
+        gpsTimeUtc: '2024-07-12T12:32:08',
         origGpsPresent: true,
         origLat: 41.9028,
         origLon: 12.4964,

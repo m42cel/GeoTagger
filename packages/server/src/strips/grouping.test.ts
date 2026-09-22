@@ -19,6 +19,7 @@ function file(partial: Partial<FileRecord> & { relPath: string }): FileRecord {
     captureTimeRaw: null,
     captureTimeSource: 'none',
     captureUtcOffsetMinutes: null,
+    gpsTimeUtc: null,
     origGpsPresent: false,
     origLat: null,
     origLon: null,

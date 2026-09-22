@@ -36,6 +36,19 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionMan
   app.get('/api/session/scan-status', async (): Promise<ScanStatus> => sessions.require().scanner.getStatus());
 
   /**
+   * Records that the timestamp question of SPEC §6.1 has been answered.
+   *
+   * The answer itself is not stored — both roads stay open afterwards, and the
+   * alignment view is reachable at any time. Only the fact that it was asked is, so
+   * that reopening a folder whose clocks were sorted out weeks ago does not ask again.
+   */
+  app.post('/api/session/timestamp-question', async (): Promise<SessionState> => {
+    const session = sessions.require();
+    session.store.timestampQuestionAnswered = true;
+    return session.state();
+  });
+
+  /**
    * Progress as Server-Sent Events (SPEC §10.2). A stream rather than polling so the
    * per-file progress of a long first scan actually reaches the UI.
    */

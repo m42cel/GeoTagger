@@ -1,14 +1,13 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * The per-folder edit store (SPEC §8.2).
  *
- * The whole schema is created up front even though phase 0 only writes to
- * `meta`, `files`, `devices`, `strips` and `strip_files`: the later tables cost
- * nothing empty, and creating them now means a folder scanned in phase 0 needs no
- * migration when phase 1 starts writing corrections into it.
+ * The whole schema is created up front even though phase 1 still writes nothing to
+ * `edits`: the later tables cost nothing empty, and creating them now means a folder
+ * scanned today needs no migration when phase 4 starts writing positions into it.
  */
 const STATEMENTS = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -47,6 +46,7 @@ CREATE TABLE IF NOT EXISTS files (
   capture_time_raw           TEXT,
   capture_time_source        TEXT NOT NULL DEFAULT 'none',
   capture_utc_offset_minutes INTEGER,
+  gps_time_utc               TEXT,
   orig_gps_present           INTEGER NOT NULL DEFAULT 0,
   orig_lat                   REAL,
   orig_lon                   REAL,
@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS strips (
   offset_start_seconds  INTEGER NOT NULL DEFAULT 0,
   offset_end_seconds    INTEGER NOT NULL DEFAULT 0,
   locked                INTEGER NOT NULL DEFAULT 0,
+  utc_offset_override_minutes INTEGER,
   created_at            INTEGER NOT NULL
 );
 
@@ -86,7 +87,8 @@ CREATE TABLE IF NOT EXISTS utc_offset_rules (
   from_utc       INTEGER NOT NULL,
   to_utc         INTEGER NOT NULL,
   offset_minutes INTEGER NOT NULL,
-  source         TEXT NOT NULL
+  source         TEXT NOT NULL,
+  zone           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edits (
@@ -106,6 +108,7 @@ CREATE TABLE IF NOT EXISTS persisted (
   wrote_gps              INTEGER NOT NULL DEFAULT 0,
   wrote_time             INTEGER NOT NULL DEFAULT 0,
   original_snapshot_json TEXT,
+  applied_json           TEXT,
   exiftool_result        TEXT
 );
 
@@ -125,4 +128,32 @@ export function applySchema(db: Database.Database): void {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(STATEMENTS);
+  migrate(db);
+}
+
+/**
+ * Brings a store written by an older GeoTagger up to the current schema.
+ *
+ * `CREATE TABLE IF NOT EXISTS` above only builds what is missing, so a folder that
+ * was scanned under schema 1 keeps its tables exactly as they were — the columns
+ * phase 1 added have to be put in by hand. Each is nullable with a harmless default,
+ * so adding it is all the migration there is: a folder scanned yesterday opens today
+ * without a rescan.
+ */
+function migrate(db: Database.Database): void {
+  addColumnIfMissing(db, 'files', 'gps_time_utc', 'TEXT');
+  addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
+  addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
+  addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
+}
+
+function addColumnIfMissing(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

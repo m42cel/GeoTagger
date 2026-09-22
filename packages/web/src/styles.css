@@ -75,6 +75,8 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   padding: 5px 10px;
 }
 
+.ghost:disabled, .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .link {
   background: none;
   border: none;
@@ -244,3 +246,292 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .detail dt { color: var(--muted); }
 .detail dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .detail em { font-style: normal; color: var(--muted); }
+
+/* ---- startup question (SPEC §6.1) ---- */
+
+.question-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 620px;
+  margin: 24px auto;
+  text-align: center;
+}
+.question-card h1 { font-size: 18px; margin-bottom: 8px; }
+.question-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+
+.view-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+
+/* ---- alignment view (SPEC §6.2) ---- */
+
+.alignment { display: flex; flex-direction: column; gap: 12px; }
+
+.align-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.align-toolbar label, .align-toolbar .zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.align-toolbar select { font: inherit; text-transform: none; letter-spacing: 0; }
+.align-toolbar .primary { margin-left: auto; }
+
+/* Observations sit beside the lanes (SPEC §6.2), and collapse out of the way. */
+.align-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .align-main { grid-template-columns: 1fr; } }
+
+.align-grid {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.lane-headers { border-right: 1px solid var(--line); }
+
+.lane-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.lane-label {
+  font-weight: 550;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-label em { font-style: normal; color: var(--muted); font-weight: 400; font-size: 11px; }
+.lane-controls { display: flex; gap: 4px; flex-wrap: wrap; }
+.lane-controls > span { display: flex; gap: 4px; align-items: center; }
+.segment-no { font-style: normal; font-size: 10px; color: var(--muted); }
+
+.chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 10px;
+}
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/*
+ * The canvas is the shared axis. Everything inside is positioned in pixels derived
+ * from an instant, so the geometry and the arithmetic of SPEC §4.3 stay one thing.
+ */
+.lane-canvas {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+  touch-action: none;
+  outline: none;
+  padding-bottom: 22px;
+}
+.lane-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+.lane-row { position: relative; border-bottom: 1px solid var(--line); }
+
+.strip-layer { position: absolute; inset: 0; }
+.strip-layer.selected .strip-hit { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.strip-layer.locked .strip-hit { cursor: not-allowed; border-style: dashed; }
+
+.strip-hit {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  cursor: grab;
+}
+.strip-hit:active { cursor: grabbing; }
+
+.strip-body { position: absolute; top: 5px; left: 0; right: 0; pointer-events: none; }
+.strip-body.empty { display: none; }
+
+.shot {
+  position: absolute;
+  top: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.shot.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.stack-count {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 9px;
+  line-height: 1;
+  padding: 1px 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+
+.density-bar { position: absolute; bottom: 4px; background: var(--accent); opacity: 0.6; border-radius: 1px; }
+
+/* Handles appear only on selection, so a strip cannot be stretched by accident. */
+.handle {
+  position: absolute;
+  top: 8px;
+  width: 8px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: ew-resize;
+}
+
+.cursor-line { position: absolute; top: 0; bottom: 22px; width: 1px; background: var(--accent); opacity: 0.5; pointer-events: none; }
+
+.drag-readout {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.drag-readout em { font-style: normal; opacity: 0.7; }
+
+.time-axis { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; border-top: 1px solid var(--line); }
+.tick {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tick.major { color: var(--fg); font-weight: 600; }
+
+/* ---- selection panel ---- */
+
+.selection-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.selection-head { display: flex; align-items: center; gap: 10px; }
+.badge.locked { position: static; background: var(--weak); }
+
+.selection-fields { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.selection-fields label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.offset-field {
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+}
+.offset-field.narrow { width: 80px; }
+.offset-field:disabled { opacity: 0.5; }
+.drift { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.selection-actions { display: flex; gap: 8px; }
+
+.file-detail {
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 2px 12px;
+  font-size: 12px;
+}
+.file-detail dt { color: var(--muted); }
+.file-detail dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.file-detail dd.pin-action { grid-column: 2; font-family: inherit; margin-top: 4px; }
+.file-detail em { font-style: normal; color: var(--muted); }
+
+/* ---- observations (SPEC §4.5) ---- */
+
+.observations summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+.observation-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.observation-list li { border-left: 2px solid var(--line); padding-left: 10px; }
+.observation-list p { margin: 2px 0 6px; }
+.observation-list em { font-style: normal; color: var(--weak); }
+.limits { color: var(--muted); font-size: 12px; margin: 12px 0 0; padding-left: 18px; }
+
+/* ---- persist dialog (SPEC §9.1) ---- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+  padding: 16px;
+}
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: min(560px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+}
+.modal h2 { text-transform: none; letter-spacing: 0; font-size: 16px; color: inherit; }
+.modal progress { width: 100%; height: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.persist-summary { list-style: none; margin: 0; padding: 0; font-size: 15px; }
+.persist-summary li { padding: 3px 0; }
+.persist-summary b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.persist-failures { list-style: none; margin: 10px 0 0; padding: 0; font-size: 12px; max-height: 220px; overflow: auto; }
+.persist-failures em { font-style: normal; color: var(--muted); }
+
+.banner.warn { color: var(--weak); display: grid; gap: 4px; }
+.banner.warn label { display: inline-flex; gap: 6px; align-items: center; color: var(--fg); }
+
+.utc-prompt form { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.utc-prompt input {
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  width: 110px;
+}
