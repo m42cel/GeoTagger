@@ -62,6 +62,11 @@ ENV NODE_ENV=production \
     LOG_LEVEL=info
 
 COPY --from=builder /app/node_modules              ./node_modules
+# npm's dedupe nests server's own copy of sharp (and the node-addon-api/semver
+# versions it needs) under the workspace instead of hoisting them to root, because
+# something else in the tree pins a different node-addon-api/semver. Root node_modules
+# alone won't have sharp — verify with `npm ls sharp` after any lockfile change.
+COPY --from=builder /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=builder /app/package.json              ./package.json
 COPY --from=builder /app/packages/shared/dist      ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
