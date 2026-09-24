@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import sharp from 'sharp';
 import type { FileRecord } from '@geotagger/shared';
 import { exiftool } from '../metadata/reader.js';
 
@@ -123,10 +122,16 @@ function message(err: unknown): string {
 /**
  * Resizes to `size` and writes a JPEG, the right way up.
  *
- * `.rotate()` with no argument applies the orientation carried by the input buffer
- * itself, which covers a whole image read off disk. When the input has none —
- * an extracted preview, or an ffmpeg-decoded still — `fallbackOrientation` supplies
- * the parent file's value and the transform is applied explicitly.
+ * `-autorotate` (ffmpeg's default) applies the orientation carried by the input
+ * buffer itself, which covers a whole image read off disk. When the input has
+ * none — an extracted preview, or an ffmpeg-decoded still — `fallbackOrientation`
+ * supplies the parent file's value and the transform is applied explicitly. The
+ * two never overlap in practice: callers only pass a non-null fallback for a
+ * buffer they know carries no tag of its own (see generateThumb).
+ *
+ * `min(size,i{w,h})` clamps the fit box to the source itself, so
+ * force_original_aspect_ratio=decrease — which shrinks to fit but does not
+ * refuse to enlarge — never scales a smaller source up to `size`.
  */
 async function downscale(
   input: Buffer,
@@ -134,35 +139,44 @@ async function downscale(
   size: number,
   fallbackOrientation: number | null,
 ): Promise<void> {
-  const pipeline = sharp(input, { failOn: 'none' });
-  const own = (await pipeline.metadata()).orientation ?? null;
+  const filters = [
+    orientationFilter(fallbackOrientation),
+    `scale='min(${size},iw)':'min(${size},ih)':force_original_aspect_ratio=decrease`,
+  ].filter((f): f is string => f !== null);
 
-  // The input's own tag wins: it describes the bytes actually being decoded.
-  const oriented = own !== null ? pipeline.rotate() : applyOrientation(pipeline, fallbackOrientation);
-
-  await oriented
-    .resize(size, size, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
-    .toFile(target);
+  await runFfmpegToFile(
+    [
+      '-loglevel', 'error',
+      '-i', 'pipe:0',
+      '-frames:v', '1',
+      '-vf', filters.join(','),
+      '-vcodec', 'mjpeg',
+      '-q:v', '4',
+      '-y', target,
+    ],
+    input,
+  );
 }
 
 /**
- * Applies an EXIF orientation (1–8) as explicit geometry.
+ * ffmpeg filter fragment that corrects an EXIF orientation (1–8) baked in as pixel
+ * geometry rather than a tag ffmpeg can autorotate from.
  *
- * The mapping is verified against sharp's own `.rotate()` for all eight values —
- * note that 5 and 7 are the two that are easy to transpose, since both combine a
- * quarter turn with a mirror in opposite directions.
+ * This is the standard EXIF-orientation-to-transpose table (the same one ffmpeg's
+ * own autorotate logic uses internally) rather than a hand-derived flip/rotate
+ * composition — 5 and 7 are the two that are easy to get backwards, since both
+ * combine a quarter turn with a mirror in opposite directions.
  */
-export function applyOrientation(pipeline: sharp.Sharp, orientation: number | null): sharp.Sharp {
+export function orientationFilter(orientation: number | null): string | null {
   switch (orientation) {
-    case 2: return pipeline.flop();
-    case 3: return pipeline.rotate(180);
-    case 4: return pipeline.flip();
-    case 5: return pipeline.rotate(270).flop();
-    case 6: return pipeline.rotate(90);
-    case 7: return pipeline.rotate(90).flop();
-    case 8: return pipeline.rotate(270);
-    default: return pipeline;
+    case 2: return 'hflip';
+    case 3: return 'hflip,vflip';
+    case 4: return 'vflip';
+    case 5: return 'transpose=cclock_flip';
+    case 6: return 'transpose=clock';
+    case 7: return 'transpose=clock_flip';
+    case 8: return 'transpose=cclock';
+    default: return null;
   }
 }
 
@@ -251,5 +265,29 @@ function runFfmpeg(args: string[]): Promise<Buffer> {
       if (out.length > 0) resolve(out);
       else reject(new Error(`ffmpeg produced no frame (exit ${code}): ${stderr.trim().slice(0, 200)}`));
     });
+  });
+}
+
+/**
+ * Like `runFfmpeg`, but feeds `input` on stdin and writes straight to a target
+ * file instead of collecting stdout — used for the resize step, whose output is
+ * cached on disk rather than piped onward.
+ */
+function runFfmpegToFile(args: string[], input: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_BIN, args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    let stderr = '';
+    proc.stderr.on('data', (c: Buffer) => {
+      stderr += c.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg failed (exit ${code}): ${stderr.trim().slice(0, 200)}`));
+    });
+    // ffmpeg may reject the input and close stdin before we finish writing it;
+    // the close handler above still reports that via the non-zero exit code.
+    proc.stdin.on('error', () => {});
+    proc.stdin.end(input);
   });
 }

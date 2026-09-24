@@ -3,9 +3,9 @@
 # GeoTagger runs on the NAS, where the photos are, so this image is built for both
 # linux/arm64 (typical NAS) and linux/amd64 (SPEC §12).
 #
-# Native modules — better-sqlite3 and sharp — are installed in the builder on the same
-# base image as the runtime, so their binaries match both the platform and the glibc
-# of the image they end up in. Changing one stage's base without the other breaks them.
+# The native module — better-sqlite3 — is installed in the builder on the same base
+# image as the runtime, so its binary matches both the platform and the glibc of the
+# image it ends up in. Changing one stage's base without the other breaks it.
 
 FROM node:22-trixie-slim AS builder
 WORKDIR /app
@@ -41,13 +41,15 @@ FROM node:22-trixie-slim AS runtime
 WORKDIR /app
 
 # perl   — ExifTool is a Perl program
-# ffmpeg — video frame grabs, and the HEIC decoder (see below)
+# ffmpeg — thumbnail resizing (see packages/server/src/thumbs/generator.ts), video
+#          frame grabs, and the HEIC decoder (see below)
 #
-# SPEC §14 risk 1, resolved: the libvips bundled with sharp carries a libheif with no
-# HEVC decoding plugin, and it will not load the system one (the ABI does not match),
-# so it cannot decode HEIC at all in a container. Debian trixie's ffmpeg 7.1 can —
-# bookworm's 5.1 cannot, which is why the base is trixie. Embedded-preview extraction
-# still runs first and handles most HEIC files without decoding anything.
+# SPEC §14 risk 1, resolved: HEIC needs an HEVC decoder, which is why thumbnailing
+# goes through ffmpeg rather than a bundled libvips (whose own HEIC support is
+# typically built without one for licensing reasons). Debian trixie's ffmpeg 7.1
+# decodes HEVC — bookworm's 5.1 cannot, which is why the base is trixie.
+# Embedded-preview extraction still runs first and handles most HEIC files without
+# decoding anything.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       perl ffmpeg ca-certificates tini \
@@ -62,11 +64,6 @@ ENV NODE_ENV=production \
     LOG_LEVEL=info
 
 COPY --from=builder /app/node_modules              ./node_modules
-# npm's dedupe nests server's own copy of sharp (and the node-addon-api/semver
-# versions it needs) under the workspace instead of hoisting them to root, because
-# something else in the tree pins a different node-addon-api/semver. Root node_modules
-# alone won't have sharp — verify with `npm ls sharp` after any lockfile change.
-COPY --from=builder /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=builder /app/package.json              ./package.json
 COPY --from=builder /app/packages/shared/dist      ./packages/shared/dist
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
