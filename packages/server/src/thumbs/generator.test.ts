@@ -1,11 +1,39 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { applyOrientation, pruneStaleThumbTiers, thumbPath, TIER_SIZE } from './generator.js';
+import { FFMPEG_BIN, orientationFilter, pruneStaleThumbTiers, thumbPath, TIER_SIZE } from './generator.js';
 
 const JPEG = { quality: 100, chromaSubsampling: '4:4:4' } as const;
+
+/**
+ * Applies an orientationFilter fragment the same way `downscale` does — spawns
+ * real ffmpeg rather than re-implementing filter semantics in the test, so a
+ * wrong `transpose` direction fails here instead of only in a rendered thumbnail.
+ */
+async function ffmpegOrient(src: Buffer, filter: string | null): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const args = ['-loglevel', 'error', '-i', 'pipe:0', '-frames:v', '1'];
+    if (filter) args.push('-vf', filter);
+    args.push('-vcodec', 'mjpeg', '-q:v', '2', '-f', 'image2pipe', '-');
+    const proc = spawn(FFMPEG_BIN, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const chunks: Buffer[] = [];
+    let stderr = '';
+    proc.stdout.on('data', (c: Buffer) => chunks.push(c));
+    proc.stderr.on('data', (c: Buffer) => {
+      stderr += c.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      const out = Buffer.concat(chunks);
+      if (out.length > 0) resolve(out);
+      else reject(new Error(`ffmpeg failed (exit ${code}): ${stderr.trim().slice(0, 200)}`));
+    });
+    proc.stdin.end(src);
+  });
+}
 
 /**
  * A probe image with four identifiable quadrants: top-left red, top-right green,
@@ -42,7 +70,7 @@ async function quadrants(buf: Buffer): Promise<string> {
   return out.join('');
 }
 
-describe('applyOrientation', () => {
+describe('orientationFilter', () => {
   it('stores the probe unrotated, so the fixtures below mean what they say', async () => {
     expect(await quadrants(await probe())).toBe('RGBW');
   });
@@ -65,22 +93,22 @@ describe('applyOrientation', () => {
   for (const [orientation, want] of Object.entries(expected)) {
     it(`orientation ${orientation} produces ${want}`, async () => {
       const src = await probe();
-      const out = await applyOrientation(sharp(src), Number(orientation)).jpeg(JPEG).toBuffer();
+      const out = await ffmpegOrient(src, orientationFilter(Number(orientation)));
       expect(await quadrants(out)).toBe(want);
     });
   }
 
   /**
    * The point of the mapping: it must agree with what sharp itself does when the tag
-   * is present. If a future sharp changes its convention, this fails rather than
-   * silently tilting every thumbnail rendered from an embedded preview.
+   * is present. If a future ffmpeg or sharp changes its convention, this fails rather
+   * than silently tilting every thumbnail rendered from an embedded preview.
    */
   for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8]) {
     it(`orientation ${orientation} matches sharp's own auto-rotate`, async () => {
       const src = await probe();
       const tagged = await sharp(src).withMetadata({ orientation }).jpeg(JPEG).toBuffer();
       const auto = await sharp(tagged).rotate().jpeg(JPEG).toBuffer();
-      const explicit = await applyOrientation(sharp(src), orientation).jpeg(JPEG).toBuffer();
+      const explicit = await ffmpegOrient(src, orientationFilter(orientation));
       expect(await quadrants(explicit)).toBe(await quadrants(auto));
     });
   }
@@ -88,7 +116,7 @@ describe('applyOrientation', () => {
   it('leaves the image alone for a missing or meaningless orientation', async () => {
     const src = await probe();
     for (const value of [null, 0, 9, 1]) {
-      const out = await applyOrientation(sharp(src), value).jpeg(JPEG).toBuffer();
+      const out = await ffmpegOrient(src, orientationFilter(value));
       expect(await quadrants(out)).toBe('RGBW');
     }
   });
