@@ -100,6 +100,20 @@ export function AlignmentView({
   const [markMs, setMarkMs] = useState<number | null>(null);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
+  /**
+   * Keeps a dropped strip drawn at its new spot while the save round-trips, instead of
+   * falling back to the still-stale `strip.offsetSeconds`/`lane` for one round trip and
+   * flinging back then forward once the response lands. Cleared in the same state
+   * update as the fresh timeline, so success never has a visible extra frame; on
+   * failure it is cleared with nothing to replace it, and the strip lands back where
+   * it started, which is the only case it should move at all.
+   */
+  const [pendingMove, setPendingMove] = useState<{
+    stripId: number;
+    lane: number;
+    targetLane: number;
+    shiftPx: number;
+  } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const widthObserverRef = useRef<ResizeObserver | null>(null);
@@ -175,7 +189,7 @@ export function AlignmentView({
     // works if the canvas has focus — which a click on a plain element does not
     // reliably give it.
     canvasRef.current?.focus();
-    if (strip.locked) return;
+    if (strip.locked || pendingMove?.stripId === strip.id) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({
       kind: 'body',
@@ -238,17 +252,31 @@ export function AlignmentView({
     const laneChanged = finished.targetLane !== finished.lane;
     if (!moved && !laneChanged) return;
 
+    setPendingMove({
+      stripId: finished.stripId,
+      lane: finished.lane,
+      targetLane: finished.targetLane,
+      shiftPx: finished.shiftPx,
+    });
+
     // A drag can be both a shift and a lane move; the offset goes first, because the
     // lane the strip is allowed to land in depends on where it now sits in time.
     const offsetCall = moved
       ? api.setOffset(finished.stripId, Math.round(finished.baseOffset + finished.deltaSeconds))
       : Promise.resolve(null);
 
-    run(
-      offsetCall.then((afterOffset) =>
+    offsetCall
+      .then((afterOffset) =>
         laneChanged ? api.setLane(finished.stripId, finished.targetLane) : (afterOffset ?? api.timeline()),
-      ),
-    );
+      )
+      .then((next) => {
+        setTimeline(next);
+        setPendingMove(null);
+      })
+      .catch((err: unknown) => {
+        setError(errorText(err));
+        setPendingMove(null);
+      });
   };
 
   // ---- keyboard ----------------------------------------------------------
@@ -471,6 +499,10 @@ export function AlignmentView({
           onWheel={(e) => {
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
+            // Otherwise the page scrolls right along with the zoom/pan the wheel is
+            // driving here — the browser's default action for wheel is page scroll,
+            // and nothing below stops that on its own.
+            e.preventDefault();
             // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
             // plain vertical wheel changes the zoom.
             if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
@@ -482,12 +514,14 @@ export function AlignmentView({
             <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
               {lane.map((strip) => {
                 const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
-                const shiftPx = dragging?.shiftPx ?? 0;
-                const laneShift = dragging === null ? 0 : (dragging.targetLane - dragging.lane) * STRIP_LANE_ROW_PX;
+                const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
+                const active = dragging ?? pending;
+                const shiftPx = active?.shiftPx ?? 0;
+                const laneShift = active === null ? 0 : (active.targetLane - active.lane) * STRIP_LANE_ROW_PX;
                 return (
                   <div
                     key={strip.id}
-                    className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}`}
+                    className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
                     style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
                   >
                     <div

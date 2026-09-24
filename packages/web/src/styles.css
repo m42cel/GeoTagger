@@ -366,6 +366,13 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .strip-layer.selected { z-index: 2; }
 .strip-layer.selected .strip-hit { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .strip-layer.locked .strip-hit { cursor: not-allowed; border-style: dashed; }
+/* Saving: held at the dropped spot, pulsing until the offset/lane write confirms. */
+.strip-layer.pending .strip-hit { border-color: var(--accent); animation: strip-pending-pulse 1s ease-in-out infinite; }
+
+@keyframes strip-pending-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
 
 .strip-hit {
   position: absolute;
