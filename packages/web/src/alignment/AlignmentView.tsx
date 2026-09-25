@@ -19,6 +19,7 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
+import { PreviewPane } from './PreviewPane.js';
 import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
@@ -100,6 +101,17 @@ export function AlignmentView({
    * cut point that died with the hover could never be used (SPEC §4.3).
    */
   const [markMs, setMarkMs] = useState<number | null>(null);
+  /**
+   * The last two distinct strips clicked, each holding that strip's most recently
+   * clicked photo, for the compare pane. Clicking another photo in an already-tracked
+   * strip updates that entry in place rather than adding a second one, so the two panes
+   * never hold two photos from the same strip; clicking a third strip evicts whichever
+   * of the two is least recently touched. Which strip's photo is "upper" and which is
+   * "lower" is a property of where the strips sit, not of this order (see
+   * `previewSlots` below).
+   */
+  const [recentStrips, setRecentStrips] = useState<readonly { stripId: number; fileId: number }[]>([]);
+  const previewLoadTokenRef = useRef(0);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
   /**
@@ -217,6 +229,21 @@ export function AlignmentView({
     const span = scale.msPerPx * scale.widthPx;
     setScale((s) => ({ ...s, startMs: targetMs - span / 2 }));
   };
+
+  /** A strip's lane — what the compare pane sorts the two previews by. */
+  const laneByStripId = useMemo(() => new Map((timeline?.strips ?? []).map((s) => [s.id, s.lane])), [timeline]);
+
+  /**
+   * The two tracked strips' photos, ordered by lane: the upper slot always shows the
+   * higher strip, so a photo can jump from one slot to the other as new clicks change
+   * which strip is the higher of the current pair.
+   */
+  const previewSlots = useMemo((): [number | null, number | null] => {
+    const sorted = [...recentStrips].sort(
+      (a, b) => (laneByStripId.get(a.stripId) ?? Infinity) - (laneByStripId.get(b.stripId) ?? Infinity),
+    );
+    return [sorted[0]?.fileId ?? null, sorted[1]?.fileId ?? null];
+  }, [recentStrips, laneByStripId]);
 
   /** Instants of every file outside the dragged strip: what snapping pulls towards. */
   const snapTargets = useMemo(() => {
@@ -380,6 +407,25 @@ export function AlignmentView({
 
   const selectFile = (fileId: number, stripId: number, additive: boolean): void => {
     setSelectedStripId(stripId);
+
+    // A browser holds an <img>'s previous frame on screen until its new src finishes
+    // loading. Committing the compare pane straight away would, whenever that src isn't
+    // cached yet, briefly show the strip a photo is moving away from with that same old
+    // photo in both slots — one slot mid-load and still showing it, the other freshly
+    // arrived at it. Loading first and only then updating state means both slots always
+    // reach their new photo at once; the token lets a newer click cancel a slower older
+    // one instead of having it land after the fact.
+    const token = ++previewLoadTokenRef.current;
+    const preload = new Image();
+    preload.onload = preload.onerror = () => {
+      if (previewLoadTokenRef.current !== token) return;
+      setRecentStrips((current) => {
+        const next = [...current.filter((e) => e.stripId !== stripId), { stripId, fileId }];
+        return next.length > 2 ? next.slice(-2) : next;
+      });
+    };
+    preload.src = `/api/files/${fileId}/preview`;
+
     setSelectedFileIds((current) => {
       if (!additive) return new Set([fileId]);
       const next = new Set(current);
@@ -515,120 +561,124 @@ export function AlignmentView({
         />
       )}
 
-      <div className="align-grid">
-        <div className="lane-headers">
-          {lanes.map((lane, i) => (
-            <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
-              <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
-                {lane[0]?.label ?? ''}
-                {lane.length > 1 && <em> ·{lane.length} segments</em>}
-              </span>
-              <span className="lane-controls">
-                {lane.map((strip, segment) => (
-                  <span key={strip.id}>
-                    {lane.length > 1 && <em className="segment-no">{segment + 1}</em>}
-                    <button
-                      type="button"
-                      className={`chip${strip.locked ? ' on' : ''}`}
-                      title={strip.locked ? 'Unlock' : 'Lock: freeze this clock, keep it as a snap target'}
-                      onClick={() => run(api.setLocked(strip.id, !strip.locked))}
-                    >
-                      {strip.locked ? 'locked' : 'lock'}
-                    </button>
-                    <button
-                      type="button"
-                      className="chip"
-                      disabled={strip.locked}
-                      title="Back to zero offset"
-                      onClick={() => run(api.resetStrip(strip.id))}
-                    >
-                      reset
-                    </button>
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))}
-        </div>
+      <div className="align-body">
+        <div className="align-grid">
+          <div className="lane-headers">
+            {lanes.map((lane, i) => (
+              <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
+                <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
+                  {lane[0]?.label ?? ''}
+                  {lane.length > 1 && <em> ·{lane.length} segments</em>}
+                </span>
+                <span className="lane-controls">
+                  {lane.map((strip, segment) => (
+                    <span key={strip.id}>
+                      {lane.length > 1 && <em className="segment-no">{segment + 1}</em>}
+                      <button
+                        type="button"
+                        className={`chip${strip.locked ? ' on' : ''}`}
+                        title={strip.locked ? 'Unlock' : 'Lock: freeze this clock, keep it as a snap target'}
+                        onClick={() => run(api.setLocked(strip.id, !strip.locked))}
+                      >
+                        {strip.locked ? 'locked' : 'lock'}
+                      </button>
+                      <button
+                        type="button"
+                        className="chip"
+                        disabled={strip.locked}
+                        title="Back to zero offset"
+                        onClick={() => run(api.resetStrip(strip.id))}
+                      >
+                        reset
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
 
-        <div
-          className="lane-canvas"
-          ref={attachCanvas}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
-          onPointerDownCapture={(e) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
-          }}
-          onPointerDown={startPan}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onPointerLeave={() => setCursorMs(null)}
-        >
-          {lanes.map((lane, laneIndex) => (
-            <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
-              {lane.map((strip) => {
-                const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
-                const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
-                const active = dragging ?? pending;
-                const shiftPx = active?.shiftPx ?? 0;
-                const laneShift = active === null ? 0 : (active.targetLane - active.lane) * STRIP_LANE_ROW_PX;
-                return (
-                  <div
-                    key={strip.id}
-                    className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
-                    style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
-                  >
+          <div
+            className="lane-canvas"
+            ref={attachCanvas}
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
+            onPointerDownCapture={(e) => {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
+            }}
+            onPointerDown={startPan}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onPointerLeave={() => setCursorMs(null)}
+          >
+            {lanes.map((lane, laneIndex) => (
+              <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
+                {lane.map((strip) => {
+                  const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
+                  const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
+                  const active = dragging ?? pending;
+                  const shiftPx = active?.shiftPx ?? 0;
+                  const laneShift = active === null ? 0 : (active.targetLane - active.lane) * STRIP_LANE_ROW_PX;
+                  return (
                     <div
-                      className="strip-hit"
-                      style={hitStyle(strip, scale)}
-                      onPointerDown={(e) => startBodyDrag(e, strip)}
-                      onClick={() => setSelectedStripId(strip.id)}
-                    />
-                    <StripBody
-                      stripFiles={stripFiles.get(strip.id)}
-                      scale={scale}
-                      fileById={fileById}
-                      selectedFileIds={selectedFileIds}
-                      onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
-                      onPinFile={pin}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                      key={strip.id}
+                      className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
+                      style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
+                    >
+                      <div
+                        className="strip-hit"
+                        style={hitStyle(strip, scale)}
+                        onPointerDown={(e) => startBodyDrag(e, strip)}
+                        onClick={() => setSelectedStripId(strip.id)}
+                      />
+                      <StripBody
+                        stripFiles={stripFiles.get(strip.id)}
+                        scale={scale}
+                        fileById={fileById}
+                        selectedFileIds={selectedFileIds}
+                        onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
+                        onPinFile={pin}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
 
-          {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
-          {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
+            {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
+            {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
 
-          {drag?.kind === 'body' && (
-            <div
-              className="drag-readout"
-              // Clamped away from both edges: the readout is the only exact feedback
-              // during a drag, and half of it clipped is worse than none.
-              style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
-            >
-              {formatOffset(drag.baseOffset + drag.deltaSeconds)}
-              {drag.snap !== 'none' && <em> snapped to {drag.snap === 'photo' ? 'a photo' : `the ${drag.snap}`}</em>}
-            </div>
-          )}
+            {drag?.kind === 'body' && (
+              <div
+                className="drag-readout"
+                // Clamped away from both edges: the readout is the only exact feedback
+                // during a drag, and half of it clipped is worse than none.
+                style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
+              >
+                {formatOffset(drag.baseOffset + drag.deltaSeconds)}
+                {drag.snap !== 'none' && <em> snapped to {drag.snap === 'photo' ? 'a photo' : `the ${drag.snap}`}</em>}
+              </div>
+            )}
 
-          <ZoneRibbon
+            <ZoneRibbon
+              scale={scale}
+              rules={timeline.utcOffsetRules}
+              folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+            />
+            <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
+          </div>
+
+          <TimeScrollbar
             scale={scale}
-            rules={timeline.utcOffsetRules}
-            folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+            bounds={bounds}
+            onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
           />
-          <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
         </div>
 
-        <TimeScrollbar
-          scale={scale}
-          bounds={bounds}
-          onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
-        />
+        <PreviewPane topFileId={previewSlots[0]} bottomFileId={previewSlots[1]} fileById={fileById} />
       </div>
 
       <SelectionPanel
