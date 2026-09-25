@@ -137,23 +137,45 @@ export function AlignmentView({
   // ---- geometry ----------------------------------------------------------
 
   /**
+   * React registers its delegated `wheel` listener as passive, so `preventDefault`
+   * inside a JSX `onWheel` handler is silently ignored and the page scrolls right
+   * along with the zoom/pan underneath. Attaching the listener to the DOM node
+   * ourselves with `passive: false` is the only way to actually stop that scroll.
+   */
+  const onWheelNative = useCallback((e: WheelEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    e.preventDefault();
+    // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
+    // plain vertical wheel changes the zoom.
+    if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
+    else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
+    else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
+  }, []);
+
+  /**
    * Measures the canvas as a ref callback rather than in an effect, because the canvas
    * is not in the DOM on the first render — the view is still loading the timeline —
    * and an effect that runs then observes nothing and never runs again. That is how
    * the width got stuck at its initial guess, culling every thumbnail beyond it.
    */
-  const attachCanvas = useCallback((element: HTMLDivElement | null) => {
-    canvasRef.current = element;
-    widthObserverRef.current?.disconnect();
-    widthObserverRef.current = null;
-    if (element === null) return;
-    const measure = (): void =>
-      setScale((s) => (s.widthPx === element.clientWidth ? s : { ...s, widthPx: element.clientWidth }));
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    widthObserverRef.current = observer;
-    measure();
-  }, []);
+  const attachCanvas = useCallback(
+    (element: HTMLDivElement | null) => {
+      canvasRef.current?.removeEventListener('wheel', onWheelNative);
+      canvasRef.current = element;
+      widthObserverRef.current?.disconnect();
+      widthObserverRef.current = null;
+      if (element === null) return;
+      element.addEventListener('wheel', onWheelNative, { passive: false });
+      const measure = (): void =>
+        setScale((s) => (s.widthPx === element.clientWidth ? s : { ...s, widthPx: element.clientWidth }));
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      widthObserverRef.current = observer;
+      measure();
+    },
+    [onWheelNative],
+  );
 
   const bounds = useMemo(() => boundsOf(timeline), [timeline]);
 
@@ -496,19 +518,6 @@ export function AlignmentView({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onPointerLeave={() => setCursorMs(null)}
-          onWheel={(e) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            // Otherwise the page scrolls right along with the zoom/pan the wheel is
-            // driving here — the browser's default action for wheel is page scroll,
-            // and nothing below stops that on its own.
-            e.preventDefault();
-            // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
-            // plain vertical wheel changes the zoom.
-            if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
-            else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
-            else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
-          }}
         >
           {lanes.map((lane, laneIndex) => (
             <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
