@@ -315,10 +315,9 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * comparison never costs a click back and forth. Fixed width and always drawn — even
  * with nothing picked yet — so clicking a photo never shifts the filmstrips over.
  *
- * Each slot is a fixed box (not `flex: 1` against the grid's height, which shrinks to
- * one lane row or grows to a dozen), so its size never depends on how many strips are
- * on screen, and `object-fit: contain` inside a fixed box means it never depends on
- * whether the photo itself is landscape or portrait either.
+ * Each slot is a fixed box, so its size never depends on how many strips are on screen,
+ * and `object-fit: contain` inside a fixed box means it never depends on whether the
+ * photo itself is landscape or portrait either.
  */
 .preview-pane {
   flex: 0 0 340px;

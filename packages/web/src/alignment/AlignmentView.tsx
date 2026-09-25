@@ -100,12 +100,16 @@ export function AlignmentView({
    */
   const [markMs, setMarkMs] = useState<number | null>(null);
   /**
-   * The last two photos clicked in the filmstrips, for the compare pane. `[upper,
-   * lower]`; a click always lands in the slot the other one didn't just fill, so the
-   * two alternate round-robin rather than the newest always displacing the same slot.
+   * The last two distinct strips clicked, each holding that strip's most recently
+   * clicked photo, for the compare pane. Clicking another photo in an already-tracked
+   * strip updates that entry in place rather than adding a second one, so the two panes
+   * never hold two photos from the same strip; clicking a third strip evicts whichever
+   * of the two is least recently touched. Which strip's photo is "upper" and which is
+   * "lower" is a property of where the strips sit, not of this order (see
+   * `previewSlots` below).
    */
-  const [previewIds, setPreviewIds] = useState<[number | null, number | null]>([null, null]);
-  const nextPreviewSlotRef = useRef<0 | 1>(0);
+  const [recentStrips, setRecentStrips] = useState<readonly { stripId: number; fileId: number }[]>([]);
+  const previewLoadTokenRef = useRef(0);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
   /**
@@ -177,6 +181,21 @@ export function AlignmentView({
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
   const lanes = useMemo(() => groupByLane(timeline?.strips ?? []), [timeline]);
   const selectedStrip = timeline?.strips.find((s) => s.id === selectedStripId) ?? null;
+
+  /** A strip's lane — what the compare pane sorts the two previews by. */
+  const laneByStripId = useMemo(() => new Map((timeline?.strips ?? []).map((s) => [s.id, s.lane])), [timeline]);
+
+  /**
+   * The two tracked strips' photos, ordered by lane: the upper slot always shows the
+   * higher strip, so a photo can jump from one slot to the other as new clicks change
+   * which strip is the higher of the current pair.
+   */
+  const previewSlots = useMemo((): [number | null, number | null] => {
+    const sorted = [...recentStrips].sort(
+      (a, b) => (laneByStripId.get(a.stripId) ?? Infinity) - (laneByStripId.get(b.stripId) ?? Infinity),
+    );
+    return [sorted[0]?.fileId ?? null, sorted[1]?.fileId ?? null];
+  }, [recentStrips, laneByStripId]);
 
   /** Instants of every file outside the dragged strip: what snapping pulls towards. */
   const snapTargets = useMemo(() => {
@@ -340,16 +359,25 @@ export function AlignmentView({
 
   const selectFile = (fileId: number, stripId: number, additive: boolean): void => {
     setSelectedStripId(stripId);
-    // Captured before the ref is advanced: setPreviewIds's updater runs after this
-    // handler returns (React 18 batches state updates from event handlers), so reading
-    // the ref from inside the updater would see next click's slot, not this one's.
-    const slot = nextPreviewSlotRef.current;
-    nextPreviewSlotRef.current = slot === 0 ? 1 : 0;
-    setPreviewIds((current) => {
-      const next: [number | null, number | null] = [...current];
-      next[slot] = fileId;
-      return next;
-    });
+
+    // A browser holds an <img>'s previous frame on screen until its new src finishes
+    // loading. Committing the compare pane straight away would, whenever that src isn't
+    // cached yet, briefly show the strip a photo is moving away from with that same old
+    // photo in both slots — one slot mid-load and still showing it, the other freshly
+    // arrived at it. Loading first and only then updating state means both slots always
+    // reach their new photo at once; the token lets a newer click cancel a slower older
+    // one instead of having it land after the fact.
+    const token = ++previewLoadTokenRef.current;
+    const preload = new Image();
+    preload.onload = preload.onerror = () => {
+      if (previewLoadTokenRef.current !== token) return;
+      setRecentStrips((current) => {
+        const next = [...current.filter((e) => e.stripId !== stripId), { stripId, fileId }];
+        return next.length > 2 ? next.slice(-2) : next;
+      });
+    };
+    preload.src = `/api/files/${fileId}/preview`;
+
     setSelectedFileIds((current) => {
       if (!additive) return new Set([fileId]);
       const next = new Set(current);
@@ -593,7 +621,7 @@ export function AlignmentView({
           />
         </div>
 
-        <PreviewPane topFileId={previewIds[0]} bottomFileId={previewIds[1]} fileById={fileById} />
+        <PreviewPane topFileId={previewSlots[0]} bottomFileId={previewSlots[1]} fileById={fileById} />
       </div>
 
       <SelectionPanel
