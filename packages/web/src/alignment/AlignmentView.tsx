@@ -27,6 +27,8 @@ import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import { ZoneRibbon } from './ZoneRibbon.js';
 import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
 import {
+  endMs,
+  lowerBound,
   msAt,
   panBy,
   scaleForSpan,
@@ -149,23 +151,45 @@ export function AlignmentView({
   // ---- geometry ----------------------------------------------------------
 
   /**
+   * React registers its delegated `wheel` listener as passive, so `preventDefault`
+   * inside a JSX `onWheel` handler is silently ignored and the page scrolls right
+   * along with the zoom/pan underneath. Attaching the listener to the DOM node
+   * ourselves with `passive: false` is the only way to actually stop that scroll.
+   */
+  const onWheelNative = useCallback((e: WheelEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    e.preventDefault();
+    // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
+    // plain vertical wheel changes the zoom.
+    if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
+    else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
+    else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
+  }, []);
+
+  /**
    * Measures the canvas as a ref callback rather than in an effect, because the canvas
    * is not in the DOM on the first render — the view is still loading the timeline —
    * and an effect that runs then observes nothing and never runs again. That is how
    * the width got stuck at its initial guess, culling every thumbnail beyond it.
    */
-  const attachCanvas = useCallback((element: HTMLDivElement | null) => {
-    canvasRef.current = element;
-    widthObserverRef.current?.disconnect();
-    widthObserverRef.current = null;
-    if (element === null) return;
-    const measure = (): void =>
-      setScale((s) => (s.widthPx === element.clientWidth ? s : { ...s, widthPx: element.clientWidth }));
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    widthObserverRef.current = observer;
-    measure();
-  }, []);
+  const attachCanvas = useCallback(
+    (element: HTMLDivElement | null) => {
+      canvasRef.current?.removeEventListener('wheel', onWheelNative);
+      canvasRef.current = element;
+      widthObserverRef.current?.disconnect();
+      widthObserverRef.current = null;
+      if (element === null) return;
+      element.addEventListener('wheel', onWheelNative, { passive: false });
+      const measure = (): void =>
+        setScale((s) => (s.widthPx === element.clientWidth ? s : { ...s, widthPx: element.clientWidth }));
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      widthObserverRef.current = observer;
+      measure();
+    },
+    [onWheelNative],
+  );
 
   const bounds = useMemo(() => boundsOf(timeline), [timeline]);
 
@@ -181,6 +205,30 @@ export function AlignmentView({
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
   const lanes = useMemo(() => groupByLane(timeline?.strips ?? []), [timeline]);
   const selectedStrip = timeline?.strips.find((s) => s.id === selectedStripId) ?? null;
+
+  /**
+   * Every file's instant, across every strip, ascending — what "jump to next/previous
+   * photo" searches. At a high zoom the view can sit over a long empty stretch between
+   * two bursts; panning across it by hand is slow, so the jump lands on whatever photo
+   * is nearest outside the current window instead of deforming the axis to hide the gap.
+   */
+  const allInstants = useMemo(() => {
+    const out: number[] = [];
+    for (const f of timeline?.files ?? []) {
+      if (f.effectiveMs !== null) out.push(f.effectiveMs);
+    }
+    out.sort((a, b) => a - b);
+    return out;
+  }, [timeline]);
+  const nextPhotoIdx = lowerBound(allInstants, endMs(scale));
+  const prevPhotoIdx = lowerBound(allInstants, scale.startMs) - 1;
+
+  const jumpToPhoto = (idx: number): void => {
+    const targetMs = allInstants[idx];
+    if (targetMs === undefined) return;
+    const span = scale.msPerPx * scale.widthPx;
+    setScale((s) => ({ ...s, startMs: targetMs - span / 2 }));
+  };
 
   /** A strip's lane — what the compare pane sorts the two previews by. */
   const laneByStripId = useMemo(() => new Map((timeline?.strips ?? []).map((s) => [s.id, s.lane])), [timeline]);
@@ -450,6 +498,28 @@ export function AlignmentView({
           ))}
         </span>
 
+        <span className="zoom">
+          jump
+          <button
+            type="button"
+            className="ghost"
+            disabled={prevPhotoIdx < 0}
+            title="Jump to the previous photo outside the current view"
+            onClick={() => jumpToPhoto(prevPhotoIdx)}
+          >
+            ‹ previous
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            disabled={nextPhotoIdx >= allInstants.length}
+            title="Jump to the next photo outside the current view"
+            onClick={() => jumpToPhoto(nextPhotoIdx)}
+          >
+            next ›
+          </button>
+        </span>
+
         <button
           type="button"
           className="ghost"
@@ -543,19 +613,6 @@ export function AlignmentView({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             onPointerLeave={() => setCursorMs(null)}
-            onWheel={(e) => {
-              const rect = canvasRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              // Otherwise the page scrolls right along with the zoom/pan the wheel is
-              // driving here — the browser's default action for wheel is page scroll,
-              // and nothing below stops that on its own.
-              e.preventDefault();
-              // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
-              // plain vertical wheel changes the zoom.
-              if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
-              else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
-              else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
-            }}
           >
             {lanes.map((lane, laneIndex) => (
               <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
