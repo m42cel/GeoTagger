@@ -71,11 +71,11 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .ghost {
   background: transparent;
   color: inherit;
-  border: 1px solid var(--line);
+  border: 1px solid var(--muted);
   padding: 5px 10px;
 }
 
-.ghost:disabled, .primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.ghost:disabled, .primary:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 
 .link {
   background: none;
@@ -332,7 +332,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border-radius: 10px;
 }
 .chip.on { border-color: var(--accent); color: var(--accent); }
-.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+.chip:disabled { opacity: 0.4; border-color: var(--line); color: var(--line); cursor: not-allowed; }
 
 /*
  * The canvas is the shared axis. Everything inside is positioned in pixels derived

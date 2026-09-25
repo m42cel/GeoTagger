@@ -26,6 +26,8 @@ import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import { ZoneRibbon } from './ZoneRibbon.js';
 import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
 import {
+  endMs,
+  lowerBound,
   msAt,
   panBy,
   scaleForSpan,
@@ -191,6 +193,30 @@ export function AlignmentView({
   const fileById = useMemo(() => new Map(files.map((f) => [f.id, f])), [files]);
   const lanes = useMemo(() => groupByLane(timeline?.strips ?? []), [timeline]);
   const selectedStrip = timeline?.strips.find((s) => s.id === selectedStripId) ?? null;
+
+  /**
+   * Every file's instant, across every strip, ascending — what "jump to next/previous
+   * photo" searches. At a high zoom the view can sit over a long empty stretch between
+   * two bursts; panning across it by hand is slow, so the jump lands on whatever photo
+   * is nearest outside the current window instead of deforming the axis to hide the gap.
+   */
+  const allInstants = useMemo(() => {
+    const out: number[] = [];
+    for (const f of timeline?.files ?? []) {
+      if (f.effectiveMs !== null) out.push(f.effectiveMs);
+    }
+    out.sort((a, b) => a - b);
+    return out;
+  }, [timeline]);
+  const nextPhotoIdx = lowerBound(allInstants, endMs(scale));
+  const prevPhotoIdx = lowerBound(allInstants, scale.startMs) - 1;
+
+  const jumpToPhoto = (idx: number): void => {
+    const targetMs = allInstants[idx];
+    if (targetMs === undefined) return;
+    const span = scale.msPerPx * scale.widthPx;
+    setScale((s) => ({ ...s, startMs: targetMs - span / 2 }));
+  };
 
   /** Instants of every file outside the dragged strip: what snapping pulls towards. */
   const snapTargets = useMemo(() => {
@@ -424,6 +450,28 @@ export function AlignmentView({
               {level}
             </button>
           ))}
+        </span>
+
+        <span className="zoom">
+          jump
+          <button
+            type="button"
+            className="ghost"
+            disabled={prevPhotoIdx < 0}
+            title="Jump to the previous photo outside the current view"
+            onClick={() => jumpToPhoto(prevPhotoIdx)}
+          >
+            ‹ previous
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            disabled={nextPhotoIdx >= allInstants.length}
+            title="Jump to the next photo outside the current view"
+            onClick={() => jumpToPhoto(nextPhotoIdx)}
+          >
+            next ›
+          </button>
         </span>
 
         <button
