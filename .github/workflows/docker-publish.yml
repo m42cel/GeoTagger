@@ -3,6 +3,12 @@ name: Docker
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag for this manual build (defaults to the branch name)"
+        required: false
+        type: string
 
 jobs:
   build-and-push:
@@ -27,6 +33,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Manual runs (workflow_dispatch) build whatever branch was selected and
+      # tag it with the given name, or the branch name if none was given.
+      # Docker tags only allow [A-Za-z0-9_.-] and must start with an
+      # alphanumeric or underscore, but both the branch name and the free-text
+      # `tag` input can contain anything git/humans allow, so sanitize either
+      # source the same way before using it.
+      - name: Determine manual build tag
+        id: manual_tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$GITHUB_REF_NAME"
+          fi
+          TAG="$(printf '%s' "$TAG" | sed -E 's/[^A-Za-z0-9_.-]+/-/g')"
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_] ]]; then
+            TAG="b-$TAG"
+          fi
+          TAG="${TAG:0:128}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       # Only tag `dev` on pushes to the default branch, and never `latest` —
       # that's reserved for a real release process.
       - name: Docker metadata
@@ -37,6 +64,7 @@ jobs:
           flavor: latest=false
           tags: |
             type=raw,value=dev,enable={{is_default_branch}}
+            type=raw,value=${{ steps.manual_tag.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
