@@ -50,7 +50,13 @@ body {
 .crumb { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app-bar .ghost { margin-left: auto; }
 
-main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+/*
+ * 1400px made sense for the file grid and picker, but the alignment view's timeline
+ * is the one thing on the page that actually wants the width a wide monitor has to
+ * give it. The narrower views (picker, timestamp question, …) already cap themselves
+ * well under this, so raising it only gives the alignment view more room.
+ */
+main { padding: 16px; max-width: 1800px; margin: 0 auto; }
 
 h1 { font-size: 20px; margin: 0 0 16px; }
 h2 { font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
@@ -288,7 +294,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .align-toolbar select { font: inherit; text-transform: none; letter-spacing: 0; }
 .align-toolbar .primary { margin-left: auto; }
 
-.align-body { display: flex; align-items: stretch; gap: 12px; }
+.align-body { display: flex; align-items: flex-start; gap: 12px; }
 
 .align-grid {
   /* The two rows reserved at the foot of the canvas: the zone ribbon, then the axis. */
@@ -308,16 +314,21 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * The last two photos clicked in the filmstrips, held still beside them so a
  * comparison never costs a click back and forth. Fixed width and always drawn — even
  * with nothing picked yet — so clicking a photo never shifts the filmstrips over.
+ *
+ * Each slot is a fixed box (not `flex: 1` against the grid's height, which shrinks to
+ * one lane row or grows to a dozen), so its size never depends on how many strips are
+ * on screen, and `object-fit: contain` inside a fixed box means it never depends on
+ * whether the photo itself is landscape or portrait either.
  */
 .preview-pane {
-  flex: 0 0 220px;
+  flex: 0 0 340px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .preview-slot {
-  flex: 1;
-  min-height: 0;
+  width: 340px;
+  height: 260px;
   display: grid;
   place-items: center;
   overflow: hidden;
