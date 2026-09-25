@@ -439,7 +439,7 @@ export function AlignmentView({
             title="Jump to the previous photo outside the current view"
             onClick={() => jumpToPhoto(prevPhotoIdx)}
           >
-            ‹ photo
+            ‹ previous
           </button>
           <button
             type="button"
@@ -448,7 +448,7 @@ export function AlignmentView({
             title="Jump to the next photo outside the current view"
             onClick={() => jumpToPhoto(nextPhotoIdx)}
           >
-            photo ›
+            next ›
           </button>
         </span>
 
