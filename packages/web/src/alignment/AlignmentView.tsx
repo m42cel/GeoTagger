@@ -19,6 +19,7 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
+import { PreviewPane } from './PreviewPane.js';
 import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
@@ -98,6 +99,13 @@ export function AlignmentView({
    * cut point that died with the hover could never be used (SPEC §4.3).
    */
   const [markMs, setMarkMs] = useState<number | null>(null);
+  /**
+   * The last two photos clicked in the filmstrips, for the compare pane. `[upper,
+   * lower]`; a click always lands in the slot the other one didn't just fill, so the
+   * two alternate round-robin rather than the newest always displacing the same slot.
+   */
+  const [previewIds, setPreviewIds] = useState<[number | null, number | null]>([null, null]);
+  const nextPreviewSlotRef = useRef<0 | 1>(0);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
   /**
@@ -332,6 +340,16 @@ export function AlignmentView({
 
   const selectFile = (fileId: number, stripId: number, additive: boolean): void => {
     setSelectedStripId(stripId);
+    // Captured before the ref is advanced: setPreviewIds's updater runs after this
+    // handler returns (React 18 batches state updates from event handlers), so reading
+    // the ref from inside the updater would see next click's slot, not this one's.
+    const slot = nextPreviewSlotRef.current;
+    nextPreviewSlotRef.current = slot === 0 ? 1 : 0;
+    setPreviewIds((current) => {
+      const next: [number | null, number | null] = [...current];
+      next[slot] = fileId;
+      return next;
+    });
     setSelectedFileIds((current) => {
       if (!additive) return new Set([fileId]);
       const next = new Set(current);
@@ -445,133 +463,137 @@ export function AlignmentView({
         />
       )}
 
-      <div className="align-grid">
-        <div className="lane-headers">
-          {lanes.map((lane, i) => (
-            <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
-              <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
-                {lane[0]?.label ?? ''}
-                {lane.length > 1 && <em> ·{lane.length} segments</em>}
-              </span>
-              <span className="lane-controls">
-                {lane.map((strip, segment) => (
-                  <span key={strip.id}>
-                    {lane.length > 1 && <em className="segment-no">{segment + 1}</em>}
-                    <button
-                      type="button"
-                      className={`chip${strip.locked ? ' on' : ''}`}
-                      title={strip.locked ? 'Unlock' : 'Lock: freeze this clock, keep it as a snap target'}
-                      onClick={() => run(api.setLocked(strip.id, !strip.locked))}
-                    >
-                      {strip.locked ? 'locked' : 'lock'}
-                    </button>
-                    <button
-                      type="button"
-                      className="chip"
-                      disabled={strip.locked}
-                      title="Back to zero offset"
-                      onClick={() => run(api.resetStrip(strip.id))}
-                    >
-                      reset
-                    </button>
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))}
-        </div>
+      <div className="align-body">
+        <div className="align-grid">
+          <div className="lane-headers">
+            {lanes.map((lane, i) => (
+              <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
+                <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
+                  {lane[0]?.label ?? ''}
+                  {lane.length > 1 && <em> ·{lane.length} segments</em>}
+                </span>
+                <span className="lane-controls">
+                  {lane.map((strip, segment) => (
+                    <span key={strip.id}>
+                      {lane.length > 1 && <em className="segment-no">{segment + 1}</em>}
+                      <button
+                        type="button"
+                        className={`chip${strip.locked ? ' on' : ''}`}
+                        title={strip.locked ? 'Unlock' : 'Lock: freeze this clock, keep it as a snap target'}
+                        onClick={() => run(api.setLocked(strip.id, !strip.locked))}
+                      >
+                        {strip.locked ? 'locked' : 'lock'}
+                      </button>
+                      <button
+                        type="button"
+                        className="chip"
+                        disabled={strip.locked}
+                        title="Back to zero offset"
+                        onClick={() => run(api.resetStrip(strip.id))}
+                      >
+                        reset
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
 
-        <div
-          className="lane-canvas"
-          ref={attachCanvas}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
-          onPointerDownCapture={(e) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
-          }}
-          onPointerDown={startPan}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onPointerLeave={() => setCursorMs(null)}
-          onWheel={(e) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            // Otherwise the page scrolls right along with the zoom/pan the wheel is
-            // driving here — the browser's default action for wheel is page scroll,
-            // and nothing below stops that on its own.
-            e.preventDefault();
-            // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
-            // plain vertical wheel changes the zoom.
-            if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
-            else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
-            else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
-          }}
-        >
-          {lanes.map((lane, laneIndex) => (
-            <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
-              {lane.map((strip) => {
-                const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
-                const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
-                const active = dragging ?? pending;
-                const shiftPx = active?.shiftPx ?? 0;
-                const laneShift = active === null ? 0 : (active.targetLane - active.lane) * STRIP_LANE_ROW_PX;
-                return (
-                  <div
-                    key={strip.id}
-                    className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
-                    style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
-                  >
+          <div
+            className="lane-canvas"
+            ref={attachCanvas}
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
+            onPointerDownCapture={(e) => {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
+            }}
+            onPointerDown={startPan}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onPointerLeave={() => setCursorMs(null)}
+            onWheel={(e) => {
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (!rect) return;
+              // Otherwise the page scrolls right along with the zoom/pan the wheel is
+              // driving here — the browser's default action for wheel is page scroll,
+              // and nothing below stops that on its own.
+              e.preventDefault();
+              // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
+              // plain vertical wheel changes the zoom.
+              if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
+              else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
+              else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
+            }}
+          >
+            {lanes.map((lane, laneIndex) => (
+              <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
+                {lane.map((strip) => {
+                  const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
+                  const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
+                  const active = dragging ?? pending;
+                  const shiftPx = active?.shiftPx ?? 0;
+                  const laneShift = active === null ? 0 : (active.targetLane - active.lane) * STRIP_LANE_ROW_PX;
+                  return (
                     <div
-                      className="strip-hit"
-                      style={hitStyle(strip, scale)}
-                      onPointerDown={(e) => startBodyDrag(e, strip)}
-                      onClick={() => setSelectedStripId(strip.id)}
-                    />
-                    <StripBody
-                      stripFiles={stripFiles.get(strip.id)}
-                      scale={scale}
-                      fileById={fileById}
-                      selectedFileIds={selectedFileIds}
-                      onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
-                      onPinFile={pin}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                      key={strip.id}
+                      className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
+                      style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
+                    >
+                      <div
+                        className="strip-hit"
+                        style={hitStyle(strip, scale)}
+                        onPointerDown={(e) => startBodyDrag(e, strip)}
+                        onClick={() => setSelectedStripId(strip.id)}
+                      />
+                      <StripBody
+                        stripFiles={stripFiles.get(strip.id)}
+                        scale={scale}
+                        fileById={fileById}
+                        selectedFileIds={selectedFileIds}
+                        onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
+                        onPinFile={pin}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
 
-          {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
-          {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
+            {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
+            {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
 
-          {drag?.kind === 'body' && (
-            <div
-              className="drag-readout"
-              // Clamped away from both edges: the readout is the only exact feedback
-              // during a drag, and half of it clipped is worse than none.
-              style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
-            >
-              {formatOffset(drag.baseOffset + drag.deltaSeconds)}
-              {drag.snap !== 'none' && <em> snapped to {drag.snap === 'photo' ? 'a photo' : `the ${drag.snap}`}</em>}
-            </div>
-          )}
+            {drag?.kind === 'body' && (
+              <div
+                className="drag-readout"
+                // Clamped away from both edges: the readout is the only exact feedback
+                // during a drag, and half of it clipped is worse than none.
+                style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
+              >
+                {formatOffset(drag.baseOffset + drag.deltaSeconds)}
+                {drag.snap !== 'none' && <em> snapped to {drag.snap === 'photo' ? 'a photo' : `the ${drag.snap}`}</em>}
+              </div>
+            )}
 
-          <ZoneRibbon
+            <ZoneRibbon
+              scale={scale}
+              rules={timeline.utcOffsetRules}
+              folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+            />
+            <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
+          </div>
+
+          <TimeScrollbar
             scale={scale}
-            rules={timeline.utcOffsetRules}
-            folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+            bounds={bounds}
+            onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
           />
-          <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
         </div>
 
-        <TimeScrollbar
-          scale={scale}
-          bounds={bounds}
-          onScrollToMs={(startMs) => setScale((s) => ({ ...s, startMs }))}
-        />
+        <PreviewPane topFileId={previewIds[0]} bottomFileId={previewIds[1]} fileById={fileById} />
       </div>
 
       <SelectionPanel
