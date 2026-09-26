@@ -6,6 +6,7 @@ import { FolderStore } from './db/store.js';
 import { Scanner } from './scan/scanner.js';
 import { pruneStaleThumbTiers } from './thumbs/generator.js';
 import { StripService } from './strips/service.js';
+import { PositionService } from './positions/service.js';
 import { resolveWithinRoot, toRelPath } from './paths.js';
 
 export type Logger = (msg: string, err?: unknown) => void;
@@ -20,6 +21,7 @@ export class Session {
   readonly store: FolderStore;
   readonly scanner: Scanner;
   readonly strips: StripService;
+  readonly positions: PositionService;
   readonly absPath: string;
   readonly relPath: string;
 
@@ -29,6 +31,7 @@ export class Session {
     this.store = store;
     this.scanner = new Scanner(store, absPath, config, log);
     this.strips = new StripService(store);
+    this.positions = new PositionService(store, this.strips);
   }
 
   static open(config: Config, relPath: string, log: Logger): Session {

@@ -15,15 +15,13 @@ import { GroupingQuestion } from './GroupingQuestion.js';
 import { TimestampQuestion } from './TimestampQuestion.js';
 import { PersistDialog } from './PersistDialog.js';
 import { AlignmentView } from './alignment/AlignmentView.js';
+import { MapView } from './map/MapView.js';
 
 /**
  * What an open folder shows, following the startup flow of SPEC §6.1: the scan, then
  * the grouping question, then the timestamp question, then the work.
- *
- * Phase 1 finishes at the alignment view; the map that the question's other answer
- * leads to is phase 2.
  */
-type View = 'grouping' | 'question' | 'files' | 'alignment';
+type View = 'grouping' | 'question' | 'files' | 'alignment' | 'map';
 
 export function FolderView({
   session,
@@ -142,8 +140,16 @@ export function FolderView({
         <ScanProgress status={scan} onRescan={rescan} />
         <TimestampQuestion
           onFixTimestamps={() => answerQuestion('alignment')}
-          onSkip={() => answerQuestion('files')}
+          onGoToMap={() => answerQuestion('map')}
         />
+      </section>
+    );
+  }
+
+  if (view === 'map') {
+    return (
+      <section className="folder-view">
+        <MapView onBack={() => setView('files')} />
       </section>
     );
   }
@@ -177,7 +183,10 @@ export function FolderView({
       )}
 
       <div className="view-actions">
-        <button type="button" className="primary" onClick={() => setView('alignment')}>
+        <button type="button" className="primary" onClick={() => setView('map')}>
+          Open map
+        </button>
+        <button type="button" className="ghost" onClick={() => setView('alignment')}>
           Fix timestamps
         </button>
         <button type="button" className="ghost" onClick={() => setPersisting(true)}>

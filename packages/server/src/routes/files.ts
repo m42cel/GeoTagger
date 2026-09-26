@@ -7,7 +7,12 @@ import { generateThumb, thumbPath, type ThumbTier } from '../thumbs/generator.js
 export function registerFileRoutes(app: FastifyInstance, sessions: SessionManager): void {
   app.get('/api/files', async (): Promise<FilesResponse> => {
     const session = sessions.require();
-    return { files: session.store.listFiles(), devices: session.store.listDevices() };
+    const files = session.store.listFiles();
+    return {
+      files,
+      devices: session.store.listDevices(),
+      positions: session.positions.compute(files),
+    };
   });
 
   app.get('/api/devices', async () => sessions.require().store.listDevices());
