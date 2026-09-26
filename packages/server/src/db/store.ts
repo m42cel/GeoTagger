@@ -224,11 +224,23 @@ export class FolderStore {
   }
 
   get groupingMode(): GroupingMode {
-    return (this.getMeta('grouping_mode') as GroupingMode | null) ?? 'device';
+    return (this.getMeta('grouping_mode') as GroupingMode | null) ?? 'subfolder';
   }
 
   set groupingMode(mode: GroupingMode) {
     this.setMeta('grouping_mode', mode);
+  }
+
+  /**
+   * Whether the user has chosen how to group the initial strips for this folder
+   * (SPEC §4.4). Strips are not built from a scan until this is true.
+   */
+  get groupingModeAnswered(): boolean {
+    return this.getMeta('grouping_mode_answered') === '1';
+  }
+
+  set groupingModeAnswered(answered: boolean) {
+    this.setMeta('grouping_mode_answered', answered ? '1' : '0');
   }
 
   close(): void {

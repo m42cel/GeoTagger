@@ -1,4 +1,5 @@
 import type {
+  AnswerGroupingQuestionRequest,
   FilesResponse,
   FolderEntry,
   FolderListing,
@@ -69,6 +70,11 @@ export const api = {
   setFolderUtcOffset: (utcOffsetMinutes: number) => post('/api/session/utc-offset', { utcOffsetMinutes }),
   answerTimestampQuestion: () =>
     request<SessionState>('/api/session/timestamp-question', { method: 'POST' }),
+  answerGroupingQuestion: (mode: AnswerGroupingQuestionRequest['mode']) =>
+    request<SessionState>('/api/session/grouping-question', {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    }),
 
   // ---- writing (SPEC §9) -------------------------------------------------
 

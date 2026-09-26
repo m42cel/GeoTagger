@@ -2,8 +2,8 @@ import type { DeviceRecord, GroupingMode, StripsResponse } from '@geotagger/shar
 import { formatOffset } from '@geotagger/shared';
 
 const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
-  { mode: 'device', label: 'By device', hint: 'Make, model and serial from EXIF' },
   { mode: 'subfolder', label: 'By subfolder', hint: 'Useful when already sorted by camera or person' },
+  { mode: 'device', label: 'By device', hint: 'Make, model and serial from EXIF' },
   { mode: 'manual', label: 'Manual', hint: 'Pick the files in the alignment view and make a strip from them' },
 ];
 

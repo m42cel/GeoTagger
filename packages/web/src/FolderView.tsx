@@ -11,18 +11,19 @@ import { errorText } from './App.js';
 import { ScanProgress } from './ScanProgress.js';
 import { FileGrid } from './FileGrid.js';
 import { StripList } from './StripList.js';
+import { GroupingQuestion } from './GroupingQuestion.js';
 import { TimestampQuestion } from './TimestampQuestion.js';
 import { PersistDialog } from './PersistDialog.js';
 import { AlignmentView } from './alignment/AlignmentView.js';
 
 /**
  * What an open folder shows, following the startup flow of SPEC §6.1: the scan, then
- * the timestamp question, then the work.
+ * the grouping question, then the timestamp question, then the work.
  *
  * Phase 1 finishes at the alignment view; the map that the question's other answer
  * leads to is phase 2.
  */
-type View = 'question' | 'files' | 'alignment';
+type View = 'grouping' | 'question' | 'files' | 'alignment';
 
 export function FolderView({
   session,
@@ -35,12 +36,14 @@ export function FolderView({
   const [data, setData] = useState<FilesResponse | null>(null);
   const [strips, setStrips] = useState<StripsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>(session.timestampQuestionPending ? 'question' : 'files');
+  const [view, setView] = useState<View>(() => initialView(session));
   const [persisting, setPersisting] = useState(false);
 
   // Kept current across renders so the scan-stream effect below — which only resubscribes
   // on a folder change, not on every session update — can still see the latest answer when
   // a later rescan settles.
+  const groupingQuestionPending = useRef(session.groupingQuestionPending);
+  groupingQuestionPending.current = session.groupingQuestionPending;
   const timestampQuestionPending = useRef(session.timestampQuestionPending);
   timestampQuestionPending.current = session.timestampQuestionPending;
 
@@ -69,7 +72,7 @@ export function FolderView({
       setScan(status);
       if (status.phase === 'done' && previousPhase !== 'done') {
         refresh();
-        setView(timestampQuestionPending.current ? 'question' : 'files');
+        setView(nextView(groupingQuestionPending.current, timestampQuestionPending.current));
       }
       previousPhase = status.phase;
     });
@@ -91,6 +94,20 @@ export function FolderView({
     api.regroup(mode).then(setStrips).catch((err: unknown) => setError(errorText(err)));
   }, []);
 
+  const chooseGrouping = useCallback(
+    (mode: Exclude<GroupingMode, 'manual'>) => {
+      api
+        .answerGroupingQuestion(mode)
+        .then((s) => {
+          onSessionChange(s);
+          setView(nextView(false, timestampQuestionPending.current));
+          refresh();
+        })
+        .catch((err: unknown) => setError(errorText(err)));
+    },
+    [onSessionChange, refresh],
+  );
+
   const rescan = useCallback(() => {
     // Optimistic: blocks browsing immediately rather than waiting for the first SSE
     // update, so no stale content flashes before the scan stream reports 'walking'.
@@ -106,6 +123,15 @@ export function FolderView({
       <section className="folder-view">
         <ScanProgress status={scan} onRescan={rescan} />
         {error && <div className="banner error">{error}</div>}
+      </section>
+    );
+  }
+
+  if (view === 'grouping') {
+    return (
+      <section className="folder-view">
+        <ScanProgress status={scan} onRescan={rescan} />
+        <GroupingQuestion files={data?.files ?? []} devices={data?.devices ?? []} onChoose={chooseGrouping} />
       </section>
     );
   }
@@ -174,4 +200,13 @@ export function FolderView({
       </div>
     </section>
   );
+}
+
+function initialView(session: SessionState): View {
+  return nextView(session.groupingQuestionPending, session.timestampQuestionPending);
+}
+
+function nextView(groupingPending: boolean, timestampPending: boolean): View {
+  if (groupingPending) return 'grouping';
+  return timestampPending ? 'question' : 'files';
 }

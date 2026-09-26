@@ -266,6 +266,22 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .question-card h1 { font-size: 18px; margin-bottom: 8px; }
 .question-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
 
+.grouping-options { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 18px; text-align: left; }
+@media (max-width: 640px) { .grouping-options { grid-template-columns: 1fr; } }
+.grouping-options h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 6px; }
+.grouping-options ul {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.grouping-options li { padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.grouping-options li:last-child { border-bottom: none; }
+.grouping-options button { width: 100%; }
+
 .view-actions { display: flex; gap: 8px; margin-bottom: 12px; }
 
 /* ---- alignment view (SPEC §6.2) ---- */

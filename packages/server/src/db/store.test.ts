@@ -186,6 +186,12 @@ describe('metadata and strips', () => {
     store.replaceStrips('device', [{ label: 'Camera A', lane: 0, ordinal: 0, fileIds: [a] }]);
     expect(store.listStrips()[0]).toMatchObject({ offsetSeconds: 0, locked: false });
   });
+
+  it('starts unanswered so a fresh folder is asked how to group before anything is built (SPEC §4.4)', () => {
+    expect(store.groupingModeAnswered).toBe(false);
+    store.groupingModeAnswered = true;
+    expect(store.groupingModeAnswered).toBe(true);
+  });
 });
 
 describe('schema 2 → 3 — the offset ramp collapses to one offset', () => {

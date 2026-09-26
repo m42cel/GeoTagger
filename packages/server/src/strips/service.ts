@@ -194,7 +194,7 @@ export class StripService {
   /** Rebuilds every strip from the current grouping mode, discarding everything. */
   resetAll(): void {
     const mode = this.store.groupingMode;
-    this.regroup(mode === 'manual' ? 'device' : mode);
+    this.regroup(mode === 'manual' ? 'subfolder' : mode);
   }
 
   setUtcOffsetOverride(id: number, minutes: number | null): void {

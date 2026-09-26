@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { OpenSessionRequest, ScanStatus, SessionState } from '@geotagger/shared';
+import type { AnswerGroupingQuestionRequest, OpenSessionRequest, ScanStatus, SessionState } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
 
 export function registerSessionRoutes(app: FastifyInstance, sessions: SessionManager): void {
@@ -35,6 +35,23 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionMan
   });
 
   app.get('/api/session/scan-status', async (): Promise<ScanStatus> => sessions.require().scanner.getStatus());
+
+  /**
+   * Answers the initial "how should these be grouped" question of SPEC §4.4 and
+   * builds the first set of strips from it — the counterpart to `regroupIfNeeded`,
+   * which stays silent until this has happened once for the folder.
+   */
+  app.post<{ Body: AnswerGroupingQuestionRequest }>('/api/session/grouping-question', async (req, reply) => {
+    const mode = req.body?.mode;
+    if (mode !== 'device' && mode !== 'subfolder') {
+      reply.code(400);
+      return { error: 'bad_request', message: `Unknown grouping mode: ${String(mode)}` };
+    }
+    const session = sessions.require();
+    session.store.groupingModeAnswered = true;
+    session.strips.regroup(mode);
+    return session.state();
+  });
 
   /**
    * Records that the timestamp question of SPEC §6.1 has been answered.

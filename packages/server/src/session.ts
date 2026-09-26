@@ -49,6 +49,7 @@ export class Session {
       folderId: this.store.folderId,
       fileCount: this.store.fileCount(),
       groupingMode: this.store.groupingMode,
+      groupingQuestionPending: !this.store.groupingModeAnswered,
       timestampQuestionPending: !this.store.timestampQuestionAnswered,
       scan: this.scanner.getStatus(),
     };
@@ -65,6 +66,11 @@ export class Session {
    * A rebuild is needed not only for files that have no strip yet, but also when a
    * file *changed*: its capture time may have moved, and strips are ordered by their
    * first capture, so a stale set would show the wrong lane order.
+   *
+   * Nothing is built here until the user has answered the initial grouping question
+   * (SPEC §4.4) — that answer is what picks device or subfolder in the first place,
+   * so building strips ahead of it would just be guessing and then discarding the
+   * guess the moment they answer.
    */
   regroupIfNeeded(): void {
     const files = this.store.listFiles();
@@ -73,6 +79,7 @@ export class Session {
     // than per request keeps a timezone lookup off the read path.
     this.strips.refreshUtcOffsetRules(files);
 
+    if (!this.store.groupingModeAnswered) return;
     const mode = this.store.groupingMode;
     if (mode === 'manual') return;
     const summary = this.scanner.getStatus().summary;

@@ -60,9 +60,18 @@ export interface SessionState {
   folderId: string;
   fileCount: number;
   groupingMode: GroupingMode;
+  /**
+   * True until the user has chosen how to group the initial strips (SPEC §4.4) for
+   * this folder. No strips exist yet while this is true.
+   */
+  groupingQuestionPending: boolean;
   /** True until the timestamp question of SPEC §6.1 has been answered for this folder. */
   timestampQuestionPending: boolean;
   scan: ScanStatus;
+}
+
+export interface AnswerGroupingQuestionRequest {
+  mode: Exclude<GroupingMode, 'manual'>;
 }
 
 export interface OpenSessionRequest {

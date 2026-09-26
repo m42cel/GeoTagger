@@ -321,13 +321,15 @@ gesture is kept plainly distinct from a move.
 
 ### 4.4 How strips are built
 
-The user chooses how the initial strips are formed:
+The user chooses how the initial strips are formed, asked once per folder at startup (§6.1 step
+4) rather than picked silently — the choice is shown alongside what the scan actually found, so it
+is not made blind:
 
 | Mode | Basis |
 | --- | --- |
-| **By device** (default) | `Make` / `Model` / `SerialNumber` from EXIF |
-| **By subfolder** | Directory structure — useful when files were already sorted by camera or by person |
-| **Manual** | Select files and make a strip from them |
+| **By subfolder** (default) | Directory structure — useful when files were already sorted by camera or by person |
+| **By device** | `Make` / `Model` / `SerialNumber` from EXIF |
+| **Manual** | Select files and make a strip from them — not offered at startup, only from the alignment view |
 
 Strips can also be split and merged by hand regardless of mode, for cameras with missing or
 unhelpful EXIF identification.
@@ -443,7 +445,26 @@ Consequences:
      34 confirmed changes still unpersisted        [ Continue ]
    ```
 
-4. **Timestamp question** — always asked, without pre-analysis:
+4. **Grouping question** — asked once per folder, before any strip exists, showing what the scan
+   actually found so the choice isn't blind:
+
+   ```
+   How should these files be grouped into strips?
+
+   4 subfolders found                 3 devices found
+   Day 1 · 340 files                  iPhone 15 Pro · 812 files
+   Day 2 · 512 files                  SONY ILCE-7M4 · 896 files
+   Drone · 220 files                  DJI Mini 4 · 220 files
+   Day 3 · 856 files                  [ Group by device ]
+   [ Group by subfolder ]
+   ```
+
+   Manual grouping is not offered here — it is built by hand afterwards, in the alignment view.
+   The answer is recorded, so reopening the folder later does not ask again; the mode can still be
+   changed at any time from the alignment view's grouping control (§4.4), which rebuilds the strips
+   from scratch and warns before doing so.
+
+5. **Timestamp question** — always asked, without pre-analysis:
 
    ```
    Do you need to adjust timestamps for this folder?
@@ -457,7 +478,7 @@ Consequences:
 No map. A shared, zoomable time axis with one lane per strip.
 
 ```
- grouping: [ by device ▾ ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
+ grouping: [ by subfolder ▾ ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
 
  iPhone 15 Pro  [locked] [reset] │  ■■ ■▅   ■▅█▃      ■■■▆   │   offset  0
                                  │                           │
