@@ -14,7 +14,8 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionMan
 
   /**
    * Opens a folder and starts its scan. Returns as soon as the scan has started, not
-   * when it finishes — the UI is usable while scanning continues (SPEC §6.1 step 2).
+   * when it finishes — progress streams over `scan-stream` and the UI blocks on it
+   * until it settles (SPEC §6.1 step 2).
    */
   app.post<{ Body: OpenSessionRequest }>('/api/session/open', async (req): Promise<SessionState> => {
     const session = sessions.open(req.body?.relPath ?? '');

@@ -61,7 +61,8 @@ across the whole stack, and `exiftool-vendored` already solves timestamp and GPS
 - 1,000–5,000 media files per folder, scanned recursively.
 - Low-power ARM NAS. Design consequences: extract embedded previews instead of decoding full
   images wherever possible, cache thumbnails persistently, scan incrementally with visible
-  progress, and keep the UI usable while scanning continues in the background.
+  progress, and block browsing until the scan and its thumbnails finish, so the folder is never
+  shown half-indexed.
 - LAN-only, no authentication. The server nevertheless confines all filesystem access to a
   configured root (see §11) — that is bug containment, not access control.
 
@@ -432,7 +433,8 @@ Consequences:
 1. **Folder picker** — a server-side folder browser rooted at the configured photo root, showing
    media counts per folder, plus a recent-folders list. The app can also be launched pointed
    straight at a folder via a command-line argument or URL, skipping the picker.
-2. **Scan** — recursive, incremental, with live progress. The UI is usable while it runs.
+2. **Scan** — recursive, incremental, with live progress. Nothing past this step is reachable
+   until the scan, including thumbnail generation, finishes; a rescan re-blocks the same way.
 3. **Reopening a known folder** shows a summary before continuing:
 
    ```

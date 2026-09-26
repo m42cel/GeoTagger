@@ -1,9 +1,10 @@
 import type { ScanStatus } from '@geotagger/shared';
 
 /**
- * Live scan progress (SPEC §6.1 step 2). The UI stays usable throughout, so this is
- * a bar rather than a modal — a first scan of 5,000 files on an ARM NAS is long
- * enough that blocking on it would be unacceptable.
+ * Live scan progress (SPEC §6.1 step 2). Browsing is blocked until the scan settles
+ * (`FolderView` gates on `status.phase`), but this still reports fine-grained progress
+ * rather than a plain spinner — a first scan of 5,000 files on an ARM NAS is long
+ * enough that the user needs to see it moving.
  */
 export function ScanProgress({ status, onRescan }: { status: ScanStatus; onRescan: () => void }) {
   const idle = status.phase === 'done' || status.phase === 'idle' || status.phase === 'failed';

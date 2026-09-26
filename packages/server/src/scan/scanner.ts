@@ -28,8 +28,8 @@ export function idleScanStatus(): ScanStatus {
  * for what changed, then generate thumbnails in the background.
  *
  * The scan is incremental — an unchanged file costs a `stat` and nothing more — and
- * reports progress throughout, because the UI stays usable while it runs (SPEC §2
- * "Target scale").
+ * reports progress throughout, because the UI blocks on it until it settles (SPEC §2
+ * "Target scale") and the user needs to see it moving.
  */
 export class Scanner {
   private status: ScanStatus = idleScanStatus();

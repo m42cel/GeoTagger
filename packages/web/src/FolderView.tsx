@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   FilesResponse,
   GroupingMode,
@@ -38,6 +38,12 @@ export function FolderView({
   const [view, setView] = useState<View>(session.timestampQuestionPending ? 'question' : 'files');
   const [persisting, setPersisting] = useState(false);
 
+  // Kept current across renders so the scan-stream effect below — which only resubscribes
+  // on a folder change, not on every session update — can still see the latest answer when
+  // a later rescan settles.
+  const timestampQuestionPending = useRef(session.timestampQuestionPending);
+  timestampQuestionPending.current = session.timestampQuestionPending;
+
   const refresh = useCallback(() => {
     Promise.all([api.files(), api.strips()])
       .then(([f, s]) => {
@@ -52,12 +58,19 @@ export function FolderView({
   // Keyed on the transition into a finished phase rather than a one-shot flag: the
   // same stream carries every later rescan too, and a flag would leave the file list
   // showing the results of the first scan only.
+  //
+  // The scan (thumbnails included) is a precondition for browsing: whenever it settles
+  // into 'done', land back at the front of the funnel rather than wherever the view
+  // happened to be pointed before it started — this is also what makes a rescan hide
+  // the pictures again, since the render below blocks on `scan.phase` directly.
   useEffect(() => {
     let previousPhase: ScanStatus['phase'] | null = null;
     const unsubscribe = subscribeScan((status) => {
       setScan(status);
-      const finished = status.phase === 'done' || status.phase === 'failed';
-      if (finished && status.phase !== previousPhase) refresh();
+      if (status.phase === 'done' && previousPhase !== 'done') {
+        refresh();
+        setView(timestampQuestionPending.current ? 'question' : 'files');
+      }
       previousPhase = status.phase;
     });
     refresh();
@@ -79,8 +92,23 @@ export function FolderView({
   }, []);
 
   const rescan = useCallback(() => {
+    // Optimistic: blocks browsing immediately rather than waiting for the first SSE
+    // update, so no stale content flashes before the scan stream reports 'walking'.
+    setScan((s) => ({ ...s, phase: 'walking' }));
     api.rescan().then(onSessionChange).catch((err: unknown) => setError(errorText(err)));
   }, [onSessionChange]);
+
+  // The scan, including thumbnail generation, is a precondition for everything past
+  // it (SPEC §6.1 step 2) — the question, the file grid, the alignment view all wait
+  // behind it, and a rescan hides them again the same way.
+  if (scan.phase !== 'done') {
+    return (
+      <section className="folder-view">
+        <ScanProgress status={scan} onRescan={rescan} />
+        {error && <div className="banner error">{error}</div>}
+      </section>
+    );
+  }
 
   if (view === 'question') {
     return (
