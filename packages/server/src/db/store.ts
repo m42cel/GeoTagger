@@ -683,6 +683,28 @@ export class FolderStore {
     return new Map(rows.map((r) => [r.file_id, r.utc_offset_override_minutes]));
   }
 
+  // ---- positions (SPEC §5.6) ----------------------------------------------
+
+  /**
+   * Positions the user has already settled — dragged or confirmed — keyed by file
+   * id. Empty until phase 3 adds the routes that write `edits.lat`/`lon`; reading it
+   * now costs nothing and means the interpolator (SPEC §5) needs no change when
+   * those routes arrive.
+   */
+  listKnownPositions(): Map<number, { lat: number; lon: number; source: 'manual' | 'confirmed' }> {
+    const rows = this.db
+      .prepare<[], { file_id: number; lat: number; lon: number; confirmed_at: number | null }>(
+        'SELECT file_id, lat, lon, confirmed_at FROM edits WHERE lat IS NOT NULL AND lon IS NOT NULL',
+      )
+      .all();
+    return new Map(
+      rows.map((r) => [
+        r.file_id,
+        { lat: r.lat, lon: r.lon, source: r.confirmed_at !== null ? ('confirmed' as const) : ('manual' as const) },
+      ]),
+    );
+  }
+
   setFileUtcOffsetOverride(fileId: number, minutes: number | null): void {
     this.db
       .prepare(

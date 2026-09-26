@@ -8,6 +8,14 @@
   --accent: #2f6fd0;
   --error: #b42318;
   --weak: #b45309;
+  /*
+   * Map marker border colours (SPEC §6.5). Fixed rather than themed like the rest of
+   * this block — they sit on map imagery, not the app background, and have to read
+   * the same over satellite and street tiles regardless of light/dark mode, so
+   * there's no dark-mode override for these two below.
+   */
+  --known: #2e9e44;
+  --unconfirmed: #d1453b;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -746,4 +754,102 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: var(--bg);
   color: inherit;
   width: 110px;
+}
+
+/*
+ * Map view (SPEC §6.3). The marker border colours are fixed rather than themed —
+ * they sit on top of map imagery, not the app background, and have to read the same
+ * over satellite and street tiles regardless of light/dark mode.
+ */
+.chip-group { display: flex; gap: 4px; }
+
+.map-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+
+.map-legend { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 2px solid;
+  margin-left: 10px;
+}
+.legend-swatch:first-child { margin-left: 0; }
+.legend-swatch.known { border-color: var(--known); }
+.legend-swatch.unconfirmed { border-color: var(--unconfirmed); }
+
+.map-layout { display: flex; gap: 12px; align-items: stretch; }
+
+.map-container {
+  flex: 1;
+  min-width: 0;
+  height: 70vh;
+  min-height: 480px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.tray-panel {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.tray-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tray-list li { display: flex; align-items: center; gap: 8px; font-size: 12px; overflow: hidden; }
+.tray-list img { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.tray-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.map-thumb-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 3px solid;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.map-thumb-icon.known img { border-color: var(--known); }
+.map-thumb-icon.unconfirmed img { border-color: var(--unconfirmed); }
+
+/*
+ * No `position` here: Leaflet's own `.leaflet-marker-icon` rule (also on this
+ * element) sets `position: absolute` with the `top`/`left` it computes for the
+ * marker's geographic placement. Overriding that to `relative` — even with equal
+ * selector specificity, cascade order made it win — knocked the element out of that
+ * placement and left it wherever it fell in the marker pane's normal document flow
+ * instead, which is what "the collapsed stack doesn't line up with the trip" was:
+ * un-clustered markers use `.map-thumb-icon`, which never touched `position`, so
+ * they stayed correctly placed. `.leaflet-marker-icon` being `absolute` already
+ * gives the count badge below a valid positioning context, so nothing needs adding
+ * here for that.
+ */
+.map-cluster-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 3px solid;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* Worst-of-the-group colouring (a mixed cluster reads as unconfirmed): same colours as `.map-thumb-icon`. */
+.map-cluster-icon.known img { border-color: var(--known); }
+.map-cluster-icon.unconfirmed img { border-color: var(--unconfirmed); }
+.map-cluster-icon .cluster-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }

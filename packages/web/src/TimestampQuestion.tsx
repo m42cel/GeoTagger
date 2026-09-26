@@ -7,10 +7,10 @@
  */
 export function TimestampQuestion({
   onFixTimestamps,
-  onSkip,
+  onGoToMap,
 }: {
   onFixTimestamps: () => void;
-  onSkip: () => void;
+  onGoToMap: () => void;
 }) {
   return (
     <div className="question-card">
@@ -23,10 +23,8 @@ export function TimestampQuestion({
         <button type="button" className="primary" onClick={onFixTimestamps}>
           Fix timestamps first
         </button>
-        {/* SPEC §6.1 offers "Go to map" here; the map arrives in phase 2, so until
-            then the other road leads back to the scanned folder. */}
-        <button type="button" className="ghost" onClick={onSkip}>
-          Skip for now
+        <button type="button" className="ghost" onClick={onGoToMap}>
+          Go to map
         </button>
       </div>
     </div>
