@@ -1,5 +1,5 @@
 import type { UtcOffsetRule } from '@geotagger/shared';
-import { endMs, xOf, type TimeScale } from './scale.js';
+import { clampToViewport, endMs, xOf, type TimeScale } from './scale.js';
 import { bandLabel, bandShortLabel, bandTitle, zoneBands } from './zone-bands.js';
 
 /**
@@ -51,12 +51,18 @@ export function ZoneRibbon({
 
         const left = xOf(scale, band.fromMs);
         const right = xOf(scale, band.toMs);
-        // A period established by a single GPS fix has no width at all; it is still
-        // the only thing known about that instant, so it keeps a hairline.
-        const width = Math.max(3, right - left);
         // How much of the band the viewport can actually show, which is what decides
         // whether its name fits — a period running off both edges has the whole width.
         const visible = Math.min(right, scale.widthPx) - Math.max(left, 0);
+
+        // A band can run for real days while the viewport shows seconds of it; at a
+        // deep enough zoom that turns into a `left`/`width` past what a browser will
+        // reliably render, so the box itself is clamped to a margin around the
+        // viewport. `visible` above still reflects the band's true extent.
+        const domLeft = clampToViewport(left, scale.widthPx);
+        // A period established by a single GPS fix has no width at all; it is still
+        // the only thing known about that instant, so it keeps a hairline.
+        const width = Math.max(3, clampToViewport(right, scale.widthPx) - domLeft);
 
         const kind = band.observed ? 'observed' : band.crossing ? 'crossing' : 'inferred';
         const full = bandLabel(band);
@@ -66,13 +72,13 @@ export function ZoneRibbon({
           <div
             key={`${band.fromMs}-${band.toMs}-${i}`}
             className={`zone-band ${kind}${alt ? ' alt' : ''}`}
-            style={{ left, width }}
+            style={{ left: domLeft, width }}
             title={bandTitle(band)}
           >
             {label !== '' && (
               // Slides with the viewport so a period wider than the screen keeps its
               // name on show instead of leaving it off the left edge.
-              <span className="zone-label" style={{ marginLeft: Math.max(0, -left) }}>
+              <span className="zone-label" style={{ marginLeft: Math.max(0, -domLeft) }}>
                 {label}
               </span>
             )}

@@ -27,6 +27,7 @@ import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import { ZoneRibbon } from './ZoneRibbon.js';
 import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
 import {
+  clampToViewport,
   endMs,
   lowerBound,
   msAt,
@@ -709,8 +710,8 @@ function hitStyle(strip: StripRecord, scale: TimeScale): React.CSSProperties {
   if (strip.firstEffectiveMs === null || strip.lastEffectiveMs === null) {
     return { display: 'none' };
   }
-  const left = xOf(scale, strip.firstEffectiveMs) - STRIP_PAD_PX;
-  const right = xOf(scale, strip.lastEffectiveMs) + STRIP_PAD_PX;
+  const left = clampToViewport(xOf(scale, strip.firstEffectiveMs), scale.widthPx) - STRIP_PAD_PX;
+  const right = clampToViewport(xOf(scale, strip.lastEffectiveMs), scale.widthPx) + STRIP_PAD_PX;
   return { left, width: Math.max(8, right - left) };
 }
 

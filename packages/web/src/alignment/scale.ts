@@ -75,6 +75,22 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/**
+ * How far past the viewport an element is still allowed to reach. A strip or a zone
+ * band can span real time far longer than what's on screen, and at a deep enough zoom
+ * that span in pixels overshoots what browsers can reliably position or size an
+ * element to (they clip or silently refuse to paint past roughly ±16-30M px). Nothing
+ * needs to extend further than a healthy margin beyond the visible edge to still look
+ * and behave right, so callers clamp into this margin before handing a pixel value to
+ * CSS `left`/`width`.
+ */
+export const RENDER_MARGIN_PX = 50_000;
+
+/** Clamps a pixel position/extent into the renderable margin around the viewport. */
+export function clampToViewport(px: number, widthPx: number): number {
+  return clamp(px, -RENDER_MARGIN_PX, widthPx + RENDER_MARGIN_PX);
+}
+
 export interface AxisTick {
   ms: number;
   label: string;
