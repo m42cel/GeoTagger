@@ -3,6 +3,7 @@ import type { FileRecord, UtcOffsetRule } from '@geotagger/shared';
 import { naiveToMs } from '@geotagger/shared';
 import {
   buildUtcOffsetRules,
+  displayOffsetFor,
   dominantOffsetMinutes,
   hasTrustworthyClock,
   resolveUtcOffset,
@@ -179,6 +180,62 @@ describe('resolveUtcOffset', () => {
       minutes: 0,
       source: 'assumed',
     });
+  });
+});
+
+describe('displayOffsetFor', () => {
+  const noRules: UtcOffsetRule[] = [];
+
+  it('leaves a local-time-only resolution alone', () => {
+    const resolved = { minutes: 120, source: 'inherited' as const };
+    expect(displayOffsetFor(file({}), at('2024-07-13T11:00:00'), resolved, noRules)).toBe(120);
+  });
+
+  it('leaves a genuinely stated EXIF offset alone', () => {
+    // An EXIF file's own OffsetTimeOriginal is a real, stated zone, not a UTC-by-
+    // convention placeholder, so there is nothing to look up.
+    const resolved = { minutes: -360, source: 'file' as const };
+    expect(displayOffsetFor(file({}), at('2024-07-13T11:00:00'), resolved, noRules)).toBe(-360);
+  });
+
+  it('derives the real zone from a video’s own GPS instead of showing UTC', () => {
+    // The video's reading (07:00) is genuinely the UTC instant, and NY is on
+    // daylight time at that point in the year.
+    const resolved = { minutes: 0, source: 'file' as const };
+    const video = file({
+      kind: 'video',
+      captureTimeSource: 'quicktime:CreateDate',
+      captureUtcOffsetMinutes: 0,
+      origGpsPresent: true,
+      origLat: NEW_YORK.lat,
+      origLon: NEW_YORK.lon,
+    });
+    expect(displayOffsetFor(video, at('2024-07-12T07:00:00'), resolved, noRules)).toBe(-240);
+  });
+
+  it('falls back to the covering trip period for a video with no GPS of its own', () => {
+    const rules: UtcOffsetRule[] = [
+      { id: 1, fromUtc: at('2024-07-12T05:00:00'), toUtc: at('2024-07-14T14:00:00'), offsetMinutes: -240, source: 'gps', zone: 'America/New_York' },
+    ];
+    const resolved = { minutes: 0, source: 'file' as const };
+    const video = file({
+      kind: 'video',
+      captureTimeSource: 'quicktime:CreateDate',
+      captureUtcOffsetMinutes: 0,
+      origGpsPresent: false,
+    });
+    expect(displayOffsetFor(video, at('2024-07-12T07:00:00'), resolved, rules)).toBe(-240);
+  });
+
+  it('falls back to the placeholder when there is nowhere else to look', () => {
+    const resolved = { minutes: 0, source: 'file' as const };
+    const video = file({
+      kind: 'video',
+      captureTimeSource: 'quicktime:CreateDate',
+      captureUtcOffsetMinutes: 0,
+      origGpsPresent: false,
+    });
+    expect(displayOffsetFor(video, at('2024-07-12T07:00:00'), resolved, noRules)).toBe(0);
   });
 });
 

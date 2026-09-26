@@ -96,6 +96,71 @@ function anchorFor(file: OffsetSourceFile): Anchor | null {
   return { instantMs: naiveMs - offsetMinutes * MINUTE_MS, offsetMinutes, zone };
 }
 
+/**
+ * Sources whose stated `0` offset is a container convention — "this format is
+ * UTC" — rather than a fact about where the file was. It is exactly enough to place
+ * the file correctly on the absolute timeline, but showing "+00:00" for a video shot
+ * in Colorado is misleading: unlike a bare local reading, this file already knows the
+ * precise place and moment to look the real zone up for, so it should not have to
+ * settle for the fallback a local-time-only file needs.
+ */
+const UTC_BY_CONVENTION_SOURCES: readonly CaptureTimeSource[] = ['quicktime:CreateDate', 'exif:GPSDateTime'];
+
+/** The subset of a file `displayOffsetFor` reads. */
+export type DisplayOffsetFile = Pick<
+  FileRecord,
+  'captureTimeSource' | 'origGpsPresent' | 'origLat' | 'origLon'
+>;
+
+/**
+ * The offset to show for a file and to write back into its tags, as distinct from
+ * `resolveUtcOffset`'s `minutes`, which is the adjustment that places it on the
+ * absolute timeline.
+ *
+ * The two agree everywhere except a UTC-by-convention file: there the adjustment is
+ * always `0` (the reading already is the instant), but the place still has a real
+ * zone. This looks that zone up the same way an anchor would — from the file's own
+ * coordinates when it has them, or otherwise from whichever period of the trip covers
+ * the instant — so a photo and a video shot minutes apart resolve to the same offset
+ * instead of alternating between the real zone and "+00:00".
+ */
+export function displayOffsetFor(
+  file: DisplayOffsetFile,
+  instantMs: number | null,
+  resolved: ResolvedUtcOffset,
+  rules: readonly UtcOffsetRule[],
+): number {
+  if (resolved.source !== 'file' || instantMs === null || !UTC_BY_CONVENTION_SOURCES.includes(file.captureTimeSource)) {
+    return resolved.minutes;
+  }
+  if (file.origGpsPresent && file.origLat !== null && file.origLon !== null) {
+    const zone = zoneForCoordinates(file.origLat, file.origLon);
+    const offset = zone === null ? null : zoneOffsetMinutes(zone, instantMs);
+    if (offset !== null) return offset;
+  }
+  return ruleForInstant(rules, instantMs)?.offsetMinutes ?? resolved.minutes;
+}
+
+/**
+ * Like `ruleForNaiveReading`, but for an instant that is already absolute — a
+ * UTC-by-convention file's own reading needs no local-time shift to compare against
+ * the rules' bounds, which are absolute instants themselves.
+ */
+function ruleForInstant(rules: readonly UtcOffsetRule[], instantMs: number): UtcOffsetRule | null {
+  let nearest: UtcOffsetRule | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const rule of rules) {
+    if (instantMs >= rule.fromUtc && instantMs <= rule.toUtc) return rule;
+    const distance = instantMs < rule.fromUtc ? rule.fromUtc - instantMs : instantMs - rule.toUtc;
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = rule;
+    }
+  }
+  return nearest;
+}
+
 export interface OffsetOverrides {
   /** Typed in for this one file. */
   file: number | null;

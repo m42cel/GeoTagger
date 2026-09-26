@@ -1,6 +1,6 @@
 import type { FileRecord, StripRecord, TimelineFile, UtcOffsetRule } from '@geotagger/shared';
 import { effectiveMs, naiveToMs } from '@geotagger/shared';
-import { dominantOffsetMinutes, resolveUtcOffset } from './utc-offset.js';
+import { displayOffsetFor, dominantOffsetMinutes, resolveUtcOffset } from './utc-offset.js';
 
 /**
  * Puts every file on one absolute timeline, which is what the alignment view draws
@@ -54,8 +54,9 @@ export function buildTimeline(input: TimelineInput): Timeline {
 
     const effective =
       rawCaptureMs === null ? null : effectiveMs(rawCaptureMs, offsetSeconds, resolved.minutes);
+    const displayMinutes = displayOffsetFor(file, correctedNaiveMs, resolved, input.rules);
 
-    if (rawCaptureMs !== null) offsets.push(resolved.minutes);
+    if (rawCaptureMs !== null) offsets.push(displayMinutes);
     if (effective !== null && stripId !== null) {
       const span = spans.get(stripId);
       if (!span) spans.set(stripId, { first: effective, last: effective });
@@ -69,7 +70,7 @@ export function buildTimeline(input: TimelineInput): Timeline {
       id: file.id,
       stripId,
       rawCaptureMs,
-      utcOffsetMinutes: resolved.minutes,
+      utcOffsetMinutes: displayMinutes,
       utcOffsetSource: resolved.source,
       offsetSeconds,
       effectiveMs: effective,
