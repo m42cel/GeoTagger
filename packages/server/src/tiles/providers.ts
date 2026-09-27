@@ -1,7 +1,5 @@
 /**
- * The tile providers of SPEC §7.1 that need no API key. MapTiler and Thunderforest
- * are configured with a key from the settings page (§11), which arrives in phase 5;
- * this registry is shaped so adding them later is a new entry, not a redesign.
+ * The tile providers of SPEC §7.1. All are key-less.
  */
 export interface TileProvider {
   id: string;

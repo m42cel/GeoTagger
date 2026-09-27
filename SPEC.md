@@ -613,7 +613,6 @@ server-side, shared across all devices and folders.
 | --- | --- | --- |
 | OpenStreetMap standard | none | Default |
 | Esri World Imagery | none | Satellite layer — markedly easier for placing a photo on the correct side of a building or trail |
-| MapTiler / Thunderforest | yes | Optional, configured in settings |
 | Local PMTiles | none | Offline (§7.3) |
 
 The OSMF tile usage policy requires an identifying `User-Agent` and forbids bulk or systematic
@@ -871,7 +870,7 @@ LOG_LEVEL                  default info
 
 **Settings page** (behaviour; stored server-side):
 
-- tile provider and optional API key, satellite layer toggle
+- tile provider, satellite layer toggle
 - interpolation: `v_floor`, `v_cap`, `r_min`
 - extrapolation cap (default off)
 - map thumbnail size, uncertainty circle toggle, path arrowheads toggle
