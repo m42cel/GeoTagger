@@ -38,6 +38,7 @@ function addFile(
       origGpsPresent: extra.gps !== undefined,
       origLat: extra.gps?.lat ?? null,
       origLon: extra.gps?.lon ?? null,
+      origAlt: null,
     },
     { id: 'sony', make: null, model: 'sony', serial: null, label: 'Sony' },
   );

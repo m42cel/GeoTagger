@@ -113,7 +113,14 @@ describe('collectGps', () => {
     expect(collectGps({ 'Composite:GPSLatitude': -41.9, 'Composite:GPSLongitude': 12.5 })).toEqual({
       lat: -41.9,
       lon: 12.5,
+      alt: null,
     });
+  });
+
+  it('reads a signed altitude alongside the coordinates', () => {
+    expect(
+      collectGps({ 'Composite:GPSLatitude': -41.9, 'Composite:GPSLongitude': 12.5, 'Composite:GPSAltitude': -12.3 }),
+    ).toEqual({ lat: -41.9, lon: 12.5, alt: -12.3 });
   });
 
   it('treats a 0,0 fix as absent, since that is what a camera writes without a lock', () => {
@@ -130,6 +137,7 @@ describe('collectGps', () => {
     expect(collectGps({ 'Composite:GPSLatitude': 0, 'Composite:GPSLongitude': 12.5 })).toEqual({
       lat: 0,
       lon: 12.5,
+      alt: null,
     });
   });
 });

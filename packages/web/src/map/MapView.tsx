@@ -5,18 +5,20 @@ import 'leaflet-polylinedecorator';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import type { ComputedPosition, FileRecord, FilesResponse, TimelineResponse } from '@geotagger/shared';
+import type { ComputedPosition, FileRecord, FilesResponse, TimelineFile, TimelineResponse } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
+import { DetailPanel } from './DetailPanel.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7): every file plotted at its known or interpolated
- * position, clustered, with a path line and uncertainty circles.
+ * position, clustered, with a path line and uncertainty circles. Selecting a
+ * thumbnail shows a read-only detail panel (SPEC §15 phase 2).
  *
- * Nothing here edits a position — dragging, confirming and the detail panel are
- * phase 3. This view only shows where SPEC §5's interpolation currently places
- * everything, which is also why it fetches plainly on mount rather than subscribing
- * to anything live: nothing on this screen changes it.
+ * Nothing here edits a position — dragging, confirming and multi-select are phase 3.
+ * This view only shows where SPEC §5's interpolation currently places everything,
+ * which is also why it fetches plainly on mount rather than subscribing to anything
+ * live: nothing on this screen changes it.
  */
 
 const THUMB_SIZE_PX = 48;
@@ -24,7 +26,7 @@ const THUMB_SIZE_PX = 48;
 interface MapItem {
   file: FileRecord;
   position: ComputedPosition;
-  effectiveMs: number | null;
+  timelineFile: TimelineFile | null;
 }
 
 type BaseLayerId = 'osm' | 'esri';
@@ -50,6 +52,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [showCircles, setShowCircles] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([api.files(), api.timeline()])
@@ -63,16 +66,17 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const items = useMemo<MapItem[]>(() => {
     if (!filesResp || !timeline) return [];
     const positionById = new Map(filesResp.positions.map((p) => [p.fileId, p]));
-    const effectiveById = new Map(timeline.files.map((f) => [f.id, f.effectiveMs]));
+    const timelineById = new Map(timeline.files.map((f) => [f.id, f]));
     return filesResp.files.map((file) => ({
       file,
       position: positionById.get(file.id) ?? { fileId: file.id, lat: null, lon: null, uncertaintyM: null, source: 'none' },
-      effectiveMs: effectiveById.get(file.id) ?? null,
+      timelineFile: timelineById.get(file.id) ?? null,
     }));
   }, [filesResp, timeline]);
 
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
+  const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
 
   // SPEC §6.3: "a single plain polyline connecting all files in effective-time
   // order across all devices". Files with no effective time cannot take a place
@@ -81,8 +85,8 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const path = useMemo<[number, number][]>(
     () =>
       onMap
-        .filter((i) => i.effectiveMs !== null)
-        .sort((a, b) => (a.effectiveMs as number) - (b.effectiveMs as number))
+        .filter((i) => i.timelineFile?.effectiveMs !== null && i.timelineFile?.effectiveMs !== undefined)
+        .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number))
         .map((i) => [i.position.lat as number, i.position.lon as number]),
     [onMap],
   );
@@ -152,6 +156,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
       markerWithFile.geotaggerBorderClass = borderClass;
       markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
       marker.bindTooltip(item.file.filename);
+      marker.on('click', () => setSelectedId(item.file.id));
       cluster.addLayer(marker);
       markers.push(markerWithFile);
     }
@@ -274,7 +279,8 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
       <div className="map-layout">
         <div className="map-container" ref={containerRef} />
-        {tray.length > 0 && <Tray items={tray} />}
+        {tray.length > 0 && <Tray items={tray} selectedId={selectedId} onSelect={setSelectedId} />}
+        <DetailPanel file={selected?.file ?? null} position={selected?.position ?? null} timelineFile={selected?.timelineFile ?? null} />
       </div>
     </section>
   );
@@ -283,15 +289,29 @@ export function MapView({ onBack }: { onBack: () => void }) {
 /**
  * Files with no derivable position (SPEC §6.4): fewer than two anchors in the whole
  * folder, or no capture time of their own. Dragging one onto the map to place it and
- * make it an anchor is a phase 3 interaction; for now this is a read-only list.
+ * make it an anchor is a phase 3 interaction; for now this is a read-only list, but
+ * clicking one still shows it in the detail panel like a thumbnail on the map would.
  */
-function Tray({ items }: { items: MapItem[] }) {
+function Tray({
+  items,
+  selectedId,
+  onSelect,
+}: {
+  items: MapItem[];
+  selectedId: number | null;
+  onSelect: (fileId: number) => void;
+}) {
   return (
     <aside className="tray-panel">
       <h2>Not on the map · {items.length}</h2>
       <ul className="tray-list">
         {items.map(({ file }) => (
-          <li key={file.id} title={file.relPath}>
+          <li
+            key={file.id}
+            title={file.relPath}
+            className={file.id === selectedId ? 'selected' : ''}
+            onClick={() => onSelect(file.id)}
+          >
             <img src={`/api/files/${file.id}/thumb`} alt="" loading="lazy" width={40} height={40} />
             <span>{file.filename}</span>
           </li>

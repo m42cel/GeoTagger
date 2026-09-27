@@ -47,6 +47,7 @@ function addFile(
       origGpsPresent: extra.gps !== undefined,
       origLat: extra.gps?.lat ?? null,
       origLon: extra.gps?.lon ?? null,
+      origAlt: null,
     },
     { id: device, make: null, model: device, serial: null, label: device },
   );

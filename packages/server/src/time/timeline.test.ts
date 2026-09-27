@@ -29,6 +29,7 @@ function file(over: Partial<FileRecord>): FileRecord {
     origGpsPresent: false,
     origLat: null,
     origLon: null,
+    origAlt: null,
     firstSeenAt: 0,
     lastScannedAt: 0,
     missing: false,

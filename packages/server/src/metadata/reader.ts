@@ -82,6 +82,7 @@ const TAG_ARGS = [
   '-Composite:GPSDateTime',
   '-Composite:GPSLatitude#',
   '-Composite:GPSLongitude#',
+  '-Composite:GPSAltitude#',
   '-Composite:Duration',
   '-File:FileModifyDate',
   '-File:ImageWidth',
@@ -139,6 +140,7 @@ export function metadataFromTags(
       origGpsPresent: gps !== null,
       origLat: gps?.lat ?? null,
       origLon: gps?.lon ?? null,
+      origAlt: gps?.alt ?? null,
     },
     device,
   };

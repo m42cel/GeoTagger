@@ -109,12 +109,16 @@ export function collectDateCandidates(tags: RawTags): DateCandidates {
 export interface RawGps {
   lat: number;
   lon: number;
+  /** Metres above sea level, negative below; null when the fix carried no altitude. */
+  alt: number | null;
 }
 
 /**
  * Reads the camera's own coordinates. `Composite:GPSLatitude` is a signed decimal
  * that already accounts for the N/S and E/W reference tags, which is why it is
- * preferred over the raw EXIF pair.
+ * preferred over the raw EXIF pair. `Composite:GPSAltitude` is likewise already
+ * signed by `GPSAltitudeRef` (below sea level negative), so no ref tag of its own
+ * needs reading here.
  *
  * A 0,0 fix is treated as absent: Null Island is what a camera writes when it has a
  * GPS field but no lock, and is never a real holiday photo.
@@ -125,7 +129,8 @@ export function collectGps(tags: RawTags): RawGps | null {
   if (lat === null || lon === null) return null;
   if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
   if (lat === 0 && lon === 0) return null;
-  return { lat, lon };
+  const alt = num(tags, 'Composite:GPSAltitude') ?? num(tags, 'EXIF:GPSAltitude');
+  return { lat, lon, alt };
 }
 
 export interface RawDimensions {

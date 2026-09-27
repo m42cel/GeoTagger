@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS files (
   orig_gps_present           INTEGER NOT NULL DEFAULT 0,
   orig_lat                   REAL,
   orig_lon                   REAL,
+  orig_alt                   REAL,
   first_seen_at              INTEGER NOT NULL,
   last_scanned_at            INTEGER NOT NULL,
   missing                    INTEGER NOT NULL DEFAULT 0,
@@ -144,6 +145,7 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
   addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
+  addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   collapseOffsetRamp(db);
 }
 

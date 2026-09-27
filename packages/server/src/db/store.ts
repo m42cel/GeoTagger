@@ -44,6 +44,7 @@ export interface FileMetadata {
   origGpsPresent: boolean;
   origLat: number | null;
   origLon: number | null;
+  origAlt: number | null;
 }
 
 export type FileChange = 'added' | 'changed' | 'unchanged';
@@ -69,6 +70,7 @@ interface FileRow {
   orig_gps_present: number;
   orig_lat: number | null;
   orig_lon: number | null;
+  orig_alt: number | null;
   first_seen_at: number;
   last_scanned_at: number;
   missing: number;
@@ -117,6 +119,7 @@ function rowToFile(r: FileRow): FileRecord {
     origGpsPresent: r.orig_gps_present !== 0,
     origLat: r.orig_lat,
     origLon: r.orig_lon,
+    origAlt: r.orig_alt,
     firstSeenAt: r.first_seen_at,
     lastScannedAt: r.last_scanned_at,
     missing: r.missing !== 0,
@@ -303,7 +306,7 @@ export class FolderStore {
       .prepare(
         `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?,
                           capture_time_raw = ?, capture_time_source = ?, capture_utc_offset_minutes = ?,
-                          gps_time_utc = ?, orig_gps_present = ?, orig_lat = ?, orig_lon = ?
+                          gps_time_utc = ?, orig_gps_present = ?, orig_lat = ?, orig_lon = ?, orig_alt = ?
          WHERE id = ?`,
       )
       .run(
@@ -319,6 +322,7 @@ export class FolderStore {
         m.origGpsPresent ? 1 : 0,
         m.origLat,
         m.origLon,
+        m.origAlt,
         fileId,
       );
   }
