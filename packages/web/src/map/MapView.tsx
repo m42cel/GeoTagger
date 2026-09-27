@@ -140,6 +140,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
       iconCreateFunction: (c) => clusterIcon(c.getAllChildMarkers()),
     });
     const circles = L.layerGroup();
+    const markers: MarkerWithFile[] = [];
 
     for (const item of onMap) {
       const borderClass = borderClassFor(item.position.source);
@@ -149,13 +150,39 @@ export function MapView({ onBack }: { onBack: () => void }) {
       const markerWithFile = marker as MarkerWithFile;
       markerWithFile.geotaggerFileId = item.file.id;
       markerWithFile.geotaggerBorderClass = borderClass;
+      markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
       marker.bindTooltip(item.file.filename);
       cluster.addLayer(marker);
+      markers.push(markerWithFile);
+    }
 
-      if (showCircles && item.position.uncertaintyM !== null) {
+    // SPEC §6.3's uncertainty circles are per file, but a stack collapsed into a
+    // single cluster icon at low zoom shouldn't layer one circle per member on top
+    // of each other — that's dozens of near-identical rings drawn at the stack's
+    // thumbnail. Instead each *currently visible* icon (a lone marker or a cluster)
+    // gets exactly one circle, sized to the largest uncertainty among the markers it
+    // is currently standing in for and centered on that worst-case marker's own
+    // position — not the cluster icon's position, which is a synthetic centroid no
+    // single photo actually sits at and would jump the circle around as the cluster
+    // icon moves on zoom. Zooming in splits the cluster and this recomputes, so
+    // members eventually get their own individually-sized circles again.
+    const rebuildCircles = () => {
+      circles.clearLayers();
+      if (!showCircles) return;
+      const groups = new Map<L.Layer, { center: L.LatLng; maxUncertaintyM: number }>();
+      for (const marker of markers) {
+        if (marker.geotaggerUncertaintyM === null || marker.geotaggerUncertaintyM === undefined) continue;
+        const visibleParent = cluster.getVisibleParent(marker);
+        if (!visibleParent) continue;
+        const existing = groups.get(visibleParent);
+        if (!existing || marker.geotaggerUncertaintyM > existing.maxUncertaintyM) {
+          groups.set(visibleParent, { center: marker.getLatLng(), maxUncertaintyM: marker.geotaggerUncertaintyM });
+        }
+      }
+      for (const { center, maxUncertaintyM } of groups.values()) {
         circles.addLayer(
-          L.circle([item.position.lat as number, item.position.lon as number], {
-            radius: item.position.uncertaintyM,
+          L.circle(center, {
+            radius: maxUncertaintyM,
             color: '#d1453b',
             weight: 1,
             fillOpacity: 0.08,
@@ -163,11 +190,13 @@ export function MapView({ onBack }: { onBack: () => void }) {
           }),
         );
       }
-    }
+    };
 
+    cluster.on('animationend spiderfied unspiderfied', rebuildCircles);
     cluster.addTo(map);
     clusterRef.current = cluster;
-    if (showCircles) circles.addTo(map);
+    rebuildCircles();
+    circles.addTo(map);
     circlesRef.current = circles;
 
     if (path.length > 1) {
@@ -272,7 +301,11 @@ function Tray({ items }: { items: MapItem[] }) {
   );
 }
 
-type MarkerWithFile = L.Marker & { geotaggerFileId?: number; geotaggerBorderClass?: 'known' | 'unconfirmed' };
+type MarkerWithFile = L.Marker & {
+  geotaggerFileId?: number;
+  geotaggerBorderClass?: 'known' | 'unconfirmed';
+  geotaggerUncertaintyM?: number | null;
+};
 
 /** Green for a known position (camera GPS or confirmed), red for anything derived or not yet confirmed (SPEC §6.5). */
 function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfirmed' {
