@@ -30,13 +30,7 @@ export function DetailPanel({
         <dt>time</dt>
         <dd>{formatCorrectedTime(timelineFile)}</dd>
         <dt>position</dt>
-        <dd>{formatLatLon(position)}</dd>
-        {file.origAlt !== null && (
-          <>
-            <dt>height</dt>
-            <dd>{Math.round(file.origAlt)} m</dd>
-          </>
-        )}
+        <dd>{formatPosition(position, file.origAlt)}</dd>
         {position !== null && position.source !== 'none' && (
           <>
             <dt>status</dt>
@@ -76,9 +70,10 @@ function formatCorrectedTime(timelineFile: TimelineFile | null) {
   );
 }
 
-function formatLatLon(position: ComputedPosition | null): string {
+function formatPosition(position: ComputedPosition | null, origAlt: number | null): string {
   if (position === null || position.lat === null || position.lon === null) return 'no position';
-  return `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}`;
+  const latLon = `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}`;
+  return origAlt === null ? latLon : `${latLon}, ${Math.round(origAlt)} m`;
 }
 
 const STATUS_LABEL: Record<PositionSource, string> = {
