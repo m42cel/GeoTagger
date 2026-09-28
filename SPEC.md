@@ -542,9 +542,7 @@ positions, and reach the files only on persist.
 │                                        ││ interpolated │
 │                                        ││ ±180 m (good)│
 │                                        ││ [✓] [revert] │
-├─ filmstrip ────────────────────────────┤│              │
-│■■□■ ■□□□  ■■■■ ││ ■□ ■■■■■■■           ││              │
-│ 09:00    11:00  gap  14:00             ││              │
+│                                        ││              │
 └────────────────────────────────────────┘└──────────────┘
 ```
 
@@ -575,10 +573,6 @@ over a representative thumbnail and expand on zoom.
 
 **Filters:** by status — unconfirmed, app-modified, unpersisted, no position. (Time-range,
 device and confidence filters are explicitly not in scope.)
-
-**Filmstrip:** horizontal, time-ordered, every file with its status colour. Hover and selection
-are synchronised with the map in both directions; visible time gaps make the shape of the day
-readable in a way the map cannot show.
 
 ### 6.4 Tray
 
@@ -979,7 +973,7 @@ form a complete, shippable application with no map in it at all.
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
 | **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
-| **3 — Editing** | Drag, confirm, revert, multi-select, filmstrip, status filters. Extends phase 2's detail panel with the confirm/revert controls. |
+| **3 — Editing** | Drag, confirm, revert, multi-select, status filters. Extends phase 2's detail panel with the confirm/revert controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert. *Feature-complete release.* |
 | **5 — Offline and polish** | PMTiles support, area pre-download for permitted providers, settings page, performance tuning against a real 5,000-file folder |
 
