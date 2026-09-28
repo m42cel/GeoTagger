@@ -6,9 +6,11 @@ import type { StripService } from '../strips/service.js';
 /**
  * Turns a folder's files into map positions (SPEC §5).
  *
- * A file anchors the rest when it has a settled position: camera GPS, or a drag or
- * confirmation recorded in the edit store (§5.6) — the edit store wins when both
- * exist, since that is the position the user actually chose. Everything else is
+ * A file's `known` anchor is its confirmed edit-store position, falling back to
+ * camera GPS — only those two anchor anything (§5.5). A drag in progress is kept
+ * entirely separate as `pending`: it overrides what a file itself displays without
+ * ever touching `known`, which is what lets an already-anchored file be re-dragged
+ * while the old anchor keeps placing everyone else (§5.6). Everything else is
  * interpolated or extrapolated from the anchors along the same absolute timeline the
  * alignment view uses, which is why this needs the strip service rather than the
  * store alone.
@@ -18,13 +20,14 @@ export class PositionService {
 
   compute(files: readonly FileRecord[]): ComputedPosition[] {
     const timeline = this.strips.timeline();
-    const settled = this.store.listKnownPositions();
+    const confirmed = this.store.listConfirmedPositions();
+    const pending = this.store.listPendingPositions();
 
     const inputs: PositionInput[] = files.map((f) => {
-      const own = settled.get(f.id);
+      const conf = confirmed.get(f.id);
       const cameraGps = f.origGpsPresent && f.origLat !== null && f.origLon !== null;
-      const known: KnownPosition | null = own
-        ? { lat: own.lat, lon: own.lon, source: own.source }
+      const known: KnownPosition | null = conf
+        ? { lat: conf.lat, lon: conf.lon, source: 'confirmed' }
         : cameraGps
           ? { lat: f.origLat as number, lon: f.origLon as number, source: 'camera-gps' }
           : null;
@@ -32,6 +35,7 @@ export class PositionService {
         fileId: f.id,
         effectiveMs: timeline.byId.get(f.id)?.effectiveMs ?? null,
         known,
+        pending: pending.get(f.id) ?? null,
       };
     });
 

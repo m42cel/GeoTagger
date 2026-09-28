@@ -5,15 +5,15 @@ import { destinationPoint, distanceMeters, greatCirclePoint, initialBearing, typ
  * folder's known positions into an estimate everywhere else.
  *
  * Lives in the shared package for the same reason the timeline arithmetic does
- * (`time.ts`): recomputation runs on every anchor change (§5.5), and dragging a
+ * (`time.ts`): recomputation runs on every anchor change (§5.5), and confirming a
  * marker needs its neighbours to move live, in the browser, without a round trip.
  */
 
-/** Where a *known* position came from — never derived (SPEC §5.6). */
-export type KnownPositionSource = 'camera-gps' | 'manual' | 'confirmed';
+/** Where a *known* position came from — the only two things that anchor other files (SPEC §5.5). */
+export type KnownPositionSource = 'camera-gps' | 'confirmed';
 
-/** Where any position on the map came from, known or derived. */
-export type PositionSource = KnownPositionSource | 'estimate' | 'none';
+/** Where any position on the map came from: known, a drag in progress, or derived. */
+export type PositionSource = KnownPositionSource | 'manual' | 'estimate' | 'none';
 
 export interface KnownPosition extends LatLon {
   source: KnownPositionSource;
@@ -25,10 +25,19 @@ export interface PositionInput {
   /** Where it sits on the absolute timeline; null when it has no capture time at all. */
   effectiveMs: number | null;
   /**
-   * A position that is already settled and not to be re-derived: camera GPS, a
-   * drag, or a confirmation. Anchors everything else (SPEC §5.6); null otherwise.
+   * A settled position that anchors this file *and* every other file (SPEC §5.5):
+   * camera GPS or a confirmation. A drag in progress never touches this — see
+   * `pending` — so re-dragging an already-settled file keeps this anchor active for
+   * everyone else until the drag is confirmed or reverted.
    */
   known: KnownPosition | null;
+  /**
+   * A drag in progress: overrides this file's own displayed position but anchors
+   * nothing (SPEC §5.5, §5.6). Coexists with `known` when a previously-settled file
+   * is being re-dragged — the map shows `known` as a ghost, connected to `pending`
+   * by a thin line, until the user confirms or reverts.
+   */
+  pending: LatLon | null;
 }
 
 export interface ComputedPosition {
@@ -37,10 +46,18 @@ export interface ComputedPosition {
   lon: number | null;
   /**
    * Radius in metres for the faint uncertainty circle (SPEC §5.2), or null when
-   * none is drawn — every known position, confirmed or not yet confirmed by drag.
+   * none is drawn — every known or pending position has none, only a derived
+   * estimate does.
    */
   uncertaintyM: number | null;
   source: PositionSource;
+  /**
+   * The still-active anchor a pending drag is overriding (SPEC §5.6's ghost), or
+   * null when there is nothing to ghost — no `known` position underneath, or no
+   * drag in progress at all.
+   */
+  anchorLat: number | null;
+  anchorLon: number | null;
 }
 
 /** Tunable interpolation behaviour, mirroring the settings of SPEC §11. */
@@ -73,9 +90,16 @@ interface Anchor {
 }
 
 /**
- * Computes a position for every file: known positions pass through unchanged,
- * everything else is interpolated or extrapolated from the anchors (files with a
- * known position and a timestamp), or given up on entirely.
+ * Computes a position for every file: a pending drag shows its own dragged
+ * coordinates (ghosting whatever `known` position it is overriding, if any); a
+ * `known` position with no pending drag passes through unchanged; everything else
+ * is interpolated or extrapolated from the anchors (files with a `known` position
+ * and a timestamp), or given up on entirely.
+ *
+ * A pending drag never joins the anchor set (SPEC §5.5): it settles only its own
+ * file, so it never moves a neighbour's estimate. Only `known` — camera GPS or a
+ * confirmation — anchors anything, whether or not that same file also has a drag
+ * in progress on top of it.
  *
  * Two anchors are the least that can imply a velocity (SPEC §5.2's `v_implied`
  * needs a distance *and* a time gap between two points), so with fewer than that no
@@ -90,18 +114,6 @@ export function computePositions(
 ): Map<number, ComputedPosition> {
   const out = new Map<number, ComputedPosition>();
 
-  for (const f of files) {
-    if (f.known !== null) {
-      out.set(f.fileId, {
-        fileId: f.fileId,
-        lat: f.known.lat,
-        lon: f.known.lon,
-        uncertaintyM: null,
-        source: f.known.source,
-      });
-    }
-  }
-
   const anchors: Anchor[] = files
     .filter((f): f is PositionInput & { known: KnownPosition; effectiveMs: number } =>
       f.known !== null && f.effectiveMs !== null,
@@ -110,7 +122,30 @@ export function computePositions(
     .sort((a, b) => a.t - b.t);
 
   for (const f of files) {
-    if (f.known !== null) continue;
+    if (f.pending !== null) {
+      out.set(f.fileId, {
+        fileId: f.fileId,
+        lat: f.pending.lat,
+        lon: f.pending.lon,
+        uncertaintyM: null,
+        source: 'manual',
+        anchorLat: f.known?.lat ?? null,
+        anchorLon: f.known?.lon ?? null,
+      });
+      continue;
+    }
+    if (f.known !== null) {
+      out.set(f.fileId, {
+        fileId: f.fileId,
+        lat: f.known.lat,
+        lon: f.known.lon,
+        uncertaintyM: null,
+        source: f.known.source,
+        anchorLat: null,
+        anchorLon: null,
+      });
+      continue;
+    }
     if (anchors.length < 2 || f.effectiveMs === null) {
       out.set(f.fileId, noPosition(f.fileId));
       continue;
@@ -122,7 +157,7 @@ export function computePositions(
 }
 
 function noPosition(fileId: number): ComputedPosition {
-  return { fileId, lat: null, lon: null, uncertaintyM: null, source: 'none' };
+  return { fileId, lat: null, lon: null, uncertaintyM: null, source: 'none', anchorLat: null, anchorLon: null };
 }
 
 /** Only called with at least two anchors — `computePositions` guarantees that. */
@@ -150,7 +185,15 @@ function interpolateBetween(fileId: number, t: number, a: Anchor, c: Anchor, par
   if (spanMs <= 0) {
     // The bracketing anchors coincide in time (so `t` does too) — there is no
     // interval to place it within or derive a velocity from.
-    return { fileId, lat: a.pos.lat, lon: a.pos.lon, uncertaintyM: params.rMinM, source: 'estimate' };
+    return {
+      fileId,
+      lat: a.pos.lat,
+      lon: a.pos.lon,
+      uncertaintyM: params.rMinM,
+      source: 'estimate',
+      anchorLat: null,
+      anchorLon: null,
+    };
   }
 
   const f = (t - a.t) / spanMs;
@@ -165,7 +208,7 @@ function interpolateBetween(fileId: number, t: number, a: Anchor, c: Anchor, par
   const untilC = (c.t - t) / 1000;
   const r = Math.max(params.rMinM, Math.min(vRef * Math.min(sinceA, untilC), slack / 2));
 
-  return { fileId, lat, lon, uncertaintyM: r, source: 'estimate' };
+  return { fileId, lat, lon, uncertaintyM: r, source: 'estimate', anchorLat: null, anchorLon: null };
 }
 
 /**
@@ -181,14 +224,22 @@ function extrapolate(fileId: number, t: number, far: Anchor, near: Anchor, param
   const deltaS = Math.abs(t - near.t) / 1000;
 
   if (params.extrapolationMaxMinutes !== null && deltaS / 60 > params.extrapolationMaxMinutes) {
-    return { fileId, lat: near.pos.lat, lon: near.pos.lon, uncertaintyM: BEYOND_CAP_UNCERTAINTY_M, source: 'estimate' };
+    return {
+      fileId,
+      lat: near.pos.lat,
+      lon: near.pos.lon,
+      uncertaintyM: BEYOND_CAP_UNCERTAINTY_M,
+      source: 'estimate',
+      anchorLat: null,
+      anchorLon: null,
+    };
   }
 
   const { lat, lon } = destinationPoint(near.pos, bearing, vImplied * deltaS);
   const vRef = clamp(2 * vImplied, kmhToMs(params.vFloorKmh), kmhToMs(params.vCapKmh));
   const r = Math.max(params.rMinM, vRef * deltaS);
 
-  return { fileId, lat, lon, uncertaintyM: r, source: 'estimate' };
+  return { fileId, lat, lon, uncertaintyM: r, source: 'estimate', anchorLat: null, anchorLon: null };
 }
 
 function kmhToMs(kmh: number): number {

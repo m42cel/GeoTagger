@@ -45,14 +45,9 @@ function addFile(
   return id;
 }
 
-/** Bypasses the store's read-only `listKnownPositions` to seed a settled position —
- * the write side (drag/confirm) belongs to phase 3 and does not exist yet. */
 function settlePosition(fileId: number, lat: number, lon: number, confirmed: boolean): void {
-  store.db
-    .prepare(
-      `INSERT INTO edits (file_id, lat, lon, position_source, confirmed_at) VALUES (?, ?, ?, 'manual', ?)`,
-    )
-    .run(fileId, lat, lon, confirmed ? Date.now() : null);
+  store.setDraggedPosition(fileId, lat, lon);
+  if (confirmed) store.confirmPosition(fileId, lat, lon, null, true);
 }
 
 beforeEach(() => {
@@ -116,5 +111,66 @@ describe('PositionService.compute', () => {
 
     const result = positions.compute(store.listFiles());
     expect(result.find((p) => p.fileId === fileId)).toMatchObject({ source: 'confirmed', uncertaintyM: null });
+  });
+
+  it('does not let a dragged, unconfirmed file anchor its neighbours (SPEC §5.5)', () => {
+    addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const mid = addFile('mid.jpg', '2024-07-12T09:30:00');
+    const dragged = addFile('dragged.jpg', '2024-07-12T10:00:00');
+    settlePosition(dragged, MILAN.lat, MILAN.lon, false);
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    const result = positions.compute(store.listFiles());
+    const byId = new Map(result.map((p) => [p.fileId, p]));
+
+    // Only the camera GPS file is a real anchor, so mid — bracketed only by the
+    // dragged file until it is confirmed — has nothing to interpolate between.
+    expect(byId.get(mid)).toMatchObject({ source: 'none' });
+    expect(byId.get(dragged)).toMatchObject({ lat: MILAN.lat, lon: MILAN.lon, source: 'manual' });
+  });
+
+  it('lets that same file anchor its neighbours once confirmed', () => {
+    addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const mid = addFile('mid.jpg', '2024-07-12T09:30:00');
+    const c = addFile('c.jpg', '2024-07-12T10:00:00');
+    settlePosition(c, MILAN.lat, MILAN.lon, true);
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    const result = positions.compute(store.listFiles());
+    const midPos = result.find((p) => p.fileId === mid)!;
+    expect(midPos.source).toBe('estimate');
+    expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
+    expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
+  });
+
+  it('keeps neighbours anchored on the old position while an already-confirmed file is re-dragged (SPEC §5.6)', () => {
+    const TOKYO = { lat: 35.6762, lon: 139.6503 };
+    addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const mid = addFile('mid.jpg', '2024-07-12T09:30:00');
+    const c = addFile('c.jpg', '2024-07-12T10:00:00');
+    store.confirmPosition(c, MILAN.lat, MILAN.lon, null, false);
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    store.setDraggedPosition(c, TOKYO.lat, TOKYO.lon);
+
+    const result = positions.compute(store.listFiles());
+    const byId = new Map(result.map((p) => [p.fileId, p]));
+
+    // The re-dragged file shows the new spot but ghosts the old, still-anchoring one.
+    expect(byId.get(c)).toMatchObject({
+      lat: TOKYO.lat,
+      lon: TOKYO.lon,
+      source: 'manual',
+      anchorLat: MILAN.lat,
+      anchorLon: MILAN.lon,
+    });
+    // mid is still interpolated between Rome and Milan — Tokyo has not moved it.
+    const midPos = byId.get(mid)!;
+    expect(midPos.source).toBe('estimate');
+    expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
+    expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
   });
 });

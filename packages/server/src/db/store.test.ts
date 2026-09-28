@@ -196,6 +196,75 @@ describe('metadata and strips', () => {
   });
 });
 
+describe('positions — SPEC §5.5, §5.6, §6.5', () => {
+  const ROME = { lat: 41.9028, lon: 12.4964 };
+  const MILAN = { lat: 45.4642, lon: 9.19 };
+
+  it('drag settles a pending position, not a confirmed one', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.setDraggedPosition(id, ROME.lat, ROME.lon);
+    expect(store.listPendingPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
+    expect(store.listConfirmedPositions().has(id)).toBe(false);
+  });
+
+  it('confirm freezes the given coordinates and uncertainty, and clears any pending drag', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.setDraggedPosition(id, MILAN.lat, MILAN.lon);
+    store.confirmPosition(id, ROME.lat, ROME.lon, 180, false);
+    expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
+    expect(store.listPendingPositions().has(id)).toBe(false);
+  });
+
+  it('re-dragging an already-confirmed file keeps the old confirmed position untouched (SPEC §5.5)', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.confirmPosition(id, ROME.lat, ROME.lon, 42, false);
+
+    store.setDraggedPosition(id, MILAN.lat, MILAN.lon);
+
+    // The confirmed anchor is exactly where it was — still able to place everyone
+    // else — while the pending drag holds the new, not-yet-committed spot.
+    expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
+    expect(store.listPendingPositions().get(id)).toEqual({ lat: MILAN.lat, lon: MILAN.lon });
+  });
+
+  it('revert cancels only a pending drag, leaving a confirmed anchor underneath alone', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.confirmPosition(id, ROME.lat, ROME.lon, 42, false);
+    store.setDraggedPosition(id, MILAN.lat, MILAN.lon);
+
+    store.revertPendingPosition(id);
+
+    expect(store.listPendingPositions().has(id)).toBe(false);
+    expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
+  });
+
+  it('revert on a file with nothing pending is a no-op', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.confirmPosition(id, ROME.lat, ROME.lon, 42, false);
+    expect(() => store.revertPendingPosition(id)).not.toThrow();
+    expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
+  });
+
+  it('reset discards a pending drag and a confirmed position alike, without touching the UTC offset override', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    store.setFileUtcOffsetOverride(id, 120);
+    store.confirmPosition(id, ROME.lat, ROME.lon, 180, false);
+    store.setDraggedPosition(id, MILAN.lat, MILAN.lon);
+
+    store.resetPosition(id);
+
+    expect(store.listConfirmedPositions().has(id)).toBe(false);
+    expect(store.listPendingPositions().has(id)).toBe(false);
+    expect(store.fileUtcOffsetOverrides().get(id)).toBe(120);
+  });
+
+  it('reset on a file that was never placed is a no-op', () => {
+    const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
+    expect(() => store.resetPosition(id)).not.toThrow();
+    expect(store.listConfirmedPositions().has(id)).toBe(false);
+  });
+});
+
 describe('schema 2 → 3 — the offset ramp collapses to one offset', () => {
   /** A `.geotagger/edits.sqlite` as a GeoTagger with the stretch gesture left it. */
   function writeSchema2Store(dir: string): void {
