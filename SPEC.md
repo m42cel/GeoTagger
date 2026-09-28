@@ -265,6 +265,12 @@ strip, and like every other change it is undoable.
 A **reset all** control in the view toolbar rebuilds every strip from the current grouping mode,
 discarding cuts, offsets and locks together, with a confirmation.
 
+Once any file in a strip has been persisted, the header also shows **Reset to original**: it
+zeroes the offset the same way Reset does, but is guaranteed — via the original-snapshot
+comparison of §9.4, the same mechanism a file's own reset-to-original uses — to restore every
+already-persisted file in the strip to its own raw time on the next Persist, rather than
+incidentally landing there because zero happened to be correct.
+
 #### Cutting — more than one offset
 
 A strip can be **cut** at any point on the axis, producing two independently draggable segments.
@@ -633,16 +639,19 @@ what makes it an anchor and places everything else (§5.5).
 | Multi-select (shift-click / rubber band) | Confirm the selection together |
 | Revert on selected thumbnail | Cancels a drag in progress, falling back to the anchor underneath it (camera GPS or confirmed), if any. Only available when there is one — a plain interpolated estimate that has never been dragged or confirmed has nothing to revert to |
 | Reset on selected thumbnail | Discards the position entirely — the pending drag and any confirmed anchor alike — back to a derived estimate or no position at all |
+| Reset to original on selected thumbnail | Shown only once the file has been persisted (§9.4). Discards the edit the same way Reset does, but is guaranteed — not incidental — to restore the file to what it said before GeoTagger ever touched it, on the next Persist |
 | Persist changes | Writes all confirmed changes to files (§9) |
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
 both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.
 
-Revert and reset are two different depths of undo (§5.6), not the same action under two names: a
-file dragged away from a confirmed position, for instance, can be reverted back to that confirmed
-position (the drag is cancelled, the confirmation still stands) or reset past it entirely (the
-confirmation itself is discarded, falling back to camera GPS if the file has it, or to a derived
-estimate otherwise).
+Revert, reset and reset-to-original are three different depths of undo (§5.6, §9.4), not the same
+action under different names: a file dragged away from a confirmed position, for instance, can be
+reverted back to that confirmed position (the drag is cancelled, the confirmation still stands);
+reset past it entirely (the confirmation itself is discarded, falling back to camera GPS if the
+file has it, or to a derived estimate otherwise); or — once it has actually been written to a file
+— reset all the way back to what the file said before GeoTagger ever touched it, regardless of
+what camera GPS or interpolation would otherwise suggest.
 
 ---
 
@@ -849,14 +858,45 @@ geotagger:AppVersion
 The same snapshot is stored in the edit store, so revert works whether the app database or the
 file is the surviving copy.
 
+The block has two halves, written and cleared independently: `OriginalGPSPresent/Latitude/
+Longitude`, `PositionSource` and `PositionUncertaintyMeters` are the **position half**;
+`OriginalDateTimeOriginal`, `OriginalOffsetTimeOriginal` and `TimeShiftSeconds` are the **time
+half**. A write that only touches one never disturbs the other's tags. `ModifiedAt` and
+`AppVersion` belong to neither — they stay as long as either half is present, and the whole block
+is removed only once both halves are gone (§9.4).
+
 ### 9.4 Revert
 
-- **Per file** — restores the original position, or removes GPS tags entirely if the file never
-  had any, then clears the `geotagger` block.
-- **Timestamps revert independently of positions**; they are separate edits with separate
-  originals.
-- Available before persisting (discard the pending edit) and after (rewrite from the stored
-  original).
+Three depths of undo exist, shallowest to deepest (§6.5, §4.3):
+
+1. **Revert** — cancels a drag in progress, falling back to the anchor underneath it. Edit-store
+   only; never touches a file.
+2. **Reset** (a file's position) / a strip's own **Reset** (time) — discards the edit entirely:
+   a position falls back to whatever the app would derive next — camera GPS, or an interpolated
+   estimate; an offset falls back to zero. This is not guaranteed to match the file's original
+   value, only incidentally so when nothing else ever overrode it.
+3. **Reset to original** — shown only once a file has actually been written to, so an
+   `Original*` snapshot exists to reset to (§9.3). Discards the edit the same way Reset does, but
+   is defined against the *stored* original rather than whatever gets derived next, so it is
+   guaranteed to bring the file back to how it was before GeoTagger touched it.
+
+None of the three writes to disk immediately — nothing does outside Persist (§9.1). Reset to
+original works by comparison, at plan time, not by an immediate write: a file's *intended* value
+(position or time, after the edit was reset or reset-to-original) is compared against its
+stored `Original*` snapshot as well as against what is currently on disk. When the intended value
+now equals the original — because nothing has re-edited it since — that file's persist-plan entry
+is a **restore** rather than a normal write: the original value is written back, or the tag
+removed if the file never had one, and only the matching half of the `geotagger` block is cleared
+(§9.3), leaving the other half untouched if it was never part of this edit. Reset can land on this
+same restore path too, whenever the value it falls back to happens to equal the original — it just
+isn't defined to, the way reset-to-original is.
+
+- **Timestamps revert independently of positions**, at different granularities: a position's
+  original is per file; a timestamp's is per strip, since a strip's offset applies to every file
+  in it (§4.3). A strip's reset-to-original zeroes its offset and, on the next Persist, restores
+  every already-persisted file in that strip to its own raw original time.
+- Available before persisting (discard the pending edit, nothing was ever written) and after
+  (queue the restore for the next Persist run).
 
 ### 9.5 RAW (deferred)
 
