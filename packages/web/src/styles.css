@@ -34,6 +34,8 @@
 
 * { box-sizing: border-box; }
 
+html, body, #root { height: 100%; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -41,6 +43,16 @@ body {
   font-size: 14px;
   line-height: 1.45;
 }
+
+/*
+ * A full-height flex column so `main` can hand its remaining space down to a view
+ * that wants it (the map, below) instead of every view being capped at a fraction of
+ * the viewport regardless of how much room the window actually has. Views that don't
+ * ask for it (the picker, the alignment view, …) are unaffected — `main`'s child only
+ * stretches if the view's own root sets `flex: 1` for itself, which just `.map-view`
+ * does.
+ */
+.app { min-height: 100vh; display: flex; flex-direction: column; }
 
 .app-bar {
   display: flex;
@@ -64,7 +76,25 @@ body {
  * give it. The narrower views (picker, timestamp question, …) already cap themselves
  * well under this, so raising it only gives the alignment view more room.
  */
-main { padding: 16px; max-width: 1800px; margin: 0 auto; }
+main {
+  padding: 16px;
+  max-width: 1800px;
+  margin: 0 auto;
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/*
+ * Every view (picker, alignment, map, …) renders as `<section class="folder-view">`'s
+ * single child or, before a folder is open, replaces it outright — either way this
+ * has to relay `main`'s height the same way `main` relays `.app`'s, or `.map-view`'s
+ * own `flex: 1` below has nothing to stretch against. Same story as `main`: the other
+ * views don't opt into the extra height, only `.map-view` sets `flex: 1` on itself.
+ */
+.folder-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
 h1 { font-size: 20px; margin: 0 0 16px; }
 h2 { font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
@@ -761,6 +791,10 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * they sit on top of map imagery, not the app background, and have to read the same
  * over satellite and street tiles regardless of light/dark mode.
  */
+/* max-height caps it short of the window's bottom edge — filling every last pixel
+   read as cramped rather than spacious. */
+.map-view { flex: 1; display: flex; flex-direction: column; min-height: 0; max-height: 90vh; }
+
 .chip-group { display: flex; gap: 4px; }
 
 .map-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
@@ -779,12 +813,19 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .legend-swatch.known { border-color: var(--known); }
 .legend-swatch.unconfirmed { border-color: var(--unconfirmed); }
 
-.map-layout { display: flex; gap: 12px; align-items: stretch; }
+/*
+ * `.map-view` is the flex item that actually claims `main`'s leftover height
+ * (`.map-view { flex: 1 }`, set where the view's root section is styled below);
+ * `.map-layout` then hands that height on to its own row of children. `min-height: 0`
+ * shows up at every level of this chain because a flex item's default `min-height` is
+ * `auto` (its content's natural height), which would otherwise force each level to
+ * grow to fit the map instead of the map shrinking to fit the level above it.
+ */
+.map-layout { display: flex; gap: 12px; align-items: stretch; flex: 1; min-height: 0; }
 
 .map-container {
   flex: 1;
   min-width: 0;
-  height: 70vh;
   min-height: 480px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -794,6 +835,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .tray-panel {
   width: 220px;
   flex-shrink: 0;
+  min-height: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -820,6 +862,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .detail-panel {
   width: 520px;
   flex-shrink: 0;
+  min-height: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
