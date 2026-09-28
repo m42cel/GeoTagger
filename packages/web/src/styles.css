@@ -871,6 +871,12 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
+  /* Leaflet's own panes (tiles, markers, popups) use z-index values up to 700+,
+     and the rubber-band select box above goes to 1000 — all local to the map.
+     Without this, none of that has a stacking context of its own to be contained
+     in, so it compares its z-index directly against unrelated fixed-position UI
+     like the persist dialog's backdrop and wins despite the backdrop's z-index. */
+  isolation: isolate;
 }
 
 .tray-panel {
