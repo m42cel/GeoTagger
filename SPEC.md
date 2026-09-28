@@ -713,23 +713,46 @@ Nothing is written until the user runs **Persist changes**. This keeps metadata 
 minimum on slow storage, allows free experimentation, and makes the whole edit set reviewable
 before it becomes permanent.
 
-```
-Persist changes
-  128 GPS positions
-   34 corrected timestamps
-   96 UTC offsets added
-                              [ Cancel ]  [ Write ]
+The dialog is one scrollable, per-file review list — there is no separate summary-counts screen
+and no separate post-write report; the same list becomes the report once writing starts.
 
-✓ 257 written and verified
-✗ 1 failed: VID_0201.MP4 (read-only)
+```
+Persist changes                                   [ ] thumbnails   [ ] raw EXIF values
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                position    47.0000, 11.0000          →   47.1234, 11.3456        │
+│  IMG_4471.JPG  timestamp   2024-07-12 14:59:50       →   2024-07-12 15:14:20 +02:00│
+│                UTC offset  (assumed) +00:00          →   +02:00                  │
+│  VID_0201.MP4  position    —                         →   47.1300, 11.3400  ✗ failed│
+│  IMG_4488.JPG  UTC offset  (assumed) +00:00          →   +02:00                ✓ │
+│  ...                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+257 changes across 194 files                             [ Cancel ]  [ Write ]
 ```
 
-- A file with both a timestamp and a position change is written **once**, both payloads in a
-  single ExifTool command.
-- Progress is shown per file.
-- Each file is re-read after writing and compared against the intended values.
+- Rows are **grouped by file**, with one sub-row per changed field — position, timestamp, UTC
+  offset, the same three categories the dialog used to just count. A file lists only the fields
+  it actually changes. The filename (and thumbnail, when that toggle is on) sits in its own
+  column on the left, spanning the height of that file's sub-rows — it is not a header row
+  printed above them.
+- Each sub-row shows the old value on the left and the new value on the right, side by side.
+  A field with no prior value (a file that never had GPS, for instance) shows `—` on the old
+  side.
+- **Thumbnails toggle**, off by default: adds each file's thumbnail beside its filename, using
+  the thumbnail pipeline (§10.1) that already ran at scan time — opening the dialog triggers no
+  extra work.
+- **Raw EXIF values toggle**, off by default: switches old/new from the human-readable
+  formatting used elsewhere in the app (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to the
+  literal tag values ExifTool will write (separate `GPSLatitude`/`GPSLatitudeRef`,
+  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and so on).
+- A file with both a timestamp and a position change is still written **once**, both payloads in
+  a single ExifTool command — the per-field sub-rows are a display grouping, not separate writes.
+- Once **Write** is pressed the list stops being editable and each file's row fills in a status
+  (✓ written and verified, or ✗ failed with a reason) as ExifTool finishes it, turning the same
+  rows just reviewed into the report — progress is this filling-in, not a separate bar.
+- Each file is re-read after writing and compared against the intended values; that comparison
+  is what a row's ✓ or ✗ reflects.
 - A failure does not abort the run; the file keeps its pending state and can be retried.
-- Failures are listed in the report and recorded in the operation log.
+- Failures are recorded in the operation log in addition to showing in the row.
 
 ### 9.2 Tags written
 
