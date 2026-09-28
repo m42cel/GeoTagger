@@ -10,6 +10,7 @@ import { registerFolderRoutes } from './routes/folders.js';
 import { registerSessionRoutes } from './routes/session.js';
 import { registerFileRoutes } from './routes/files.js';
 import { registerStripRoutes } from './routes/strips.js';
+import { registerPositionRoutes } from './routes/positions.js';
 import { registerPersistRoutes } from './routes/persist.js';
 import { registerTileRoutes } from './routes/tiles.js';
 import { StripOperationError } from './strips/service.js';
@@ -81,6 +82,7 @@ export function buildServer(config: Config): BuiltServer {
   registerSessionRoutes(app, sessions);
   registerFileRoutes(app, sessions);
   registerStripRoutes(app, sessions);
+  registerPositionRoutes(app, sessions);
   registerPersistRoutes(app, sessions);
   registerTileRoutes(app, config);
 

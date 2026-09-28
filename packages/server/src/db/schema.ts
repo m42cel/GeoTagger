@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS edits (
   uncertainty_m              REAL,
   placed_at                  INTEGER,
   confirmed_at               INTEGER,
+  pending_lat                REAL,
+  pending_lon                REAL,
   utc_offset_override_minutes INTEGER
 );
 
@@ -146,6 +148,8 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
   addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
+  addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
+  addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
   collapseOffsetRamp(db);
 }
 

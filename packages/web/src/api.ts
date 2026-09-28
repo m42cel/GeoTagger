@@ -82,6 +82,13 @@ export const api = {
   revertTime: (fileId: number) =>
     request<{ ok: boolean; reason: string | null }>(`/api/files/${fileId}/revert-time`, { method: 'POST' }),
   oplog: () => request<OplogEntry[]>('/api/oplog'),
+
+  // ---- map view editing (SPEC §5.6, §6.5) --------------------------------
+
+  dragPosition: (fileId: number, lat: number, lon: number) => postFiles(`/api/files/${fileId}/position`, { lat, lon }),
+  confirmPosition: (fileId: number) => postFiles(`/api/files/${fileId}/confirm`, {}),
+  revertPosition: (fileId: number) => postFiles(`/api/files/${fileId}/revert-position`, {}),
+  resetPosition: (fileId: number) => postFiles(`/api/files/${fileId}/reset-position`, {}),
 };
 
 /**
@@ -91,6 +98,11 @@ export const api = {
  */
 function post(path: string, body: unknown): Promise<TimelineResponse> {
   return request<TimelineResponse>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Every mutating position call answers with the whole `FilesResponse`, for the same reason `post` does. */
+function postFiles(path: string, body: unknown): Promise<FilesResponse> {
+  return request<FilesResponse>(path, { method: 'POST', body: JSON.stringify(body) });
 }
 
 /**

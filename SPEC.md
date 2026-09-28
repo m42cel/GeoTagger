@@ -389,8 +389,8 @@ file falls back to the nearest anchor's position with a very large circle.
 
 - **One anchor in the whole folder** — every file takes that position with `r = v_ref × Δt`.
 - **No anchors at all** — no honest estimate exists, so files go to the tray (§6.4) rather than
-  being placed somewhere misleading. Dragging one onto the map makes it an anchor and everything
-  else is interpolated from it immediately.
+  being placed somewhere misleading. Dragging one onto the map sets its own position; confirming
+  it is what makes it an anchor and interpolates everything else from it (§5.5).
 - **Identical timestamps** — files sharing an effective timestamp get the same position and are
   spread visually by clustering, not by fabricated coordinate jitter.
 
@@ -400,8 +400,10 @@ Estimates are recomputed whenever an anchor is added, moved, removed, or when an
 changes. At 5,000 files this is a millisecond-scale operation, so it runs synchronously on every
 change and the map always shows current values.
 
-Per the original requirement, **both dragging and confirming** trigger recomputation of
-neighbouring unconfirmed estimates.
+Only camera GPS and a **confirmed** position count as an anchor. Dragging places a file and
+previews its own position, but does not itself move any other file's estimate — a placement in
+progress must not disturb a track the user has not yet approved. Confirming is what promotes a
+file to an anchor and triggers recomputation of neighbouring unconfirmed estimates.
 
 ### 5.6 Materialisation on confirmation
 
@@ -419,12 +421,24 @@ and whether the position originated from a drag or from an accepted estimate. Th
 kept because it is written to the file on persist as `geotagger:PositionUncertaintyMeters`, and
 recomputing it later would give a different answer once the file itself has become an anchor.
 
+**Re-dragging an already-anchored file.** A drag never touches the anchor underneath it (§5.5) —
+so dragging a file that already has camera GPS or a confirmed position leaves that old position in
+place, still anchoring everyone else, while the drag itself is held separately as a pending,
+unconfirmed placement. The map shows the old position as a faint **ghost**, connected to the file's
+new, live position by a thin line, so it is obvious which marker a ghost belongs to. The ghost
+disappears once the drag is confirmed (the new position becomes the anchor) or reverted (the drag
+is discarded and the old anchor is what the file shows again).
+
 Consequences:
 
 - Confirmed positions survive restarts and rescans without recomputation.
 - Recomputation after any change touches only unconfirmed estimates.
-- Reverting a confirmed file discards the stored coordinates and it returns to being derived, or
-  to having no position at all if the camera never recorded one.
+- A dragged, unconfirmed position does not anchor other files either — only camera GPS and a
+  confirmed position do (§5.5) — regardless of whether that same file also has an older anchor of
+  its own still active underneath the drag.
+- Two different depths of undo exist once a drag is in progress: discarding just the drag falls
+  back to the anchor underneath it, if there is one; discarding the anchor too falls back further,
+  to a derived estimate or no position at all if the camera never recorded one either. See §6.5.
 
 ---
 
@@ -557,14 +571,26 @@ side panel.
 | **Green** | Position known — camera GPS, or confirmed by the user |
 | **Red** | Interpolated or extrapolated, not yet confirmed |
 
+**Selection highlight:** the selected thumbnail gets a ring distinct from the border colour, so it
+reads at a glance regardless of whether the border underneath is green or red.
+
+**Ghost:** re-dragging a file that already has camera GPS or a confirmed position leaves a faint
+marker at the old position — still the active anchor for everyone else (§5.5, §5.6) — connected by
+a thin line to the file's new, live position, so it is clear which marker the ghost belongs to.
+
 **Corner badge:** marks a file with changes held in the edit store but not yet written to disk.
 
 Camera-original versus app-set provenance is shown in the detail panel only, not on the
 thumbnail.
 
-**Path line:** a single plain polyline connecting all files in effective-time order across all
-devices — one collective timeline, no per-device separation, no colour gradient, and it is
-never broken by time gaps. Optional direction arrowheads, off by default.
+**Path line:** a single plain polyline connecting every file that is currently an anchor or an
+estimate between anchors — camera GPS, confirmed positions, and the interpolation between them —
+in effective-time order across all devices, one collective timeline, no per-device separation, no
+colour gradient, never broken by time gaps. A file with a pending drag and no anchor underneath
+sits off to the side instead of bending the line toward it, the same way it does not anchor its
+neighbours (§5.5). A file being *re*-dragged still has its old anchor doing that work (§5.6's
+ghost), so the line runs through the ghost's position rather than skipping the file or bending
+toward where it is being dragged to. Optional direction arrowheads, off by default.
 
 **Clustering:** Leaflet.markercluster; nearby thumbnails collapse into a badge showing the count
 over a representative thumbnail and expand on zoom.
@@ -577,22 +603,29 @@ device and confidence filters are explicitly not in scope.)
 ### 6.4 Tray
 
 A panel beside the map holding files with no derivable position — only ever populated when the
-folder contains no anchors at all. Dragging one onto the map sets its position and makes it an
-anchor, which immediately places everything else.
+folder contains no anchors at all. Dragging one onto the map sets its position; confirming it is
+what makes it an anchor and places everything else (§5.5).
 
 ### 6.5 Interactions
 
 | Action | Result |
 | --- | --- |
 | Click thumbnail | Select; detail panel shows large preview, metadata, provenance, uncertainty |
-| Drag thumbnail | Sets position; becomes an anchor so neighbours recompute; **stays unconfirmed (red)** |
-| Checkmark on selected thumbnail | Confirms → green, anchor, eligible for persist |
+| Drag thumbnail | Sets its own position; **stays unconfirmed (red)** and does not anchor other files' estimates. Re-dragging an already-anchored file leaves a ghost at the old position (§5.6) |
+| Checkmark on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
 | Multi-select (shift-click / rubber band) | Confirm together, or drag the whole group to a new position |
-| Revert on selected thumbnail | Restores the original position, or removes it if there was none |
+| Revert on selected thumbnail | Cancels a drag in progress, falling back to the anchor underneath it (camera GPS or confirmed), if any. Only available when there is one — a plain interpolated estimate that has never been dragged or confirmed has nothing to revert to |
+| Reset on selected thumbnail | Discards the position entirely — the pending drag and any confirmed anchor alike — back to a derived estimate or no position at all |
 | Persist changes | Writes all confirmed changes to files (§9) |
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
-for everything that reaches the disk.
+both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.
+
+Revert and reset are two different depths of undo (§5.6), not the same action under two names: a
+file dragged away from a confirmed position, for instance, can be reverted back to that confirmed
+position (the drag is cancelled, the confirmation still stands) or reset past it entirely (the
+confirmation itself is discarded, falling back to camera GPS if the file has it, or to a derived
+estimate otherwise).
 
 ---
 
@@ -1025,4 +1058,4 @@ form a complete, shippable application with no map in it at all.
 | Reachability-bound uncertainty | Time-gap tiers, distance-based radius | Correctly reflects that one minute of walking covers little ground |
 | Single plain path, all devices | Time gradient, per-device colours | Simplicity; the collection is one timeline |
 | Unlimited extrapolation | Refusing beyond a threshold | Every file must be on the map to be draggable |
-| Drag does not auto-confirm | Drag implies confirmation | One explicit gesture guards everything that reaches disk |
+| Drag does not auto-confirm | Drag implies confirmation | One explicit gesture guards everything that reaches disk, and is also what lets a placement anchor other files' estimates |

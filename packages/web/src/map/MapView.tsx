@@ -11,14 +11,18 @@ import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
 
 /**
- * The map view (SPEC §5, §6.3, §7): every file plotted at its known or interpolated
- * position, clustered, with a path line and uncertainty circles. Selecting a
- * thumbnail shows a read-only detail panel (SPEC §15 phase 2).
+ * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
+ * interpolated position, clustered, with a path line and uncertainty circles.
+ * Selecting a thumbnail shows the detail panel; dragging a marker or using the
+ * panel's confirm/revert/reset buttons edits its position (SPEC §5.6). Re-dragging
+ * an already-anchored file draws a ghost at its old position, connected by a thin
+ * line to where it is now — that old position is still what anchors everyone else
+ * until the drag is confirmed or reverted.
  *
- * Nothing here edits a position — dragging, confirming and multi-select are phase 3.
- * This view only shows where SPEC §5's interpolation currently places everything,
- * which is also why it fetches plainly on mount rather than subscribing to anything
- * live: nothing on this screen changes it.
+ * Multi-select and status filters are not here yet — this is single-file editing
+ * only, wired the same way the alignment view's mutations are: every edit posts to
+ * the server and replaces local state with the response it sends back, rather than
+ * predicting the recomputation (SPEC §5.5) itself.
  */
 
 const THUMB_SIZE_PX = 48;
@@ -53,6 +57,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const [showCircles, setShowCircles] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     Promise.all([api.files(), api.timeline()])
@@ -63,13 +68,60 @@ export function MapView({ onBack }: { onBack: () => void }) {
       .catch((err: unknown) => setError(errorText(err)));
   }, []);
 
+  /**
+   * Every position edit follows the same shape: post it, adopt whatever
+   * `FilesResponse` comes back (SPEC §5.5's recomputation of neighbouring
+   * estimates already happened server-side), and surface a failure without
+   * touching state — the caller is responsible for undoing any optimistic UI it
+   * made, e.g. a dragged marker snapping back to where it started.
+   */
+  async function editPosition(run: () => Promise<FilesResponse>): Promise<boolean> {
+    setBusy(true);
+    try {
+      setFilesResp(await run());
+      return true;
+    } catch (err) {
+      setError(errorText(err));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleDragEnd(fileId: number, lat: number, lon: number, marker: L.Marker, revertTo: L.LatLng): void {
+    void editPosition(() => api.dragPosition(fileId, lat, lon)).then((ok) => {
+      if (ok) setSelectedId(fileId);
+      else marker.setLatLng(revertTo);
+    });
+  }
+
+  function handleConfirm(): void {
+    if (selectedId !== null) void editPosition(() => api.confirmPosition(selectedId));
+  }
+
+  function handleRevert(): void {
+    if (selectedId !== null) void editPosition(() => api.revertPosition(selectedId));
+  }
+
+  function handleReset(): void {
+    if (selectedId !== null) void editPosition(() => api.resetPosition(selectedId));
+  }
+
   const items = useMemo<MapItem[]>(() => {
     if (!filesResp || !timeline) return [];
     const positionById = new Map(filesResp.positions.map((p) => [p.fileId, p]));
     const timelineById = new Map(timeline.files.map((f) => [f.id, f]));
     return filesResp.files.map((file) => ({
       file,
-      position: positionById.get(file.id) ?? { fileId: file.id, lat: null, lon: null, uncertaintyM: null, source: 'none' },
+      position: positionById.get(file.id) ?? {
+        fileId: file.id,
+        lat: null,
+        lon: null,
+        uncertaintyM: null,
+        source: 'none',
+        anchorLat: null,
+        anchorLon: null,
+      },
       timelineFile: timelineById.get(file.id) ?? null,
     }));
   }, [filesResp, timeline]);
@@ -78,16 +130,30 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
 
-  // SPEC §6.3: "a single plain polyline connecting all files in effective-time
-  // order across all devices". Files with no effective time cannot take a place
-  // in that order, so they are left out of the line — they are on the map (an
-  // extrapolated position needs no timestamp of its own to draw), just not on it.
+  // SPEC §6.3: the line connects anchors and the estimates between them, in
+  // effective-time order. Files with no effective time cannot take a place in that
+  // order, so they are left out of the line — they are on the map (an extrapolated
+  // position needs no timestamp of its own to draw), just not on it. A file with a
+  // pending drag and no anchor underneath is excluded the same way: it does not
+  // anchor its neighbours (SPEC §5.5), so it should not bend the line toward it
+  // either. A file being *re*-dragged still has its old anchor (`anchorLat`/`Lon`,
+  // SPEC §5.6's ghost) doing that work, so the line runs through that point rather
+  // than skipping the file or bending toward where it is being dragged to.
   const path = useMemo<[number, number][]>(
     () =>
       onMap
-        .filter((i) => i.timelineFile?.effectiveMs !== null && i.timelineFile?.effectiveMs !== undefined)
+        .filter(
+          (i) =>
+            (i.position.anchorLat !== null || i.position.source !== 'manual') &&
+            i.timelineFile?.effectiveMs !== null &&
+            i.timelineFile?.effectiveMs !== undefined,
+        )
         .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number))
-        .map((i) => [i.position.lat as number, i.position.lon as number]),
+        .map((i): [number, number] =>
+          i.position.anchorLat !== null
+            ? [i.position.anchorLat, i.position.anchorLon as number]
+            : [i.position.lat as number, i.position.lon as number],
+        ),
     [onMap],
   );
 
@@ -96,6 +162,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const baseLayersRef = useRef<Record<BaseLayerId, L.TileLayer> | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const circlesRef = useRef<L.LayerGroup | null>(null);
+  const ghostsRef = useRef<L.LayerGroup | null>(null);
   const pathRef = useRef<L.Polyline | null>(null);
   const pathArrowsRef = useRef<L.PolylineDecorator | null>(null);
   const didFitRef = useRef(false);
@@ -136,6 +203,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
     clusterRef.current?.remove();
     circlesRef.current?.remove();
+    ghostsRef.current?.remove();
     pathRef.current?.remove();
     pathArrowsRef.current?.remove();
 
@@ -144,12 +212,15 @@ export function MapView({ onBack }: { onBack: () => void }) {
       iconCreateFunction: (c) => clusterIcon(c.getAllChildMarkers()),
     });
     const circles = L.layerGroup();
+    const ghosts = L.layerGroup();
     const markers: MarkerWithFile[] = [];
 
     for (const item of onMap) {
       const borderClass = borderClassFor(item.position.source);
       const marker = L.marker([item.position.lat as number, item.position.lon as number], {
-        icon: thumbIcon(item.file.id, borderClass),
+        icon: thumbIcon(item.file.id, borderClass, item.file.id === selectedId),
+        draggable: true,
+        autoPan: true,
       });
       const markerWithFile = marker as MarkerWithFile;
       markerWithFile.geotaggerFileId = item.file.id;
@@ -157,8 +228,41 @@ export function MapView({ onBack }: { onBack: () => void }) {
       markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
       marker.bindTooltip(item.file.filename);
       marker.on('click', () => setSelectedId(item.file.id));
+      // Dragging deliberately does not auto-confirm (SPEC §6.5): it only sets the
+      // file's own position and stays unconfirmed (red) — it does not anchor its
+      // neighbours until confirmed (§5.5).
+      const startedAt = L.latLng(item.position.lat as number, item.position.lon as number);
+      marker.on('dragstart', () => setSelectedId(item.file.id));
+      marker.on('dragend', () => {
+        const ll = marker.getLatLng();
+        handleDragEnd(item.file.id, ll.lat, ll.lng, marker, startedAt);
+      });
       cluster.addLayer(marker);
       markers.push(markerWithFile);
+
+      // SPEC §5.6's ghost: a drag in progress over an existing anchor leaves that
+      // anchor's old position marked (it is still what places everyone else) and
+      // draws a thin line to where the file is now, so it is obvious which live
+      // marker a ghost belongs to.
+      if (item.position.anchorLat !== null && item.position.anchorLon !== null) {
+        const anchorLatLng = L.latLng(item.position.anchorLat, item.position.anchorLon);
+        const liveLatLng = L.latLng(item.position.lat as number, item.position.lon as number);
+        L.polyline([anchorLatLng, liveLatLng], {
+          color: '#666666',
+          weight: 1.5,
+          dashArray: '4 4',
+          opacity: 0.8,
+        }).addTo(ghosts);
+        L.circleMarker(anchorLatLng, {
+          radius: 8,
+          color: '#666666',
+          weight: 2,
+          fillColor: '#ffffff',
+          fillOpacity: 0.7,
+        })
+          .bindTooltip(`${item.file.filename} — previous position`)
+          .addTo(ghosts);
+      }
     }
 
     // SPEC §6.3's uncertainty circles are per file, but a stack collapsed into a
@@ -204,6 +308,9 @@ export function MapView({ onBack }: { onBack: () => void }) {
     circles.addTo(map);
     circlesRef.current = circles;
 
+    ghosts.addTo(map);
+    ghostsRef.current = ghosts;
+
     if (path.length > 1) {
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
       // not the app background.
@@ -245,7 +352,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
       const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-  }, [onMap, path, showCircles]);
+  }, [onMap, path, showCircles, selectedId]);
 
   return (
     <section className="map-view">
@@ -280,7 +387,15 @@ export function MapView({ onBack }: { onBack: () => void }) {
       <div className="map-layout">
         <div className="map-container" ref={containerRef} />
         {tray.length > 0 && <Tray items={tray} selectedId={selectedId} onSelect={setSelectedId} />}
-        <DetailPanel file={selected?.file ?? null} position={selected?.position ?? null} timelineFile={selected?.timelineFile ?? null} />
+        <DetailPanel
+          file={selected?.file ?? null}
+          position={selected?.position ?? null}
+          timelineFile={selected?.timelineFile ?? null}
+          onConfirm={handleConfirm}
+          onRevert={handleRevert}
+          onReset={handleReset}
+          busy={busy}
+        />
       </div>
     </section>
   );
@@ -288,9 +403,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
 /**
  * Files with no derivable position (SPEC §6.4): fewer than two anchors in the whole
- * folder, or no capture time of their own. Dragging one onto the map to place it and
- * make it an anchor is a phase 3 interaction; for now this is a read-only list, but
- * clicking one still shows it in the detail panel like a thumbnail on the map would.
+ * folder, or no capture time of their own. Dragging one onto the map to place it —
+ * confirming it is what then makes it an anchor (§5.5) — is not wired up yet; for
+ * now this is a read-only list, but clicking one still shows it in the detail panel
+ * like a thumbnail on the map would.
  */
 function Tray({
   items,
@@ -332,9 +448,10 @@ function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfir
   return source === 'camera-gps' || source === 'confirmed' ? 'known' : 'unconfirmed';
 }
 
-function thumbIcon(fileId: number, borderClass: 'known' | 'unconfirmed'): L.DivIcon {
+/** Selection highlight (SPEC §6.3) is a ring layered on top of the border colour, not a replacement for it. */
+function thumbIcon(fileId: number, borderClass: 'known' | 'unconfirmed', selected: boolean): L.DivIcon {
   return L.divIcon({
-    className: `map-thumb-icon ${borderClass}`,
+    className: `map-thumb-icon ${borderClass}${selected ? ' selected' : ''}`,
     html: `<img src="/api/files/${fileId}/thumb" loading="lazy" />`,
     iconSize: [THUMB_SIZE_PX, THUMB_SIZE_PX],
   });

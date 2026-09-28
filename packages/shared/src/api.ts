@@ -159,6 +159,12 @@ export interface FolderUtcOffsetRequest {
   utcOffsetMinutes: number;
 }
 
+/** Drag (SPEC §6.5): places a file by hand. It only anchors other files once confirmed (§5.5). */
+export interface DragPositionRequest {
+  lat: number;
+  lon: number;
+}
+
 export interface ApiError {
   error: string;
   message: string;

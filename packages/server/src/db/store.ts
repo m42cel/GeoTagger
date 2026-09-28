@@ -687,26 +687,103 @@ export class FolderStore {
     return new Map(rows.map((r) => [r.file_id, r.utc_offset_override_minutes]));
   }
 
-  // ---- positions (SPEC §5.6) ----------------------------------------------
+  // ---- positions (SPEC §5.5, §5.6) ------------------------------------------
 
   /**
-   * Positions the user has already settled — dragged or confirmed — keyed by file
-   * id. Empty until phase 3 adds the routes that write `edits.lat`/`lon`; reading it
-   * now costs nothing and means the interpolator (SPEC §5) needs no change when
-   * those routes arrive.
+   * Confirmed positions, keyed by file id — one of the two things that anchor other
+   * files (camera GPS, read from `files`, is the other). A drag in progress never
+   * appears here regardless of whether it is overriding one of these; see
+   * `listPendingPositions`.
    */
-  listKnownPositions(): Map<number, { lat: number; lon: number; source: 'manual' | 'confirmed' }> {
+  listConfirmedPositions(): Map<number, { lat: number; lon: number }> {
     const rows = this.db
-      .prepare<[], { file_id: number; lat: number; lon: number; confirmed_at: number | null }>(
-        'SELECT file_id, lat, lon, confirmed_at FROM edits WHERE lat IS NOT NULL AND lon IS NOT NULL',
+      .prepare<[], { file_id: number; lat: number; lon: number }>(
+        'SELECT file_id, lat, lon FROM edits WHERE confirmed_at IS NOT NULL',
       )
       .all();
-    return new Map(
-      rows.map((r) => [
-        r.file_id,
-        { lat: r.lat, lon: r.lon, source: r.confirmed_at !== null ? ('confirmed' as const) : ('manual' as const) },
-      ]),
-    );
+    return new Map(rows.map((r) => [r.file_id, { lat: r.lat, lon: r.lon }]));
+  }
+
+  /**
+   * Drags in progress, keyed by file id. Overrides a file's own displayed position
+   * without anchoring anything (SPEC §5.5) — a confirmed position or camera GPS
+   * underneath, if any, keeps anchoring everyone else until this is confirmed or
+   * reverted, and the map shows it as a ghost in the meantime (SPEC §5.6).
+   */
+  listPendingPositions(): Map<number, { lat: number; lon: number }> {
+    const rows = this.db
+      .prepare<[], { file_id: number; pending_lat: number; pending_lon: number }>(
+        'SELECT file_id, pending_lat, pending_lon FROM edits WHERE pending_lat IS NOT NULL AND pending_lon IS NOT NULL',
+      )
+      .all();
+    return new Map(rows.map((r) => [r.file_id, { lat: r.pending_lat, lon: r.pending_lon }]));
+  }
+
+  /**
+   * Drag (SPEC §6.5): places a file by hand. Writes only the pending slot, leaving
+   * any existing confirmed anchor untouched — that is what lets the old anchor keep
+   * placing everyone else, and the map show it as a ghost, until this drag is
+   * confirmed or reverted (SPEC §5.5, §5.6).
+   */
+  setDraggedPosition(fileId: number, lat: number, lon: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO edits (file_id, pending_lat, pending_lon, placed_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(file_id) DO UPDATE SET
+           pending_lat = excluded.pending_lat, pending_lon = excluded.pending_lon, placed_at = excluded.placed_at`,
+      )
+      .run(fileId, lat, lon, Date.now());
+  }
+
+  /**
+   * Confirm (SPEC §5.6): freezes the coordinates and uncertainty radius shown at the
+   * moment of confirmation as the new anchor, and clears any pending drag — there is
+   * nothing left to ghost once its target has been committed. `fromDrag` records
+   * whether those coordinates came from a drag or were accepted as-is from the
+   * computed estimate — provenance kept for the detail panel, not fed back into the
+   * interpolator.
+   */
+  confirmPosition(fileId: number, lat: number, lon: number, uncertaintyM: number | null, fromDrag: boolean): void {
+    this.db
+      .prepare(
+        `INSERT INTO edits (file_id, lat, lon, position_source, uncertainty_m, confirmed_at, pending_lat, pending_lon)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
+         ON CONFLICT(file_id) DO UPDATE SET
+           lat = excluded.lat, lon = excluded.lon, position_source = excluded.position_source,
+           uncertainty_m = excluded.uncertainty_m, confirmed_at = excluded.confirmed_at,
+           pending_lat = NULL, pending_lon = NULL`,
+      )
+      .run(fileId, lat, lon, fromDrag ? 'drag' : 'estimate', uncertaintyM, Date.now());
+  }
+
+  /**
+   * Revert (SPEC §6.5): cancels a drag in progress, discarding only the pending
+   * coordinates. A confirmed or camera GPS anchor underneath is untouched — the drag
+   * never affected it in the first place (SPEC §5.5) — so the file's marker simply
+   * falls back to showing that anchor, and the ghost disappears.
+   */
+  revertPendingPosition(fileId: number): void {
+    this.db
+      .prepare('UPDATE edits SET pending_lat = NULL, pending_lon = NULL, placed_at = NULL WHERE file_id = ?')
+      .run(fileId);
+  }
+
+  /**
+   * Reset (SPEC §5.6, §6.5): discards a settled position entirely — pending and
+   * confirmed alike — so the file returns to being derived, or to having no position
+   * at all if the camera never recorded one. Leaves any UTC offset override in the
+   * same row untouched; that is a separate, phase 1 concern.
+   */
+  resetPosition(fileId: number): void {
+    this.db
+      .prepare(
+        `UPDATE edits SET lat = NULL, lon = NULL, position_source = NULL,
+           uncertainty_m = NULL, placed_at = NULL, confirmed_at = NULL,
+           pending_lat = NULL, pending_lon = NULL
+         WHERE file_id = ?`,
+      )
+      .run(fileId);
   }
 
   setFileUtcOffsetOverride(fileId: number, minutes: number | null): void {

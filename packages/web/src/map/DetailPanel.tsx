@@ -3,23 +3,48 @@ import type { ComputedPosition, FileRecord, PositionSource, TimelineFile } from 
 import { formatInstant, formatUtcOffset } from '@geotagger/shared';
 
 /**
- * Read-only detail for the map's selected thumbnail (SPEC §6.3's side panel), minus
- * the confirm/revert actions — those edit a position, which is phase 3's job. This
- * only shows what SPEC §5 already computed: the large preview, the corrected
- * timestamp, and where the file currently sits.
+ * Detail for the map's selected thumbnail (SPEC §6.3's side panel): the large
+ * preview, the corrected timestamp, where the file currently sits, and — for a
+ * single selection — the confirm/revert/reset controls of SPEC §6.5.
+ *
+ * Revert and reset are different depths of undo: revert cancels only a drag in
+ * progress, falling back to whatever anchor (confirmed or camera GPS) was
+ * underneath it; reset discards that anchor too, all the way back to a derived
+ * estimate or no position at all (SPEC §5.6). A plain interpolated estimate that has
+ * never been dragged or confirmed has nothing to revert to, only to reset.
+ *
+ * Multi-select has its own confirm/drag/revert affordances on the map itself
+ * (SPEC §6.5's "confirm together, or drag the whole group"), so this panel only
+ * ever acts on the one selected file.
  */
 export function DetailPanel({
   file,
   position,
   timelineFile,
+  onConfirm,
+  onRevert,
+  onReset,
+  busy,
 }: {
   file: FileRecord | null;
   position: ComputedPosition | null;
   timelineFile: TimelineFile | null;
+  onConfirm: () => void;
+  onRevert: () => void;
+  onReset: () => void;
+  busy: boolean;
 }) {
   if (file === null) {
     return <aside className="detail-panel muted">Click a thumbnail to see it here.</aside>;
   }
+
+  const canConfirm = position?.source === 'estimate' || position?.source === 'manual';
+  // A ghost (SPEC §5.6) means a drag is in progress over an existing anchor — the
+  // one thing revert can fall back to.
+  const canRevert = position !== null && position.anchorLat !== null;
+  // Reset needs something in the edit store at all, pending or confirmed; camera GPS
+  // and derived estimates have no edit-store row of their own to discard.
+  const canReset = position?.source === 'manual' || position?.source === 'confirmed';
 
   return (
     <aside className="detail-panel">
@@ -38,6 +63,19 @@ export function DetailPanel({
           </>
         )}
       </dl>
+      {(canConfirm || canRevert || canReset) && (
+        <div className="detail-actions">
+          <button type="button" className="confirm" disabled={!canConfirm || busy} onClick={onConfirm} title="Confirm">
+            ✓
+          </button>
+          <button type="button" className="ghost" disabled={!canRevert || busy} onClick={onRevert}>
+            Revert
+          </button>
+          <button type="button" className="ghost" disabled={!canReset || busy} onClick={onReset}>
+            Reset
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
