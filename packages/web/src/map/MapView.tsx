@@ -56,7 +56,7 @@ const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution
   },
 };
 
-export function MapView({ onBack }: { onBack: () => void }) {
+export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenPersist: () => void }) {
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -654,6 +654,9 @@ export function MapView({ onBack }: { onBack: () => void }) {
       <div className="view-actions">
         <button type="button" className="ghost" onClick={onBack}>
           ← Back
+        </button>
+        <button type="button" className="ghost" onClick={onOpenPersist}>
+          Persist changes…
         </button>
         <div className="chip-group">
           {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((id) => (

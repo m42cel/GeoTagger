@@ -69,21 +69,17 @@ export function PersistDialog({ onClose }: { onClose: (wrote: boolean) => void }
             {plan.entries.length === 0 ? (
               <p className="muted">Nothing to persist.</p>
             ) : (
-              <div className="persist-table-scroll">
-                <table className="persist-table">
-                  <tbody>
-                    {plan.entries.map((entry) => (
-                      <EntryRows
-                        key={entry.fileId}
-                        entry={entry}
-                        showThumbnail={showThumbnails}
-                        rawExif={showRawExif}
-                        result={resultByFileId.get(entry.fileId) ?? null}
-                        active={progress !== null && !done && progress.currentPath === entry.relPath}
-                      />
-                    ))}
-                  </tbody>
-                </table>
+              <div className="persist-entries">
+                {plan.entries.map((entry) => (
+                  <PersistEntry
+                    key={entry.fileId}
+                    entry={entry}
+                    showThumbnail={showThumbnails}
+                    rawExif={showRawExif}
+                    result={resultByFileId.get(entry.fileId) ?? null}
+                    active={progress !== null && !done && progress.currentPath === entry.relPath}
+                  />
+                ))}
               </div>
             )}
 
@@ -185,7 +181,13 @@ function fieldsFor(entry: PersistPlanEntry): Field[] {
   return fields;
 }
 
-function EntryRows({
+/**
+ * One file's group: thumbnail and filename on the left, spanning the full height of
+ * however many fields it changes; those fields stack as separate lines to the right
+ * of it, not in a shared grid with the filename column (SPEC §9.1 — "not a header row
+ * printed above them").
+ */
+function PersistEntry({
   entry,
   showThumbnail,
   rawExif,
@@ -199,33 +201,31 @@ function EntryRows({
   active: boolean;
 }) {
   // planEntryFor never produces an entry with nothing to write, so this always has
-  // at least one row.
+  // at least one field.
   const fields = fieldsFor(entry);
 
   return (
-    <>
-      {fields.map((field, i) => (
-        <tr key={field.key} className={entry.stale ? 'stale' : undefined}>
-          {i === 0 && (
-            <td className="persist-file" rowSpan={fields.length}>
-              {showThumbnail && <img className="persist-thumb" src={`/api/files/${entry.fileId}/thumb`} alt="" loading="lazy" />}
-              <span>{entry.relPath}</span>
-              {entry.stale && <em className="weak"> changed on disk</em>}
-            </td>
-          )}
-          <td className="persist-label">{field.label}</td>
-          <td className="persist-value">{rawExif ? rawValue(entry, field.key, field.old) : field.old}</td>
-          <td className="persist-value persist-value-new">
-            → {rawExif ? rawValue(entry, field.key, field.next) : field.next}
-          </td>
-          {i === 0 && (
-            <td className="persist-status" rowSpan={fields.length}>
-              {active ? <em className="weak">writing…</em> : <Status result={result} />}
-            </td>
-          )}
-        </tr>
-      ))}
-    </>
+    <div className={`persist-entry${entry.stale ? ' stale' : ''}`}>
+      <div className="persist-file">
+        {showThumbnail && <img className="persist-thumb" src={`/api/files/${entry.fileId}/thumb`} alt="" loading="lazy" />}
+        <span>
+          {entry.relPath}
+          {entry.stale && <em className="weak"> · changed on disk</em>}
+        </span>
+      </div>
+      <div className="persist-fields">
+        {fields.map((field) => (
+          <div className="persist-field-row" key={field.key}>
+            <span className="persist-label">{field.label}</span>
+            <span className="persist-value">{rawExif ? rawValue(entry, field.key, field.old) : field.old}</span>
+            <span className="persist-value persist-value-new">
+              → {rawExif ? rawValue(entry, field.key, field.next) : field.next}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="persist-status">{active ? <em className="weak">writing…</em> : <Status result={result} />}</div>
+    </div>
   );
 }
 

@@ -149,7 +149,15 @@ export function FolderView({
   if (view === 'map') {
     return (
       <section className="folder-view">
-        <MapView onBack={() => setView('files')} />
+        {persisting && (
+          <PersistDialog
+            onClose={(wrote) => {
+              setPersisting(false);
+              if (wrote) refresh();
+            }}
+          />
+        )}
+        <MapView onBack={() => setView('files')} onOpenPersist={() => setPersisting(true)} />
       </section>
     );
   }

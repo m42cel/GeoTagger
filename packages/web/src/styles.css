@@ -772,20 +772,44 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .persist-count { margin-right: auto; font-size: 13px; }
 
-.persist-table-scroll { max-height: 55vh; overflow: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; }
-.persist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.persist-table tr:not(:last-child) td { border-bottom: 1px solid var(--line); }
-.persist-table tr.stale { background: color-mix(in srgb, var(--weak) 8%, transparent); }
-.persist-table td { padding: 6px 10px; vertical-align: top; white-space: nowrap; }
+.persist-entries {
+  display: flex;
+  flex-direction: column;
+  max-height: 55vh;
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
 
-.persist-file { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: normal; }
-.persist-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex: none; }
+/* Each file is its own grid: filename+thumbnail on the left, spanning the row's full
+   height; its changed fields stack as separate lines to the right, one per field
+   (SPEC §9.1). Letting every entry size its own grid, rather than sharing one big
+   table, is what keeps a two-field file's second line from drifting under the
+   filename column. */
+.persist-entry {
+  display: grid;
+  grid-template-columns: minmax(140px, 260px) 1fr auto;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 8px 12px;
+}
+.persist-entry:not(:last-child) { border-bottom: 1px solid var(--line); }
+.persist-entry.stale { background: color-mix(in srgb, var(--weak) 8%, transparent); }
 
-.persist-label { color: var(--muted); }
+.persist-file { display: flex; align-items: center; gap: 10px; font-weight: 600; align-self: start; min-width: 0; }
+.persist-file span { overflow-wrap: anywhere; }
+.persist-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; flex: none; }
+
+.persist-fields { display: flex; flex-direction: column; gap: 3px; }
+.persist-field-row { display: flex; gap: 10px; align-items: baseline; white-space: nowrap; }
+
+.persist-label { color: var(--muted); min-width: 70px; }
 .persist-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .persist-value-new { font-weight: 600; }
 
-.persist-status { text-align: right; }
+.persist-status { text-align: right; align-self: start; white-space: nowrap; }
 .persist-ok { color: var(--known); font-weight: 700; }
 
 .banner.warn { color: var(--weak); display: grid; gap: 4px; }
