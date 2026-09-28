@@ -165,7 +165,11 @@ export function FolderView({
             }}
           />
         )}
-        <AlignmentView onBack={() => setView('files')} onOpenPersist={() => setPersisting(true)} />
+        <AlignmentView
+          onBack={() => setView('files')}
+          onOpenPersist={() => setPersisting(true)}
+          onOpenMap={() => setView('map')}
+        />
       </section>
     );
   }
