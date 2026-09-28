@@ -871,6 +871,26 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .detail-panel.muted { display: grid; place-items: center; text-align: center; font-size: 12px; }
 
+/*
+ * Multi-select's thumbnail grid (SPEC §6.3, §6.5): replaces the single-file view
+ * entirely while the map's multi-selection is non-empty, in the same panel slot.
+ * `auto-fill` with a `minmax` keeps it responsive to the panel's own width rather
+ * than a hardcoded column count.
+ */
+.detail-multi-header { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.detail-multi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+.detail-multi-thumb {
+  padding: 0;
+  border: 3px solid;
+  border-radius: 6px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: none;
+}
+.detail-multi-thumb.known { border-color: var(--known); }
+.detail-multi-thumb.unconfirmed { border-color: var(--unconfirmed); }
+.detail-multi-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 .detail-preview {
   display: block;
   width: 100%;

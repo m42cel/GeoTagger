@@ -223,6 +223,21 @@ export function MapView({ onBack }: { onBack: () => void }) {
     [multiSelected, itemById],
   );
 
+  // The detail panel's thumbnail grid (SPEC §6.3) while a multi-selection is active.
+  const multiSelectedItems = useMemo(
+    () =>
+      [...multiSelected]
+        .map((id) => itemById.get(id))
+        .filter((item): item is MapItem => item !== undefined)
+        .map((item) => ({ file: item.file, position: item.position })),
+    [multiSelected, itemById],
+  );
+
+  function handleSelectOne(fileId: number): void {
+    setSelectedId(fileId);
+    clearMultiSelected();
+  }
+
   // SPEC §6.3: the line connects anchors and the estimates between them, in
   // effective-time order. Files with no effective time cannot take a place in that
   // order, so they are left out of the line — they are on the map (an extrapolated
@@ -458,10 +473,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
       // detail panel's selection and clears whatever was multi-selected.
       marker.on('click', (e) => {
         if (e.originalEvent.shiftKey) toggleMultiSelected(item.file.id);
-        else {
-          setSelectedId(item.file.id);
-          clearMultiSelected();
-        }
+        else handleSelectOne(item.file.id);
       });
       // Dragging deliberately does not auto-confirm (SPEC §6.5): it only sets the
       // file's own position and stays unconfirmed (red) — it does not anchor its
@@ -684,7 +696,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleTrayDrop}
         />
-        {tray.length > 0 && <Tray items={tray} selectedId={selectedId} onSelect={setSelectedId} />}
+        {tray.length > 0 && <Tray items={tray} selectedId={selectedId} onSelect={handleSelectOne} />}
         <DetailPanel
           file={selected?.file ?? null}
           position={selected?.position ?? null}
@@ -693,6 +705,8 @@ export function MapView({ onBack }: { onBack: () => void }) {
           onRevert={handleRevert}
           onReset={handleReset}
           busy={busy}
+          multiSelectedItems={multiSelectedItems}
+          onSelectOne={handleSelectOne}
         />
       </div>
     </section>

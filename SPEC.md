@@ -577,6 +577,12 @@ thumbnails (§6.5) get a second, differently-coloured ring of their own — a th
 both at once. A cluster showing a stack's representative thumbnail carries whichever ring(s) apply
 to any file inside it, so collapsing a stack never makes a selected file look deselected.
 
+**Multi-select in the side panel:** while the multi-selection is non-empty, the side panel shows a
+grid of small thumbnails in place of the single-file view (large preview, metadata, confirm/revert/
+reset) — those controls don't apply to several files at once, and the confirm/clear actions for the
+selection live in the map's own toolbar, not here. Clicking a thumbnail in the grid exits
+multi-select and shows that one file normally, exactly as clicking it on the map would.
+
 **Ghost:** re-dragging a file that already has camera GPS or a confirmed position leaves a faint
 marker at the old position — still the active anchor for everyone else (§5.5, §5.6) — connected by
 a thin line to the file's new, live position, so it is clear which marker the ghost belongs to.

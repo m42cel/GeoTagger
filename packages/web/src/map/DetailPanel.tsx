@@ -13,9 +13,11 @@ import { formatInstant, formatUtcOffset } from '@geotagger/shared';
  * estimate or no position at all (SPEC §5.6). A plain interpolated estimate that has
  * never been dragged or confirmed has nothing to revert to, only to reset.
  *
- * Multi-select has its own confirm affordance on the map itself (SPEC §6.5's
- * "confirm the selection together"), so this panel only ever acts on the one
- * selected file.
+ * While the map's multi-selection (SPEC §6.5) is non-empty, this panel shows a grid
+ * of small thumbnails instead — the single-file view doesn't make sense for several
+ * files at once, and the multi-select confirm/clear actions live in the map's own
+ * toolbar, not here. Clicking a thumbnail in the grid exits multi-select and shows
+ * that one file normally, exactly as clicking it on the map would.
  */
 export function DetailPanel({
   file,
@@ -25,6 +27,8 @@ export function DetailPanel({
   onRevert,
   onReset,
   busy,
+  multiSelectedItems,
+  onSelectOne,
 }: {
   file: FileRecord | null;
   position: ComputedPosition | null;
@@ -33,7 +37,30 @@ export function DetailPanel({
   onRevert: () => void;
   onReset: () => void;
   busy: boolean;
+  multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
+  onSelectOne: (fileId: number) => void;
 }) {
+  if (multiSelectedItems.length > 0) {
+    return (
+      <aside className="detail-panel">
+        <div className="detail-multi-header">{multiSelectedItems.length} selected</div>
+        <div className="detail-multi-grid">
+          {multiSelectedItems.map((item) => (
+            <button
+              key={item.file.id}
+              type="button"
+              className={`detail-multi-thumb ${borderClassFor(item.position.source)}`}
+              title={item.file.filename}
+              onClick={() => onSelectOne(item.file.id)}
+            >
+              <img src={`/api/files/${item.file.id}/thumb`} alt="" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      </aside>
+    );
+  }
+
   if (file === null) {
     return <aside className="detail-panel muted">Click a thumbnail to see it here.</aside>;
   }
@@ -112,6 +139,11 @@ function formatPosition(position: ComputedPosition | null, origAlt: number | nul
   if (position === null || position.lat === null || position.lon === null) return 'no position';
   const latLon = `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}`;
   return origAlt === null ? latLon : `${latLon}, ${Math.round(origAlt)} m`;
+}
+
+/** Same rule as the map's marker borders (SPEC §6.5) — duplicated rather than shared to avoid a circular import with MapView. */
+function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfirmed' {
+  return source === 'camera-gps' || source === 'confirmed' ? 'known' : 'unconfirmed';
 }
 
 const STATUS_LABEL: Record<PositionSource, string> = {
