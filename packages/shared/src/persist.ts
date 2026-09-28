@@ -15,6 +15,9 @@ export type PersistHalfKind = 'none' | 'write' | 'restore';
 export interface PersistPlanEntry {
   fileId: number;
   relPath: string;
+  /** What the file currently says, for the persist dialog's old→new rows (SPEC §9.1). */
+  oldLocalIso: string | null;
+  oldUtcOffsetMinutes: number | null;
   /** The corrected wall clock that will be written, naive ISO. */
   newLocalIso: string | null;
   /** The correction in seconds, relative to what the file says now. */
@@ -23,6 +26,8 @@ export interface PersistPlanEntry {
   utcOffsetMinutes: number | null;
   timeKind: PersistHalfKind;
   writesUtcOffset: boolean;
+  oldLat: number | null;
+  oldLon: number | null;
   /** The position that will be written, or null when nothing changes there. */
   newLat: number | null;
   newLon: number | null;

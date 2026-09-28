@@ -5,13 +5,18 @@ import { formatInstant, formatUtcOffset } from '@geotagger/shared';
 /**
  * Detail for the map's selected thumbnail (SPEC §6.3's side panel): the large
  * preview, the corrected timestamp, where the file currently sits, and — for a
- * single selection — the confirm/revert/reset controls of SPEC §6.5.
+ * single selection — the confirm/revert/reset/reset-to-original controls of SPEC
+ * §6.5.
  *
- * Revert and reset are different depths of undo: revert cancels only a drag in
- * progress, falling back to whatever anchor (confirmed or camera GPS) was
- * underneath it; reset discards that anchor too, all the way back to a derived
- * estimate or no position at all (SPEC §5.6). A plain interpolated estimate that has
- * never been dragged or confirmed has nothing to revert to, only to reset.
+ * Revert, reset and reset to original are three different depths of undo: revert
+ * cancels only a drag in progress, falling back to whatever anchor (confirmed or
+ * camera GPS) was underneath it; reset discards that anchor too, all the way back to
+ * a derived estimate or no position at all (SPEC §5.6); reset to original discards
+ * the edit the same way reset does, but is guaranteed — not incidental — to restore
+ * the file to what it said before GeoTagger ever touched it, on the next Persist
+ * (SPEC §9.4). A plain interpolated estimate that has never been dragged or
+ * confirmed has nothing to revert to, only to reset, and reset to original only
+ * appears once the file has actually been persisted.
  *
  * While the map's multi-selection (SPEC §6.5) is non-empty, this panel shows a grid
  * of small thumbnails instead — the single-file view doesn't make sense for several
@@ -26,6 +31,8 @@ export function DetailPanel({
   onConfirm,
   onRevert,
   onReset,
+  onResetToOriginal,
+  canResetToOriginal,
   busy,
   multiSelectedItems,
   onSelectOne,
@@ -36,6 +43,8 @@ export function DetailPanel({
   onConfirm: () => void;
   onRevert: () => void;
   onReset: () => void;
+  onResetToOriginal: () => void;
+  canResetToOriginal: boolean;
   busy: boolean;
   multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
   onSelectOne: (fileId: number) => void;
@@ -90,7 +99,7 @@ export function DetailPanel({
           </>
         )}
       </dl>
-      {(canConfirm || canRevert || canReset) && (
+      {(canConfirm || canRevert || canReset || canResetToOriginal) && (
         <div className="detail-actions">
           <button type="button" className="confirm" disabled={!canConfirm || busy} onClick={onConfirm} title="Confirm">
             ✓
@@ -101,6 +110,11 @@ export function DetailPanel({
           <button type="button" className="ghost" disabled={!canReset || busy} onClick={onReset}>
             Reset
           </button>
+          {canResetToOriginal && (
+            <button type="button" className="ghost" disabled={busy} onClick={onResetToOriginal}>
+              Reset to original
+            </button>
+          )}
         </div>
       )}
     </aside>

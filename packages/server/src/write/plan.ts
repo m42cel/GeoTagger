@@ -93,11 +93,15 @@ export function planEntryFor(
   return {
     fileId: file.id,
     relPath: file.relPath,
+    oldLocalIso: time.oldLocalIso,
+    oldUtcOffsetMinutes: time.oldUtcOffsetMinutes,
     newLocalIso: time.localIso,
     timeShiftSeconds: time.timeShiftSeconds,
     utcOffsetMinutes: time.writesUtcOffset ? time.utcOffsetMinutes : null,
     timeKind: time.kind,
     writesUtcOffset: time.writesUtcOffset,
+    oldLat: position.oldLat,
+    oldLon: position.oldLon,
     newLat: position.lat,
     newLon: position.lon,
     positionSource: position.kind === 'none' ? null : position.source,
@@ -111,6 +115,8 @@ export function planEntryFor(
 
 interface TimeResolution {
   kind: PersistHalfKind;
+  oldLocalIso: string | null;
+  oldUtcOffsetMinutes: number | null;
   localIso: string | null;
   utcOffsetMinutes: number;
   timeShiftSeconds: number;
@@ -148,6 +154,8 @@ function resolveTime(
     const alreadyMatches = currentLocalIso === original.dateTimeOriginal && currentOffsetTag === (original.offsetTimeOriginal ?? null);
     return {
       kind: alreadyMatches ? 'none' : 'restore',
+      oldLocalIso: currentLocalIso,
+      oldUtcOffsetMinutes: currentUtcOffsetMinutes,
       localIso: original.dateTimeOriginal,
       utcOffsetMinutes: currentUtcOffsetMinutes ?? 0,
       timeShiftSeconds: payload.timeShiftSeconds,
@@ -170,6 +178,8 @@ function resolveTime(
 
   return {
     kind,
+    oldLocalIso: currentLocalIso,
+    oldUtcOffsetMinutes: currentUtcOffsetMinutes,
     localIso: derivedLocalIso,
     utcOffsetMinutes: payload.utcOffsetMinutes,
     timeShiftSeconds: payload.timeShiftSeconds,
@@ -179,13 +189,17 @@ function resolveTime(
 
 interface PositionResolution {
   kind: PersistHalfKind;
+  oldLat: number | null;
+  oldLon: number | null;
   lat: number | null;
   lon: number | null;
   source: PositionSource | null;
   uncertaintyM: number | null;
 }
 
-const NONE_POSITION: PositionResolution = { kind: 'none', lat: null, lon: null, source: null, uncertaintyM: null };
+function nonePosition(oldLat: number | null, oldLon: number | null): PositionResolution {
+  return { kind: 'none', oldLat, oldLon, lat: null, lon: null, source: null, uncertaintyM: null };
+}
 
 function resolvePosition(
   file: FileRecord,
@@ -195,6 +209,8 @@ function resolvePosition(
 ): PositionResolution {
   const confirmed = ctx.confirmedPositions.get(file.id);
   const flagged = ctx.positionResetToOriginalFileIds.has(file.id);
+  const currentLat = applied?.lat ?? (file.origGpsPresent ? file.origLat : null);
+  const currentLon = applied?.lon ?? (file.origGpsPresent ? file.origLon : null);
 
   let intendedLat: number | null;
   let intendedLon: number | null;
@@ -216,11 +232,9 @@ function resolvePosition(
   } else {
     // Camera GPS, an unconfirmed estimate, or nothing at all — none of these are ever
     // persisted (SPEC §6.5's "eligible for persist" is confirmed-only).
-    return NONE_POSITION;
+    return nonePosition(currentLat, currentLon);
   }
 
-  const currentLat = applied?.lat ?? (file.origGpsPresent ? file.origLat : null);
-  const currentLon = applied?.lon ?? (file.origGpsPresent ? file.origLon : null);
   const matchesCurrent = intendedLat === currentLat && intendedLon === currentLon;
   const matchesOriginal =
     original !== undefined &&
@@ -230,6 +244,8 @@ function resolvePosition(
   const kind: PersistHalfKind = matchesCurrent ? 'none' : matchesOriginal ? 'restore' : 'write';
   return {
     kind,
+    oldLat: currentLat,
+    oldLon: currentLon,
     lat: intendedLat,
     lon: intendedLon,
     source: kind === 'none' ? null : source,

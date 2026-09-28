@@ -61,6 +61,7 @@ export const api = {
   setLane: (stripId: number, lane: number) => post(`/api/strips/${stripId}/lane`, { lane }),
   setLocked: (stripId: number, locked: boolean) => post(`/api/strips/${stripId}/lock`, { locked }),
   resetStrip: (stripId: number) => post(`/api/strips/${stripId}/reset`, {}),
+  resetStripToOriginal: (stripId: number) => post(`/api/strips/${stripId}/reset-to-original`, {}),
   resetAll: () => post('/api/strips/reset-all', {}),
   undoStrips: () => post('/api/strips/undo', {}),
   setStripUtcOffset: (stripId: number, utcOffsetMinutes: number | null) =>
@@ -79,8 +80,6 @@ export const api = {
   // ---- writing (SPEC §9) -------------------------------------------------
 
   persistPlan: () => request<PersistPlan>('/api/persist/plan'),
-  revertTime: (fileId: number) =>
-    request<{ ok: boolean; reason: string | null }>(`/api/files/${fileId}/revert-time`, { method: 'POST' }),
   oplog: () => request<OplogEntry[]>('/api/oplog'),
 
   // ---- map view editing (SPEC §5.6, §6.5) --------------------------------
@@ -89,6 +88,7 @@ export const api = {
   confirmPosition: (fileId: number) => postFiles(`/api/files/${fileId}/confirm`, {}),
   revertPosition: (fileId: number) => postFiles(`/api/files/${fileId}/revert-position`, {}),
   resetPosition: (fileId: number) => postFiles(`/api/files/${fileId}/reset-position`, {}),
+  resetPositionToOriginal: (fileId: number) => postFiles(`/api/files/${fileId}/reset-position-to-original`, {}),
   bulkConfirm: (fileIds: number[]) => postFiles('/api/edits/bulk', { fileIds }),
 };
 

@@ -78,6 +78,7 @@ export class StripService {
       strips: timeline.strips,
       assignments: this.store.stripAssignments(),
       canUndo: this.undoStack.length > 0,
+      timeRestorableStripIds: this.store.timeRestorableStripIds(),
     };
   }
 
@@ -89,6 +90,7 @@ export class StripService {
       strips: timeline.strips,
       assignments: this.store.stripAssignments(),
       canUndo: this.undoStack.length > 0,
+      timeRestorableStripIds: this.store.timeRestorableStripIds(),
       files: timeline.files,
       utcOffsetRules: rules,
       displayUtcOffsetMinutes: timeline.displayUtcOffsetMinutes,

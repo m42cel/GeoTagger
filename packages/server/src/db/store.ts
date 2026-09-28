@@ -949,6 +949,26 @@ export class FolderStore {
     );
   }
 
+  /** Files with a stored GPS original to restore to (SPEC §6.5, §9.4). */
+  positionRestorableFileIds(): number[] {
+    return this.db
+      .prepare<[], { file_id: number }>('SELECT file_id FROM persisted WHERE wrote_gps = 1')
+      .all()
+      .map((r) => r.file_id);
+  }
+
+  /** Strips with at least one file whose time has been persisted (SPEC §6.3, §9.4). */
+  timeRestorableStripIds(): number[] {
+    return this.db
+      .prepare<[], { strip_id: number }>(
+        `SELECT DISTINCT sf.strip_id FROM persisted p
+         JOIN strip_files sf ON sf.file_id = p.file_id
+         WHERE p.wrote_time = 1`,
+      )
+      .all()
+      .map((r) => r.strip_id);
+  }
+
   /**
    * Restoring a half clears only that half's bookkeeping — the row (and with it the
    * `geotagger` block) is removed only once both halves are gone (SPEC §9.3, §9.4).

@@ -61,11 +61,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCircles, setShowCircles] = useState(true);
-  // SPEC §6.3 filters: visibility-only, on by default. "unpersisted" isn't here yet —
-  // nothing writes GPS to disk before phase 4, so it has no real distinction to filter
-  // on until then (see the spec's Filters note).
+  // SPEC §6.3 filters: visibility-only, on by default.
   const [showUnconfirmed, setShowUnconfirmed] = useState(true);
   const [showAppModified, setShowAppModified] = useState(true);
+  const [showUnpersisted, setShowUnpersisted] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
@@ -130,6 +129,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
     if (selectedId !== null) void editPosition(() => api.resetPosition(selectedId));
   }
 
+  function handleResetToOriginal(): void {
+    if (selectedId !== null) void editPosition(() => api.resetPositionToOriginal(selectedId));
+  }
+
   // Tray drag-onto-map (SPEC §6.4): dragging a tray item onto the map sets its
   // position, same as dragging an existing marker — it goes through the same
   // `dragPosition` route and stays unconfirmed (red) until the user confirms it,
@@ -191,6 +194,9 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
 
+  const unpersistedIds = useMemo(() => new Set(filesResp?.unpersistedFileIds ?? []), [filesResp]);
+  const positionRestorable = useMemo(() => new Set(filesResp?.positionRestorableFileIds ?? []), [filesResp]);
+
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
   // unaffected by what's currently hidden. This is what markers actually get drawn
@@ -200,9 +206,14 @@ export function MapView({ onBack }: { onBack: () => void }) {
       onMap.filter((i) => {
         const isUnconfirmed = i.position.source === 'manual' || i.position.source === 'estimate';
         const isAppModified = i.position.source !== 'camera-gps';
-        return (showUnconfirmed || !isUnconfirmed) && (showAppModified || !isAppModified);
+        const isUnpersisted = unpersistedIds.has(i.file.id);
+        return (
+          (showUnconfirmed || !isUnconfirmed) &&
+          (showAppModified || !isAppModified) &&
+          (showUnpersisted || !isUnpersisted)
+        );
       }),
-    [onMap, showUnconfirmed, showAppModified],
+    [onMap, showUnconfirmed, showAppModified, showUnpersisted, unpersistedIds],
   );
 
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
@@ -668,6 +679,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
           <input type="checkbox" checked={showAppModified} onChange={(e) => setShowAppModified(e.target.checked)} />
           App-modified
         </label>
+        <label className="map-toggle">
+          <input type="checkbox" checked={showUnpersisted} onChange={(e) => setShowUnpersisted(e.target.checked)} />
+          Unpersisted
+        </label>
         {multiSelected.size > 0 && (
           <div className="multi-select-bar">
             <span>{multiSelected.size} selected</span>
@@ -704,6 +719,8 @@ export function MapView({ onBack }: { onBack: () => void }) {
           onConfirm={handleConfirm}
           onRevert={handleRevert}
           onReset={handleReset}
+          onResetToOriginal={handleResetToOriginal}
+          canResetToOriginal={selected !== null && positionRestorable.has(selected.file.id)}
           busy={busy}
           multiSelectedItems={multiSelectedItems}
           onSelectOne={handleSelectOne}

@@ -115,6 +115,7 @@ describe('buildPersistPlan — time (SPEC §9.1)', () => {
       ),
     );
     expect(plan.entries[0]?.timeKind).toBe('write');
+    expect(plan.entries[0]?.oldLocalIso).toBe('2024-07-12T14:00:00');
     expect(plan.entries[0]?.newLocalIso).toBe('2024-07-12T15:00:00');
     expect(plan.entries[0]?.timeShiftSeconds).toBe(3600);
     expect(plan.correctedTimestamps).toBe(1);
@@ -217,6 +218,7 @@ describe('buildPersistPlan — position (SPEC §9.1, §9.2)', () => {
     ]);
     const plan = buildPersistPlan(context([file()], [line()], { confirmedPositions }));
     expect(plan.entries[0]?.positionKind).toBe('write');
+    expect(plan.entries[0]?.oldLat).toBe(null);
     expect(plan.entries[0]?.newLat).toBe(47.1);
     expect(plan.entries[0]?.newLon).toBe(11.2);
     expect(plan.entries[0]?.positionSource).toBe('manual');

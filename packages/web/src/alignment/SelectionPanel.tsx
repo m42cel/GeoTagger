@@ -36,6 +36,8 @@ export function SelectionPanel({
   onCut,
   onMerge,
   onReset,
+  onResetToOriginal,
+  canResetToOriginal,
   onSetUtcOffset,
   onPin,
 }: {
@@ -52,6 +54,8 @@ export function SelectionPanel({
   onCut: (atMs: number) => void;
   onMerge: (rightStripId: number) => void;
   onReset: () => void;
+  onResetToOriginal: () => void;
+  canResetToOriginal: boolean;
   onSetUtcOffset: (minutes: number | null) => void;
   onPin: () => void;
 }) {
@@ -118,6 +122,11 @@ export function SelectionPanel({
         <button type="button" className="ghost" disabled={strip.locked} onClick={onReset}>
           reset
         </button>
+        {canResetToOriginal && (
+          <button type="button" className="ghost" disabled={strip.locked} onClick={onResetToOriginal}>
+            reset to original
+          </button>
+        )}
       </div>
 
       {selectedFile && selectedLine && (

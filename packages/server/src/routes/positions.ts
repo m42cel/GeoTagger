@@ -33,6 +33,7 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      positionRestorableFileIds: session.store.positionRestorableFileIds(),
     };
   };
 

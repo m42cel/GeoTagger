@@ -90,6 +90,12 @@ export interface FilesResponse {
    * different value than the current edit.
    */
   unpersistedFileIds: number[];
+  /**
+   * File ids with a stored GPS original to restore to (SPEC §6.5, §9.4) — the
+   * position half of the file has actually been written at least once. This is what
+   * gates the detail panel's "Reset to original" button.
+   */
+  positionRestorableFileIds: number[];
 }
 
 export interface StripsResponse {
@@ -99,6 +105,11 @@ export interface StripsResponse {
   assignments: Record<number, number>;
   /** True while there is a strip change to undo (SPEC §4.3, §4.4). */
   canUndo: boolean;
+  /**
+   * Strip ids with at least one file whose time has actually been persisted (SPEC
+   * §6.3, §9.4) — what gates the strip header's "Reset to original" control.
+   */
+  timeRestorableStripIds: number[];
 }
 
 /**

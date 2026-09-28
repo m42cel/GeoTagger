@@ -597,6 +597,17 @@ export function AlignmentView({
                       >
                         reset
                       </button>
+                      {timeline.timeRestorableStripIds.includes(strip.id) && (
+                        <button
+                          type="button"
+                          className="chip"
+                          disabled={strip.locked}
+                          title="Guaranteed to restore every already-persisted file in this strip to its own raw original time"
+                          onClick={() => run(api.resetStripToOriginal(strip.id))}
+                        >
+                          reset to original
+                        </button>
+                      )}
                     </span>
                   ))}
                 </span>
@@ -699,6 +710,8 @@ export function AlignmentView({
         onCut={cutAt}
         onMerge={(rightId) => selectedStrip && run(api.merge(selectedStrip.id, rightId))}
         onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}
+        onResetToOriginal={() => selectedStrip && run(api.resetStripToOriginal(selectedStrip.id))}
+        canResetToOriginal={selectedStrip !== null && timeline.timeRestorableStripIds.includes(selectedStrip.id)}
         utcSummary={utcSummary}
         onSetUtcOffset={(minutes) => selectedStrip && run(api.setStripUtcOffset(selectedStrip.id, minutes))}
         onPin={() => selectedFileId !== null && pin(selectedFileId)}
