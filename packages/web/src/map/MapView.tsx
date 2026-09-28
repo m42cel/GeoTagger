@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import * as L from 'leaflet';
 import 'leaflet.markercluster';
 import 'leaflet-polylinedecorator';
@@ -19,10 +20,9 @@ import { DetailPanel } from './DetailPanel.js';
  * line to where it is now — that old position is still what anchors everyone else
  * until the drag is confirmed or reverted.
  *
- * Status filters are not here yet. Editing is wired the same way the alignment
- * view's mutations are: every edit posts to the server and replaces local state with
- * the response it sends back, rather than predicting the recomputation (SPEC §5.5)
- * itself.
+ * Editing is wired the same way the alignment view's mutations are: every edit posts
+ * to the server and replaces local state with the response it sends back, rather
+ * than predicting the recomputation (SPEC §5.5) itself.
  *
  * Multi-select (SPEC §6.5) is shift-click to toggle one marker at a time, or a
  * shift+drag rubber band to select every marker inside the box, independent of the
@@ -61,6 +61,11 @@ export function MapView({ onBack }: { onBack: () => void }) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCircles, setShowCircles] = useState(true);
+  // SPEC §6.3 filters: visibility-only, on by default. "unpersisted" isn't here yet —
+  // nothing writes GPS to disk before phase 4, so it has no real distinction to filter
+  // on until then (see the spec's Filters note).
+  const [showUnconfirmed, setShowUnconfirmed] = useState(true);
+  const [showAppModified, setShowAppModified] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
@@ -125,6 +130,22 @@ export function MapView({ onBack }: { onBack: () => void }) {
     if (selectedId !== null) void editPosition(() => api.resetPosition(selectedId));
   }
 
+  // Tray drag-onto-map (SPEC §6.4): dragging a tray item onto the map sets its
+  // position, same as dragging an existing marker — it goes through the same
+  // `dragPosition` route and stays unconfirmed (red) until the user confirms it,
+  // which is what actually makes it an anchor (§5.5).
+  function handleTrayDrop(e: DragEvent<HTMLDivElement>): void {
+    e.preventDefault();
+    const map = mapRef.current;
+    if (!map) return;
+    const fileId = Number(e.dataTransfer.getData('text/plain'));
+    if (!Number.isFinite(fileId)) return;
+    const { lat, lng } = map.mouseEventToLatLng(e.nativeEvent);
+    void editPosition(() => api.dragPosition(fileId, lat, lng)).then((ok) => {
+      if (ok) setSelectedId(fileId);
+    });
+  }
+
   function toggleMultiSelected(fileId: number): void {
     setMultiSelected((prev) => {
       const next = new Set(prev);
@@ -169,6 +190,21 @@ export function MapView({ onBack }: { onBack: () => void }) {
   }, [filesResp, timeline]);
 
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
+
+  // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
+  // stay the full set, so the path line and anything else built from `onMap` are
+  // unaffected by what's currently hidden. This is what markers actually get drawn
+  // from.
+  const visibleOnMap = useMemo(
+    () =>
+      onMap.filter((i) => {
+        const isUnconfirmed = i.position.source === 'manual' || i.position.source === 'estimate';
+        const isAppModified = i.position.source !== 'camera-gps';
+        return (showUnconfirmed || !isUnconfirmed) && (showAppModified || !isAppModified);
+      }),
+    [onMap, showUnconfirmed, showAppModified],
+  );
+
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.file.id, i])), [items]);
@@ -400,7 +436,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
     const ghosts = L.layerGroup();
     const markers: MarkerWithFile[] = [];
 
-    for (const item of onMap) {
+    for (const item of visibleOnMap) {
       const borderClass = borderClassFor(item.position.source);
       const marker = L.marker([item.position.lat as number, item.position.lon as number], {
         icon: thumbIcon(
@@ -564,7 +600,7 @@ export function MapView({ onBack }: { onBack: () => void }) {
       const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-  }, [onMap, path, showCircles]);
+  }, [visibleOnMap, path, showCircles]);
 
   // Selection highlighting is applied in place, not by rebuilding the marker layer
   // above: `Marker.setIcon`/`DivIcon.createIcon` reuse the existing DOM node instead
@@ -612,6 +648,14 @@ export function MapView({ onBack }: { onBack: () => void }) {
           <input type="checkbox" checked={showCircles} onChange={(e) => setShowCircles(e.target.checked)} />
           Uncertainty circles
         </label>
+        <label className="map-toggle">
+          <input type="checkbox" checked={showUnconfirmed} onChange={(e) => setShowUnconfirmed(e.target.checked)} />
+          Unconfirmed
+        </label>
+        <label className="map-toggle">
+          <input type="checkbox" checked={showAppModified} onChange={(e) => setShowAppModified(e.target.checked)} />
+          App-modified
+        </label>
         {multiSelected.size > 0 && (
           <div className="multi-select-bar">
             <span>{multiSelected.size} selected</span>
@@ -634,7 +678,12 @@ export function MapView({ onBack }: { onBack: () => void }) {
       {error && <div className="banner error">{error}</div>}
 
       <div className="map-layout">
-        <div className="map-container" ref={containerRef} />
+        <div
+          className="map-container"
+          ref={containerRef}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleTrayDrop}
+        />
         {tray.length > 0 && <Tray items={tray} selectedId={selectedId} onSelect={setSelectedId} />}
         <DetailPanel
           file={selected?.file ?? null}
@@ -652,10 +701,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
 /**
  * Files with no derivable position (SPEC §6.4): fewer than two anchors in the whole
- * folder, or no capture time of their own. Dragging one onto the map to place it —
- * confirming it is what then makes it an anchor (§5.5) — is not wired up yet; for
- * now this is a read-only list, but clicking one still shows it in the detail panel
- * like a thumbnail on the map would.
+ * folder, or no capture time of their own. Dragging one onto the map sets its
+ * position (handled by `handleTrayDrop` on the map container, the same
+ * `dragPosition` route a marker drag uses) — confirming it is what then makes it an
+ * anchor (§5.5).
  */
 function Tray({
   items,
@@ -675,6 +724,8 @@ function Tray({
             key={file.id}
             title={file.relPath}
             className={file.id === selectedId ? 'selected' : ''}
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData('text/plain', String(file.id))}
             onClick={() => onSelect(file.id)}
           >
             <img src={`/api/files/${file.id}/thumb`} alt="" loading="lazy" width={40} height={40} />
