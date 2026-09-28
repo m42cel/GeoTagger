@@ -13,9 +13,9 @@ import { formatInstant, formatUtcOffset } from '@geotagger/shared';
  * estimate or no position at all (SPEC §5.6). A plain interpolated estimate that has
  * never been dragged or confirmed has nothing to revert to, only to reset.
  *
- * Multi-select has its own confirm/drag/revert affordances on the map itself
- * (SPEC §6.5's "confirm together, or drag the whole group"), so this panel only
- * ever acts on the one selected file.
+ * Multi-select has its own confirm affordance on the map itself (SPEC §6.5's
+ * "confirm the selection together"), so this panel only ever acts on the one
+ * selected file.
  */
 export function DetailPanel({
   file,

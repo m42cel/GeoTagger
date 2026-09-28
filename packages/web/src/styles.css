@@ -870,6 +870,29 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 /* Selection highlight (SPEC §6.3): a ring outside the border, not a replacement for
    it, so it reads the same over a green or a red border. */
 .map-thumb-icon.selected img { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* Multi-select (SPEC §6.5) gets its own colour so it reads as a distinct, separate
+   selection from the detail panel's single `.selected` ring — a marker can carry
+   both rings at once (shift-clicking the currently-selected one, say) and each has
+   to stay legible on its own. */
+.map-thumb-icon.multi-selected img { box-shadow: 0 0 0 3px #2e7dd7; }
+
+/* The rubber-band selection box (SPEC §6.5), drawn over the map while shift-dragging. */
+.map-select-box {
+  position: absolute;
+  border: 1px dashed #2e7dd7;
+  background: rgba(46, 125, 215, 0.15);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.multi-select-bar { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.multi-select-bar .confirm {
+  background: transparent;
+  color: var(--known);
+  border: 1px solid var(--known);
+  padding: 3px 8px;
+  font-weight: 700;
+}
 
 /*
  * No `position` here: Leaflet's own `.leaflet-marker-icon` rule (also on this
@@ -894,6 +917,11 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 /* Worst-of-the-group colouring (a mixed cluster reads as unconfirmed): same colours as `.map-thumb-icon`. */
 .map-cluster-icon.known img { border-color: var(--known); }
 .map-cluster-icon.unconfirmed img { border-color: var(--unconfirmed); }
+/* Selection rings (SPEC §6.3, §6.5) carry through to a stack containing the
+   selected file — same rules as `.map-thumb-icon`'s, so collapsing into a cluster
+   never makes a selected file look deselected. */
+.map-cluster-icon.selected img { outline: 3px solid var(--accent); outline-offset: 2px; }
+.map-cluster-icon.multi-selected img { box-shadow: 0 0 0 3px #2e7dd7; }
 .map-cluster-icon .cluster-count {
   position: absolute;
   top: -6px;

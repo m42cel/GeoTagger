@@ -165,6 +165,11 @@ export interface DragPositionRequest {
   lon: number;
 }
 
+/** Multi-select confirm (SPEC §6.5, §10.2): confirms each file's current position at once. */
+export interface BulkConfirmRequest {
+  fileIds: number[];
+}
+
 export interface ApiError {
   error: string;
   message: string;

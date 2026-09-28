@@ -1,13 +1,10 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { DragPositionRequest, FilesResponse } from '@geotagger/shared';
+import type { BulkConfirmRequest, DragPositionRequest, FilesResponse } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
 
 /**
- * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, revert and
- * reset, each scoped to one file for now — multi-select reuses these one file at a
- * time from the client rather than needing its own batch routes, since dragging or
- * confirming a group is a rigid translation the client already knows the per-file
- * targets for.
+ * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, revert, reset,
+ * and a multi-select bulk confirm.
  *
  * Revert and reset are deliberately two different routes, not one: revert cancels
  * only a drag in progress, falling back to whatever anchor (confirmed or camera GPS)
@@ -15,12 +12,17 @@ import type { Session, SessionManager } from '../session.js';
  * estimate that was never dragged has no anchor to fall back to, so it only ever
  * gets a reset.
  *
+ * Bulk confirm takes one snapshot of the current positions and confirms each
+ * selected file against it, rather than recomputing between every one — "confirm the
+ * selection together" (§6.5) means as they currently stand, not a cascade where
+ * confirming one shifts what a later one in the same batch would confirm.
+ *
  * Every route answers with the whole `FilesResponse`, like the strips routes answer
  * with the whole timeline. A drag only ever changes the dragged file's own entry,
- * but a confirm, revert or reset can change which files are anchors, which
- * recomputes every unconfirmed estimate in the folder (SPEC §5.5) — either way,
- * nothing less than the whole response would leave the map showing stale positions
- * somewhere.
+ * but a confirm, revert, reset or bulk confirm can change which files are anchors,
+ * which recomputes every unconfirmed estimate in the folder (SPEC §5.5) — either
+ * way, nothing less than the whole response would leave the map showing stale
+ * positions somewhere.
  */
 export function registerPositionRoutes(app: FastifyInstance, sessions: SessionManager): void {
   const filesResponse = (session: Session): FilesResponse => {
@@ -70,6 +72,29 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
     const id = parseId(req.params.id);
     if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
     session.store.resetPosition(id);
+    return filesResponse(session);
+  });
+
+  app.post<{ Body: BulkConfirmRequest }>('/api/edits/bulk', async (req, reply) => {
+    const session = sessions.require();
+    const fileIds = req.body?.fileIds;
+    if (!Array.isArray(fileIds) || fileIds.some((id) => typeof id !== 'number')) {
+      return badRequest(reply, 'fileIds must be an array of numbers.');
+    }
+    for (const id of fileIds) {
+      if (!session.store.getFile(id)) return notFound(reply, String(id));
+    }
+
+    const snapshot = new Map(session.positions.compute(session.store.listFiles()).map((p) => [p.fileId, p]));
+    for (const id of fileIds) {
+      const current = snapshot.get(id);
+      // Same eligibility as the single-file confirm button (§6.5): camera GPS and an
+      // already-confirmed position are already anchors, with nothing to confirm —
+      // "confirming" one again would just re-stamp it as a manual edit for no reason.
+      if (!current || current.lat === null || current.lon === null) continue;
+      if (current.source !== 'estimate' && current.source !== 'manual') continue;
+      session.store.confirmPosition(id, current.lat, current.lon, current.uncertaintyM, current.source === 'manual');
+    }
     return filesResponse(session);
   });
 }

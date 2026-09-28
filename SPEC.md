@@ -572,7 +572,10 @@ side panel.
 | **Red** | Interpolated or extrapolated, not yet confirmed |
 
 **Selection highlight:** the selected thumbnail gets a ring distinct from the border colour, so it
-reads at a glance regardless of whether the border underneath is green or red.
+reads at a glance regardless of whether the border underneath is green or red. Multi-selected
+thumbnails (§6.5) get a second, differently-coloured ring of their own — a thumbnail can carry
+both at once. A cluster showing a stack's representative thumbnail carries whichever ring(s) apply
+to any file inside it, so collapsing a stack never makes a selected file look deselected.
 
 **Ghost:** re-dragging a file that already has camera GPS or a confirmed position leaves a faint
 marker at the old position — still the active anchor for everyone else (§5.5, §5.6) — connected by
@@ -597,7 +600,9 @@ over a representative thumbnail and expand on zoom.
 
 **Uncertainty circles:** drawn faintly on all unconfirmed items; global toggle.
 
-**Filters:** by status — unconfirmed, app-modified, unpersisted, no position. (Time-range,
+**Filters:** by status — unconfirmed, app-modified, unpersisted. Purely a marker-visibility
+toggle: the path line is unaffected and always runs through the full track regardless of what is
+currently hidden, and a filtered-out marker is simply hidden, not replaced with a ghost. (Time-range,
 device and confidence filters are explicitly not in scope.)
 
 ### 6.4 Tray
@@ -613,7 +618,7 @@ what makes it an anchor and places everything else (§5.5).
 | Click thumbnail | Select; detail panel shows large preview, metadata, provenance, uncertainty |
 | Drag thumbnail | Sets its own position; **stays unconfirmed (red)** and does not anchor other files' estimates. Re-dragging an already-anchored file leaves a ghost at the old position (§5.6) |
 | Checkmark on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
-| Multi-select (shift-click / rubber band) | Confirm together, or drag the whole group to a new position |
+| Multi-select (shift-click / rubber band) | Confirm the selection together |
 | Revert on selected thumbnail | Cancels a drag in progress, falling back to the anchor underneath it (camera GPS or confirmed), if any. Only available when there is one — a plain interpolated estimate that has never been dragged or confirmed has nothing to revert to |
 | Reset on selected thumbnail | Discards the position entirely — the pending drag and any confirmed anchor alike — back to a derived estimate or no position at all |
 | Persist changes | Writes all confirmed changes to files (§9) |
@@ -879,7 +884,7 @@ GET    /api/files/:id/preview          large preview
 POST   /api/edits/:id/position         set manual position
 POST   /api/edits/:id/confirm          confirm
 POST   /api/edits/:id/revert           revert
-POST   /api/edits/bulk                 multi-select confirm / move
+POST   /api/edits/bulk                 multi-select confirm
 GET    /api/devices                    device groups
 POST   /api/devices/regroup            split / merge
 GET    /api/strips                     lanes, strips, offsets
@@ -1029,7 +1034,7 @@ form a complete, shippable application with no map in it at all.
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
 | **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
-| **3 — Editing** | Drag, confirm, revert, multi-select, status filters. Extends phase 2's detail panel with the confirm/revert controls. |
+| **3 — Editing** | Drag, confirm, revert, reset, multi-select confirm, status filters. Extends phase 2's detail panel with the confirm/revert/reset controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert. *Feature-complete release.* |
 | **5 — Offline and polish** | PMTiles support, area pre-download for permitted providers, settings page, performance tuning against a real 5,000-file folder |
 
@@ -1059,3 +1064,4 @@ form a complete, shippable application with no map in it at all.
 | Single plain path, all devices | Time gradient, per-device colours | Simplicity; the collection is one timeline |
 | Unlimited extrapolation | Refusing beyond a threshold | Every file must be on the map to be draggable |
 | Drag does not auto-confirm | Drag implies confirmation | One explicit gesture guards everything that reaches disk, and is also what lets a placement anchor other files' estimates |
+| Multi-select is confirm-only, no group drag | Drag the whole selection as a rigid group | Confirming the two ends of a bad cluster and letting recomputation (§5.5) reshape the estimates between them fits the true time-proportional path; a rigid translation would only carry the cluster's existing, possibly wrong shape to a new offset |

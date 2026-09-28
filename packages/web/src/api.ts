@@ -89,6 +89,7 @@ export const api = {
   confirmPosition: (fileId: number) => postFiles(`/api/files/${fileId}/confirm`, {}),
   revertPosition: (fileId: number) => postFiles(`/api/files/${fileId}/revert-position`, {}),
   resetPosition: (fileId: number) => postFiles(`/api/files/${fileId}/reset-position`, {}),
+  bulkConfirm: (fileIds: number[]) => postFiles('/api/edits/bulk', { fileIds }),
 };
 
 /**
