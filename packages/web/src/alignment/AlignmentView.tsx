@@ -80,9 +80,11 @@ type Drag =
 export function AlignmentView({
   onBack,
   onOpenPersist,
+  onOpenMap,
 }: {
   onBack: () => void;
   onOpenPersist: () => void;
+  onOpenMap: () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
@@ -544,11 +546,14 @@ export function AlignmentView({
         >
           reset all
         </button>
-        <button type="button" className="primary" onClick={onOpenPersist}>
-          Persist changes…
+        <button type="button" className="primary" onClick={onOpenMap}>
+          Open map
         </button>
         <button type="button" className="ghost" onClick={onBack}>
           Back to files
+        </button>
+        <button type="button" className="ghost" onClick={onOpenPersist}>
+          Persist changes…
         </button>
       </div>
 

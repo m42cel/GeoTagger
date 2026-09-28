@@ -11,6 +11,7 @@ import { registerSessionRoutes } from './routes/session.js';
 import { registerFileRoutes } from './routes/files.js';
 import { registerStripRoutes } from './routes/strips.js';
 import { registerPersistRoutes } from './routes/persist.js';
+import { registerTileRoutes } from './routes/tiles.js';
 import { StripOperationError } from './strips/service.js';
 import { configureExiftool } from './metadata/reader.js';
 import { ensureExiftoolConfig } from './write/exiftool-config.js';
@@ -81,6 +82,7 @@ export function buildServer(config: Config): BuiltServer {
   registerFileRoutes(app, sessions);
   registerStripRoutes(app, sessions);
   registerPersistRoutes(app, sessions);
+  registerTileRoutes(app, config);
 
   registerWebUi(app);
 

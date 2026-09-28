@@ -100,6 +100,8 @@ export interface FileRecord {
   origGpsPresent: boolean;
   origLat: number | null;
   origLon: number | null;
+  /** Metres above sea level from the GPS fix, negative below it; null when the fix carried none. */
+  origAlt: number | null;
   firstSeenAt: number;
   lastScannedAt: number;
   missing: boolean;

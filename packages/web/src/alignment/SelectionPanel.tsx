@@ -129,8 +129,9 @@ export function SelectionPanel({
             <dt>reads</dt>
             <dd>
               {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}
-              {selectedFile.captureUtcOffsetMinutes !== null &&
-                ` ${formatUtcOffset(selectedFile.captureUtcOffsetMinutes)}`}{' '}
+              {selectedFile.captureUtcOffsetMinutes !== null && (
+                <em> {formatUtcOffset(selectedFile.captureUtcOffsetMinutes)}</em>
+              )}{' '}
               <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
                 {SOURCE_LABEL[selectedFile.captureTimeSource]}
                 {weakSource(selectedFile.captureTimeSource) && ' — weak source'}

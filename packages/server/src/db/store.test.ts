@@ -142,6 +142,7 @@ describe('metadata and strips', () => {
         origGpsPresent: true,
         origLat: 41.9028,
         origLon: 12.4964,
+        origAlt: 21.3,
       },
       { id: 'apple|iphone|', make: 'Apple', model: 'iPhone', serial: null, label: 'Apple iPhone' },
     );
@@ -153,6 +154,7 @@ describe('metadata and strips', () => {
       captureUtcOffsetMinutes: 120,
       origGpsPresent: true,
       origLat: 41.9028,
+      origAlt: 21.3,
     });
   });
 

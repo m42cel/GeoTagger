@@ -542,9 +542,7 @@ positions, and reach the files only on persist.
 │                                        ││ interpolated │
 │                                        ││ ±180 m (good)│
 │                                        ││ [✓] [revert] │
-├─ filmstrip ────────────────────────────┤│              │
-│■■□■ ■□□□  ■■■■ ││ ■□ ■■■■■■■           ││              │
-│ 09:00    11:00  gap  14:00             ││              │
+│                                        ││              │
 └────────────────────────────────────────┘└──────────────┘
 ```
 
@@ -575,10 +573,6 @@ over a representative thumbnail and expand on zoom.
 
 **Filters:** by status — unconfirmed, app-modified, unpersisted, no position. (Time-range,
 device and confidence filters are explicitly not in scope.)
-
-**Filmstrip:** horizontal, time-ordered, every file with its status colour. Hover and selection
-are synchronised with the map in both directions; visible time gaps make the shape of the day
-readable in a way the map cannot show.
 
 ### 6.4 Tray
 
@@ -613,7 +607,6 @@ server-side, shared across all devices and folders.
 | --- | --- | --- |
 | OpenStreetMap standard | none | Default |
 | Esri World Imagery | none | Satellite layer — markedly easier for placing a photo on the correct side of a building or trail |
-| MapTiler / Thunderforest | yes | Optional, configured in settings |
 | Local PMTiles | none | Offline (§7.3) |
 
 The OSMF tile usage policy requires an identifying `User-Agent` and forbids bulk or systematic
@@ -720,23 +713,46 @@ Nothing is written until the user runs **Persist changes**. This keeps metadata 
 minimum on slow storage, allows free experimentation, and makes the whole edit set reviewable
 before it becomes permanent.
 
-```
-Persist changes
-  128 GPS positions
-   34 corrected timestamps
-   96 UTC offsets added
-                              [ Cancel ]  [ Write ]
+The dialog is one scrollable, per-file review list — there is no separate summary-counts screen
+and no separate post-write report; the same list becomes the report once writing starts.
 
-✓ 257 written and verified
-✗ 1 failed: VID_0201.MP4 (read-only)
+```
+Persist changes                                   [ ] thumbnails   [ ] raw EXIF values
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                position    47.0000, 11.0000          →   47.1234, 11.3456        │
+│  IMG_4471.JPG  timestamp   2024-07-12 14:59:50       →   2024-07-12 15:14:20 +02:00│
+│                UTC offset  (assumed) +00:00          →   +02:00                  │
+│  VID_0201.MP4  position    —                         →   47.1300, 11.3400  ✗ failed│
+│  IMG_4488.JPG  UTC offset  (assumed) +00:00          →   +02:00                ✓ │
+│  ...                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+257 changes across 194 files                             [ Cancel ]  [ Write ]
 ```
 
-- A file with both a timestamp and a position change is written **once**, both payloads in a
-  single ExifTool command.
-- Progress is shown per file.
-- Each file is re-read after writing and compared against the intended values.
+- Rows are **grouped by file**, with one sub-row per changed field — position, timestamp, UTC
+  offset, the same three categories the dialog used to just count. A file lists only the fields
+  it actually changes. The filename (and thumbnail, when that toggle is on) sits in its own
+  column on the left, spanning the height of that file's sub-rows — it is not a header row
+  printed above them.
+- Each sub-row shows the old value on the left and the new value on the right, side by side.
+  A field with no prior value (a file that never had GPS, for instance) shows `—` on the old
+  side.
+- **Thumbnails toggle**, off by default: adds each file's thumbnail beside its filename, using
+  the thumbnail pipeline (§10.1) that already ran at scan time — opening the dialog triggers no
+  extra work.
+- **Raw EXIF values toggle**, off by default: switches old/new from the human-readable
+  formatting used elsewhere in the app (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to the
+  literal tag values ExifTool will write (separate `GPSLatitude`/`GPSLatitudeRef`,
+  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and so on).
+- A file with both a timestamp and a position change is still written **once**, both payloads in
+  a single ExifTool command — the per-field sub-rows are a display grouping, not separate writes.
+- Once **Write** is pressed the list stops being editable and each file's row fills in a status
+  (✓ written and verified, or ✗ failed with a reason) as ExifTool finishes it, turning the same
+  rows just reviewed into the report — progress is this filling-in, not a separate bar.
+- Each file is re-read after writing and compared against the intended values; that comparison
+  is what a row's ✓ or ✗ reflects.
 - A failure does not abort the run; the file keeps its pending state and can be retried.
-- Failures are listed in the report and recorded in the operation log.
+- Failures are recorded in the operation log in addition to showing in the row.
 
 ### 9.2 Tags written
 
@@ -871,7 +887,7 @@ LOG_LEVEL                  default info
 
 **Settings page** (behaviour; stored server-side):
 
-- tile provider and optional API key, satellite layer toggle
+- tile provider, satellite layer toggle
 - interpolation: `v_floor`, `v_cap`, `r_min`
 - extrapolation cap (default off)
 - map thumbnail size, uncertainty circle toggle, path arrowheads toggle
@@ -979,8 +995,8 @@ form a complete, shippable application with no map in it at all.
 | --- | --- |
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
 | **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
-| **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray |
-| **3 — Editing** | Selection, detail panel, drag, confirm, revert, multi-select, filmstrip, status filters |
+| **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
+| **3 — Editing** | Drag, confirm, revert, multi-select, status filters. Extends phase 2's detail panel with the confirm/revert controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert. *Feature-complete release.* |
 | **5 — Offline and polish** | PMTiles support, area pre-download for permitted providers, settings page, performance tuning against a real 5,000-file folder |
 

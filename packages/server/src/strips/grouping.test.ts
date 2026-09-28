@@ -23,6 +23,7 @@ function file(partial: Partial<FileRecord> & { relPath: string }): FileRecord {
     origGpsPresent: false,
     origLat: null,
     origLon: null,
+    origAlt: null,
     firstSeenAt: 0,
     lastScannedAt: 0,
     missing: false,

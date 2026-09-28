@@ -1,5 +1,6 @@
 import type { FileRecord, DeviceRecord } from './media.js';
 import type { GroupingMode, StripRecord, TimelineFile, UtcOffsetRule } from './strips.js';
+import type { ComputedPosition } from './positions.js';
 
 /** One entry in the server-side folder browser (SPEC §6.1). */
 export interface FolderEntry {
@@ -81,6 +82,8 @@ export interface OpenSessionRequest {
 export interface FilesResponse {
   files: FileRecord[];
   devices: DeviceRecord[];
+  /** One computed position per file — camera GPS, an interpolated estimate, or none (SPEC §5, §10.2). */
+  positions: ComputedPosition[];
 }
 
 export interface StripsResponse {

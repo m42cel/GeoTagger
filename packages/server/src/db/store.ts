@@ -44,6 +44,7 @@ export interface FileMetadata {
   origGpsPresent: boolean;
   origLat: number | null;
   origLon: number | null;
+  origAlt: number | null;
 }
 
 export type FileChange = 'added' | 'changed' | 'unchanged';
@@ -69,6 +70,7 @@ interface FileRow {
   orig_gps_present: number;
   orig_lat: number | null;
   orig_lon: number | null;
+  orig_alt: number | null;
   first_seen_at: number;
   last_scanned_at: number;
   missing: number;
@@ -117,6 +119,7 @@ function rowToFile(r: FileRow): FileRecord {
     origGpsPresent: r.orig_gps_present !== 0,
     origLat: r.orig_lat,
     origLon: r.orig_lon,
+    origAlt: r.orig_alt,
     firstSeenAt: r.first_seen_at,
     lastScannedAt: r.last_scanned_at,
     missing: r.missing !== 0,
@@ -303,7 +306,7 @@ export class FolderStore {
       .prepare(
         `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?,
                           capture_time_raw = ?, capture_time_source = ?, capture_utc_offset_minutes = ?,
-                          gps_time_utc = ?, orig_gps_present = ?, orig_lat = ?, orig_lon = ?
+                          gps_time_utc = ?, orig_gps_present = ?, orig_lat = ?, orig_lon = ?, orig_alt = ?
          WHERE id = ?`,
       )
       .run(
@@ -319,6 +322,7 @@ export class FolderStore {
         m.origGpsPresent ? 1 : 0,
         m.origLat,
         m.origLon,
+        m.origAlt,
         fileId,
       );
   }
@@ -681,6 +685,28 @@ export class FolderStore {
       )
       .all();
     return new Map(rows.map((r) => [r.file_id, r.utc_offset_override_minutes]));
+  }
+
+  // ---- positions (SPEC §5.6) ----------------------------------------------
+
+  /**
+   * Positions the user has already settled — dragged or confirmed — keyed by file
+   * id. Empty until phase 3 adds the routes that write `edits.lat`/`lon`; reading it
+   * now costs nothing and means the interpolator (SPEC §5) needs no change when
+   * those routes arrive.
+   */
+  listKnownPositions(): Map<number, { lat: number; lon: number; source: 'manual' | 'confirmed' }> {
+    const rows = this.db
+      .prepare<[], { file_id: number; lat: number; lon: number; confirmed_at: number | null }>(
+        'SELECT file_id, lat, lon, confirmed_at FROM edits WHERE lat IS NOT NULL AND lon IS NOT NULL',
+      )
+      .all();
+    return new Map(
+      rows.map((r) => [
+        r.file_id,
+        { lat: r.lat, lon: r.lon, source: r.confirmed_at !== null ? ('confirmed' as const) : ('manual' as const) },
+      ]),
+    );
   }
 
   setFileUtcOffsetOverride(fileId: number, minutes: number | null): void {

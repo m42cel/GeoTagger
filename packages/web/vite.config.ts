@@ -9,7 +9,10 @@ export default defineConfig({
     port: 5173,
     // In development the UI runs from Vite and the backend from Node; in production
     // Fastify serves this build directly, so paths stay identical in both modes.
-    proxy: { '/api': { target: API_TARGET, changeOrigin: true } },
+    proxy: {
+      '/api': { target: API_TARGET, changeOrigin: true },
+      '/tiles': { target: API_TARGET, changeOrigin: true },
+    },
   },
   build: { outDir: 'dist', emptyOutDir: true },
 });
