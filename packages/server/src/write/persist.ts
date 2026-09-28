@@ -79,12 +79,16 @@ function planContext(ctx: PersistContext): PlanContext {
   const confirmedPositions = new Map<number, ConfirmedPositionEdit>();
   for (const [fileId, edit] of ctx.store.listConfirmedPositionEdits()) confirmedPositions.set(fileId, edit);
 
+  const persistedHalves = new Map<number, { wroteTime: boolean; wroteGps: boolean }>();
+  for (const [fileId, row] of persisted) persistedHalves.set(fileId, { wroteTime: row.wroteTime, wroteGps: row.wroteGps });
+
   return {
     files: ctx.store.listFiles(),
     timeline: ctx.timeline,
     applied,
     originals,
     confirmedPositions,
+    persistedHalves,
     positionResetToOriginalFileIds: ctx.store.resetToOriginalPendingFileIds(),
     currentSig: (file) => statOf(ctx.absPathFor(file.relPath))?.sig ?? null,
     storedSig: (file) => contentSig(file.sizeBytes, file.mtime),
@@ -214,9 +218,9 @@ async function writeOne(
       utcOffsetMinutes: line.utcOffsetMinutes,
       timeShiftSeconds: entry.timeShiftSeconds,
     };
-    const stampOriginal = previous?.wroteTime
-      ? null
-      : { dateTimeOriginal: original.dateTimeOriginal, offsetTimeOriginal: original.offsetTimeOriginal };
+    const stampOriginal = entry.stampsOriginalTime
+      ? { dateTimeOriginal: original.dateTimeOriginal, offsetTimeOriginal: original.offsetTimeOriginal }
+      : null;
     const w = buildTimeWrite(file, resolved, stampOriginal);
     Object.assign(tags, w.tags);
     writtenLocalIso = w.writtenLocalIso;
@@ -237,9 +241,9 @@ async function writeOne(
       source: entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed',
       uncertaintyM: entry.positionUncertaintyM,
     };
-    const stampOriginal = previous?.wroteGps
-      ? null
-      : { gpsPresent: original.gpsPresent, gpsLatitude: original.gpsLatitude, gpsLongitude: original.gpsLongitude };
+    const stampOriginal = entry.stampsOriginalPosition
+      ? { gpsPresent: original.gpsPresent, gpsLatitude: original.gpsLatitude, gpsLongitude: original.gpsLongitude }
+      : null;
     const w = buildPositionWrite(file, payload, stampOriginal);
     Object.assign(tags, w.tags);
     writtenLat = w.writtenLat;

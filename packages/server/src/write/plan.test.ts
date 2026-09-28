@@ -90,6 +90,7 @@ function context(
     applied: new Map<number, AppliedState>(),
     originals: new Map<number, OriginalSnapshot>(),
     confirmedPositions: new Map<number, ConfirmedPositionEdit>(),
+    persistedHalves: new Map<number, { wroteTime: boolean; wroteGps: boolean }>(),
     positionResetToOriginalFileIds: new Set<number>(),
     currentSig: () => '1024:10',
     storedSig: () => '1024:10',

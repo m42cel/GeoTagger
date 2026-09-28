@@ -41,6 +41,8 @@ export interface PlanContext {
   originals: ReadonlyMap<number, OriginalSnapshot>;
   /** Confirmed positions, keyed by file id (SPEC §5.5) — the only positions ever persisted. */
   confirmedPositions: ReadonlyMap<number, ConfirmedPositionEdit>;
+  /** Which halves have been persisted before, keyed by file id — SPEC §9.3's "first write" test. */
+  persistedHalves: ReadonlyMap<number, { wroteTime: boolean; wroteGps: boolean }>;
   /** File ids with a position reset-to-original pending (SPEC §9.4). */
   positionResetToOriginalFileIds: ReadonlySet<number>;
   /** Current size and mtime on disk, or null when the file has gone. */
@@ -83,6 +85,7 @@ export function planEntryFor(
 
   const applied = ctx.applied.get(file.id) ?? null;
   const original = ctx.originals.get(file.id);
+  const persistedHalves = ctx.persistedHalves.get(file.id);
 
   const time = resolveTime(file, line, applied, original, stripResetToOriginalIds.has(line.stripId ?? -1));
   const position = resolvePosition(file, ctx, applied, original);
@@ -100,6 +103,9 @@ export function planEntryFor(
     utcOffsetMinutes: time.writesUtcOffset ? time.utcOffsetMinutes : null,
     timeKind: time.kind,
     writesUtcOffset: time.writesUtcOffset,
+    stampsOriginalTime: time.kind === 'write' && !(persistedHalves?.wroteTime ?? false),
+    originalDateTimeOriginal: original?.dateTimeOriginal ?? null,
+    originalOffsetTimeOriginal: original?.offsetTimeOriginal ?? null,
     oldLat: position.oldLat,
     oldLon: position.oldLon,
     newLat: position.lat,
@@ -107,6 +113,10 @@ export function planEntryFor(
     positionSource: position.kind === 'none' ? null : position.source,
     positionUncertaintyM: position.uncertaintyM,
     positionKind: position.kind,
+    stampsOriginalPosition: position.kind === 'write' && !(persistedHalves?.wroteGps ?? false),
+    originalGpsPresent: original?.gpsPresent ?? null,
+    originalGpsLatitude: original?.gpsLatitude ?? null,
+    originalGpsLongitude: original?.gpsLongitude ?? null,
     // A file that has gone missing counts as changed underneath the app, so the write
     // stops and asks rather than recreating it (SPEC §8.3).
     stale: currentSig === null || currentSig !== ctx.storedSig(file),

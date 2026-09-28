@@ -26,6 +26,16 @@ export interface PersistPlanEntry {
   utcOffsetMinutes: number | null;
   timeKind: PersistHalfKind;
   writesUtcOffset: boolean;
+  /**
+   * True when this write is the time half's first ever — the only time
+   * `geotagger:OriginalDateTimeOriginal`/`OriginalOffsetTimeOriginal` get stamped
+   * (SPEC §9.3). Kept separate from `timeKind === 'write'`: a second or later write
+   * touches the ordinary tags but leaves the preserved original alone.
+   */
+  stampsOriginalTime: boolean;
+  /** What the stored original says, for the raw-EXIF view of the `geotagger` block — null when nothing has been persisted before. */
+  originalDateTimeOriginal: string | null;
+  originalOffsetTimeOriginal: string | null;
   oldLat: number | null;
   oldLon: number | null;
   /** The position that will be written, or null when nothing changes there. */
@@ -35,6 +45,11 @@ export interface PersistPlanEntry {
   positionSource: PositionSource | null;
   positionUncertaintyM: number | null;
   positionKind: PersistHalfKind;
+  /** Same idea as `stampsOriginalTime`, for the position half's `OriginalGPS*` tags. */
+  stampsOriginalPosition: boolean;
+  originalGpsPresent: boolean | null;
+  originalGpsLatitude: number | null;
+  originalGpsLongitude: number | null;
   /** True when the file changed on disk since it was scanned (SPEC §8.3). */
   stale: boolean;
 }

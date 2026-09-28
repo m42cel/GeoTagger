@@ -764,7 +764,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .modal progress { width: 100%; height: 8px; }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
-.modal.persist-modal { width: min(920px, 100%); }
+.modal.persist-modal { width: min(1200px, 100%); }
 
 .persist-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .persist-toggles { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
@@ -772,44 +772,53 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .persist-count { margin-right: auto; font-size: 13px; }
 
-.persist-entries {
-  display: flex;
-  flex-direction: column;
+.persist-table-scroll {
   max-height: 55vh;
   overflow: auto;
   margin-top: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-size: 13px;
 }
-
-/* Each file is its own grid: filename+thumbnail on the left, spanning the row's full
-   height; its changed fields stack as separate lines to the right, one per field
-   (SPEC §9.1). Letting every entry size its own grid, rather than sharing one big
-   table, is what keeps a two-field file's second line from drifting under the
-   filename column. */
-.persist-entry {
-  display: grid;
-  grid-template-columns: minmax(140px, 260px) 1fr auto;
-  align-items: center;
-  gap: 4px 16px;
-  padding: 8px 12px;
+/* Fixed column widths (via the <colgroup>), so switching to raw EXIF values — whose
+   tag names and value strings run much longer than the human labels — changes row
+   heights, never column widths. Without this the browser's automatic table layout
+   resizes every column to fit whatever the longest cell currently needs, squeezing
+   the filename column down to near nothing. */
+.persist-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.persist-col-file { width: 30%; }
+.persist-col-tag { width: 27%; }
+.persist-col-value { width: 19%; }
+.persist-col-status { width: 4%; }
+.persist-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
 }
-.persist-entry:not(:last-child) { border-bottom: 1px solid var(--line); }
-.persist-entry.stale { background: color-mix(in srgb, var(--weak) 8%, transparent); }
+.persist-table tr:not(:last-child) td { border-bottom: 1px solid var(--line); }
+.persist-table tr.stale { background: color-mix(in srgb, var(--weak) 8%, transparent); }
+.persist-table td { padding: 6px 10px; vertical-align: top; overflow-wrap: anywhere; }
 
-.persist-file { display: flex; align-items: center; gap: 10px; font-weight: 600; align-self: start; min-width: 0; }
-.persist-file span { overflow-wrap: anywhere; }
+/* The `<td>` itself keeps its default `display: table-cell` — a `display` override
+   on a cell that's the target of another row's `rowSpan` breaks its participation in
+   the table's row/column grid, which is what sent a second field's row sliding under
+   the filename column before. The flex layout lives on this inner span instead. */
+.persist-table td.persist-file { font-weight: 600; vertical-align: middle; }
+.persist-file-inner { display: flex; align-items: center; gap: 10px; }
 .persist-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; flex: none; }
 
-.persist-fields { display: flex; flex-direction: column; gap: 3px; }
-.persist-field-row { display: flex; gap: 10px; align-items: baseline; white-space: nowrap; }
-
-.persist-label { color: var(--muted); min-width: 70px; }
+.persist-label { color: var(--muted); }
 .persist-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .persist-value-new { font-weight: 600; }
 
-.persist-status { text-align: right; align-self: start; white-space: nowrap; }
+.persist-status { text-align: right; white-space: nowrap; }
 .persist-ok { color: var(--known); font-weight: 700; }
 
 .banner.warn { color: var(--weak); display: grid; gap: 4px; }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PersistFileResult, PersistPlan, PersistPlanEntry, PersistProgress, StalePolicy } from '@geotagger/shared';
-import { formatUtcOffset } from '@geotagger/shared';
+import { formatUtcOffset, kindForExtension } from '@geotagger/shared';
 import { api, runPersist } from './api.js';
 import { errorText } from './App.js';
 
@@ -41,7 +41,7 @@ export function PersistDialog({ onClose }: { onClose: (wrote: boolean) => void }
 
   const done = progress !== null && progress.phase !== 'writing';
   const resultByFileId = new Map((progress?.results ?? []).map((r) => [r.fileId, r]));
-  const changeCount = (plan?.entries ?? []).reduce((n, e) => n + fieldsFor(e).length, 0);
+  const changeCount = (plan?.entries ?? []).reduce((n, e) => n + fieldsFor(e, showRawExif).length, 0);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -69,17 +69,37 @@ export function PersistDialog({ onClose }: { onClose: (wrote: boolean) => void }
             {plan.entries.length === 0 ? (
               <p className="muted">Nothing to persist.</p>
             ) : (
-              <div className="persist-entries">
-                {plan.entries.map((entry) => (
-                  <PersistEntry
-                    key={entry.fileId}
-                    entry={entry}
-                    showThumbnail={showThumbnails}
-                    rawExif={showRawExif}
-                    result={resultByFileId.get(entry.fileId) ?? null}
-                    active={progress !== null && !done && progress.currentPath === entry.relPath}
-                  />
-                ))}
+              <div className="persist-table-scroll">
+                <table className="persist-table">
+                  <colgroup>
+                    <col className="persist-col-file" />
+                    <col className="persist-col-tag" />
+                    <col className="persist-col-value" />
+                    <col className="persist-col-value" />
+                    <col className="persist-col-status" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>tag</th>
+                      <th>old</th>
+                      <th>new</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plan.entries.map((entry) => (
+                      <EntryRows
+                        key={entry.fileId}
+                        entry={entry}
+                        showThumbnail={showThumbnails}
+                        rawExif={showRawExif}
+                        result={resultByFileId.get(entry.fileId) ?? null}
+                        active={progress !== null && !done && progress.currentPath === entry.relPath}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -147,47 +167,131 @@ export function PersistDialog({ onClose }: { onClose: (wrote: boolean) => void }
 interface Field {
   key: string;
   label: string;
+  rawLabel: string;
   old: string;
   next: string;
 }
 
-/** One row per field a file actually changes (SPEC §9.1) — position, timestamp, UTC offset. */
-function fieldsFor(entry: PersistPlanEntry): Field[] {
+/**
+ * One row per field a file actually changes (SPEC §9.1) — position, timestamp, UTC
+ * offset. In raw-EXIF mode, latitude and longitude split into their own rows (they're
+ * separate tags for a photo), and the `geotagger:Original*` preservation tags this
+ * write would stamp or clear (SPEC §9.3) are appended too — both are specific to raw
+ * mode, since neither means anything in the human-readable view.
+ */
+function fieldsFor(entry: PersistPlanEntry, rawExif: boolean): Field[] {
+  const kind = kindForExtension(entry.relPath.split('.').pop() ?? '') ?? 'image';
   const fields: Field[] = [];
+
   if (entry.positionKind !== 'none') {
-    fields.push({
-      key: 'position',
-      label: 'position',
-      old: formatPosition(entry.oldLat, entry.oldLon),
-      next: formatPosition(entry.newLat, entry.newLon),
-    });
+    if (rawExif && kind === 'image') {
+      fields.push(
+        { key: 'position-lat', label: 'position', rawLabel: 'EXIF:GPSLatitude', old: rawLat(entry.oldLat), next: rawLat(entry.newLat) },
+        { key: 'position-lon', label: 'position', rawLabel: 'EXIF:GPSLongitude', old: rawLon(entry.oldLon), next: rawLon(entry.newLon) },
+      );
+    } else {
+      fields.push({
+        key: 'position',
+        label: 'position',
+        rawLabel: kind === 'video' ? 'QuickTime:GPSCoordinates' : 'EXIF:GPSLatitude/GPSLongitude',
+        old: formatPosition(entry.oldLat, entry.oldLon),
+        next: formatPosition(entry.newLat, entry.newLon),
+      });
+    }
   }
+
   if (entry.timeKind !== 'none') {
     fields.push({
       key: 'timestamp',
       label: 'timestamp',
-      old: formatLocalIso(entry.oldLocalIso),
-      next: formatLocalIso(entry.newLocalIso),
+      rawLabel: kind === 'video' ? 'QuickTime:CreateDate' : 'EXIF:DateTimeOriginal',
+      old: rawExif ? rawExifDate(entry.oldLocalIso) : formatLocalIso(entry.oldLocalIso),
+      next: rawExif ? rawExifDate(entry.newLocalIso) : formatLocalIso(entry.newLocalIso),
     });
   }
+
   if (entry.writesUtcOffset) {
     fields.push({
       key: 'utc-offset',
       label: 'UTC offset',
+      rawLabel: 'EXIF:OffsetTimeOriginal',
       old: formatOffsetValue(entry.oldUtcOffsetMinutes),
       next: formatOffsetValue(entry.utcOffsetMinutes),
     });
   }
+
+  if (rawExif) fields.push(...geotaggerFieldsFor(entry));
+
+  return fields;
+}
+
+const NA = '—';
+
+/**
+ * The `geotagger:Original*` preservation tags (SPEC §9.3): stamped once, the first
+ * time a half is ever written, using what the file currently says; cleared on a
+ * restore, back to what they held. A later ordinary write touches neither — the
+ * preserved original doesn't change just because the edit did.
+ */
+function geotaggerFieldsFor(entry: PersistPlanEntry): Field[] {
+  const fields: Field[] = [];
+
+  if (entry.stampsOriginalTime) {
+    fields.push(
+      { key: 'g-date', label: 'original date', rawLabel: 'geotagger:OriginalDateTimeOriginal', old: NA, next: rawExifDate(entry.oldLocalIso) },
+      {
+        key: 'g-offset',
+        label: 'original offset',
+        rawLabel: 'geotagger:OriginalOffsetTimeOriginal',
+        old: NA,
+        next: entry.oldUtcOffsetMinutes === null ? NA : formatUtcOffset(entry.oldUtcOffsetMinutes),
+      },
+    );
+  } else if (entry.timeKind === 'restore') {
+    fields.push(
+      { key: 'g-date', label: 'original date', rawLabel: 'geotagger:OriginalDateTimeOriginal', old: rawExifDate(entry.originalDateTimeOriginal), next: NA },
+      { key: 'g-offset', label: 'original offset', rawLabel: 'geotagger:OriginalOffsetTimeOriginal', old: entry.originalOffsetTimeOriginal ?? NA, next: NA },
+    );
+  }
+
+  if (entry.stampsOriginalPosition) {
+    const present = entry.oldLat !== null && entry.oldLon !== null;
+    fields.push({ key: 'g-gps', label: 'original GPS present', rawLabel: 'geotagger:OriginalGPSPresent', old: NA, next: present ? 'True' : 'False' });
+    if (present) {
+      fields.push(
+        { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: NA, next: String(entry.oldLat) },
+        { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: NA, next: String(entry.oldLon) },
+      );
+    }
+  } else if (entry.positionKind === 'restore') {
+    fields.push({
+      key: 'g-gps',
+      label: 'original GPS present',
+      rawLabel: 'geotagger:OriginalGPSPresent',
+      old: entry.originalGpsPresent ? 'True' : 'False',
+      next: NA,
+    });
+    if (entry.originalGpsPresent && entry.originalGpsLatitude !== null && entry.originalGpsLongitude !== null) {
+      fields.push(
+        { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: String(entry.originalGpsLatitude), next: NA },
+        { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: String(entry.originalGpsLongitude), next: NA },
+      );
+    }
+  }
+
   return fields;
 }
 
 /**
- * One file's group: thumbnail and filename on the left, spanning the full height of
- * however many fields it changes; those fields stack as separate lines to the right
- * of it, not in a shared grid with the filename column (SPEC §9.1 — "not a header row
- * printed above them").
+ * One file's rows: thumbnail and filename in a cell spanning the full height of
+ * however many fields it changes, then one row per field — the changed tag, the old
+ * value, the new value (SPEC §9.1's "not a header row printed above them"). The
+ * filename cell's content is a plain inline-flex `<span>`, not the `<td>` itself,
+ * because overriding a table cell's own `display` breaks its participation in the
+ * table's row/column grid — that was what sent a second field's row sliding under the
+ * filename column before.
  */
-function PersistEntry({
+function EntryRows({
   entry,
   showThumbnail,
   rawExif,
@@ -202,30 +306,34 @@ function PersistEntry({
 }) {
   // planEntryFor never produces an entry with nothing to write, so this always has
   // at least one field.
-  const fields = fieldsFor(entry);
+  const fields = fieldsFor(entry, rawExif);
 
   return (
-    <div className={`persist-entry${entry.stale ? ' stale' : ''}`}>
-      <div className="persist-file">
-        {showThumbnail && <img className="persist-thumb" src={`/api/files/${entry.fileId}/thumb`} alt="" loading="lazy" />}
-        <span>
-          {entry.relPath}
-          {entry.stale && <em className="weak"> · changed on disk</em>}
-        </span>
-      </div>
-      <div className="persist-fields">
-        {fields.map((field) => (
-          <div className="persist-field-row" key={field.key}>
-            <span className="persist-label">{field.label}</span>
-            <span className="persist-value">{rawExif ? rawValue(entry, field.key, field.old) : field.old}</span>
-            <span className="persist-value persist-value-new">
-              → {rawExif ? rawValue(entry, field.key, field.next) : field.next}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="persist-status">{active ? <em className="weak">writing…</em> : <Status result={result} />}</div>
-    </div>
+    <>
+      {fields.map((field, i) => (
+        <tr key={field.key} className={entry.stale ? 'stale' : undefined}>
+          {i === 0 && (
+            <td className="persist-file" rowSpan={fields.length}>
+              <span className="persist-file-inner">
+                {showThumbnail && <img className="persist-thumb" src={`/api/files/${entry.fileId}/thumb`} alt="" loading="lazy" />}
+                <span>
+                  {entry.relPath}
+                  {entry.stale && <em className="weak"> · changed on disk</em>}
+                </span>
+              </span>
+            </td>
+          )}
+          <td className="persist-label">{rawExif ? field.rawLabel : field.label}</td>
+          <td className="persist-value">{field.old}</td>
+          <td className="persist-value persist-value-new">{field.next}</td>
+          {i === 0 && (
+            <td className="persist-status" rowSpan={fields.length}>
+              {active ? <em className="weak">writing…</em> : <Status result={result} />}
+            </td>
+          )}
+        </tr>
+      ))}
+    </>
   );
 }
 
@@ -249,22 +357,18 @@ function formatOffsetValue(minutes: number | null): string {
   return minutes === null ? '—' : formatUtcOffset(minutes);
 }
 
-/** The literal tag values ExifTool will write, for the raw-EXIF toggle (SPEC §9.1). */
-function rawValue(entry: PersistPlanEntry, field: string, humanValue: string): string {
-  if (humanValue === '—') return '—';
-  if (field === 'timestamp') {
-    const iso = humanValue.replace(' ', 'T');
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
-    return m ? `${m[1]}:${m[2]}:${m[3]} ${m[4]}:${m[5]}:${m[6]}` : humanValue;
-  }
-  if (field === 'position') {
-    const isOld = humanValue === formatPosition(entry.oldLat, entry.oldLon);
-    const lat = isOld ? entry.oldLat : entry.newLat;
-    const lon = isOld ? entry.oldLon : entry.newLon;
-    if (lat === null || lon === null) return '—';
-    const latRef = lat >= 0 ? 'N' : 'S';
-    const lonRef = lon >= 0 ? 'E' : 'W';
-    return `${Math.abs(lat)}${latRef}, ${Math.abs(lon)}${lonRef}`;
-  }
-  return humanValue;
+/** `EXIF:GPSLatitude`/`GPSLongitude` are unsigned, with the sign carried by a separate ref tag. */
+function rawLat(lat: number | null): string {
+  return lat === null ? '—' : `${Math.abs(lat)} ${lat >= 0 ? 'N' : 'S'}`;
+}
+
+function rawLon(lon: number | null): string {
+  return lon === null ? '—' : `${Math.abs(lon)} ${lon >= 0 ? 'E' : 'W'}`;
+}
+
+/** `2024-07-12T14:32:10` to the `2024:07:12 14:32:10` ExifTool writes. */
+function rawExifDate(iso: string | null): string {
+  if (iso === null) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
+  return m ? `${m[1]}:${m[2]}:${m[3]} ${m[4]}:${m[5]}:${m[6]}` : iso;
 }
