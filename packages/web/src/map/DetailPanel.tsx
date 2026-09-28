@@ -66,10 +66,14 @@ function DetailPreview({ file }: { file: FileRecord }) {
   );
 }
 
-function formatCorrectedTime(timelineFile: TimelineFile | null): string {
+function formatCorrectedTime(timelineFile: TimelineFile | null) {
   if (timelineFile === null || timelineFile.effectiveMs === null) return '—';
   const time = formatInstant(timelineFile.effectiveMs, timelineFile.utcOffsetMinutes, { seconds: true, date: true });
-  return `${time} ${formatUtcOffset(timelineFile.utcOffsetMinutes)}`;
+  return (
+    <>
+      {time} <em>{formatUtcOffset(timelineFile.utcOffsetMinutes)}</em>
+    </>
+  );
 }
 
 function formatLatLon(position: ComputedPosition | null): string {
