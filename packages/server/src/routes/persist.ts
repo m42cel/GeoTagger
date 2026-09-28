@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { OplogEntry, PersistPlan, PersistProgress, PersistRequest } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
-import { planFor, revertTime, runPersist, type PersistContext } from '../write/persist.js';
+import { planFor, runPersist, type PersistContext } from '../write/persist.js';
 import { APP_VERSION } from '../version.js';
 
 /**
@@ -43,15 +43,6 @@ export function registerPersistRoutes(app: FastifyInstance, sessions: SessionMan
         });
       })
       .finally(() => reply.raw.end());
-  });
-
-  /** Per-file time revert (SPEC §9.4); positions revert separately, in phase 4. */
-  app.post<{ Params: { id: string } }>('/api/files/:id/revert-time', async (req, reply) => {
-    const session = sessions.require();
-    const id = Number.parseInt(req.params.id, 10);
-    const file = Number.isFinite(id) ? session.store.getFile(id) : null;
-    if (!file) return reply.code(404).send({ error: 'not_found', message: `No file ${req.params.id}` });
-    return revertTime(contextFor(session), file);
   });
 
   app.get<{ Querystring: { limit?: string } }>('/api/oplog', async (req): Promise<OplogEntry[]> => {

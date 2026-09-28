@@ -27,6 +27,12 @@ export interface StripRecord {
   locked: boolean;
   /** A UTC offset typed in for this strip, overriding what §4.2 would infer. */
   utcOffsetOverrideMinutes: number | null;
+  /**
+   * Set by reset-to-original (SPEC §6.3, §9.4); consumed by the persist plan, which
+   * restores every already-persisted file in the strip to its own raw original time.
+   * Cleared by any other edit to the strip's offset.
+   */
+  resetToOriginalAt: number | null;
   createdAt: number;
   fileCount: number;
   /** Bounds over the strip's uncorrected capture times, epoch ms; null when it holds no dated file. */

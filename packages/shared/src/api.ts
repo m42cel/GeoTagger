@@ -84,6 +84,12 @@ export interface FilesResponse {
   devices: DeviceRecord[];
   /** One computed position per file — camera GPS, an interpolated estimate, or none (SPEC §5, §10.2). */
   positions: ComputedPosition[];
+  /**
+   * File ids with a confirmed or manual position that doesn't match what's on disk yet
+   * (SPEC §6.3's "unpersisted" filter) — never persisted at all, or persisted with a
+   * different value than the current edit.
+   */
+  unpersistedFileIds: number[];
 }
 
 export interface StripsResponse {

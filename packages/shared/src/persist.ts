@@ -1,11 +1,16 @@
+import type { PositionSource } from './positions.js';
+
 /**
  * Writing to files (SPEC §9).
  *
- * Phase 1 carries only the time payload — position editing does not exist yet — but
- * the shape is the general one, because §9.1 requires a file with both a timestamp and
- * a position change to be written exactly once, with both payloads in a single
- * ExifTool command.
+ * A file with both a timestamp and a position change is written exactly once, both
+ * payloads in a single ExifTool command (§9.1). Each half — time, position — resolves
+ * independently to `write` (an ordinary correction) or `restore` (the plan-time
+ * comparison of §9.4 found the intended value now equals the stored original, so this
+ * half writes the original back and clears only its own half of the `geotagger` block).
  */
+
+export type PersistHalfKind = 'none' | 'write' | 'restore';
 
 export interface PersistPlanEntry {
   fileId: number;
@@ -16,8 +21,15 @@ export interface PersistPlanEntry {
   timeShiftSeconds: number;
   /** The UTC offset that will be written as `OffsetTimeOriginal`. */
   utcOffsetMinutes: number | null;
-  writesTime: boolean;
+  timeKind: PersistHalfKind;
   writesUtcOffset: boolean;
+  /** The position that will be written, or null when nothing changes there. */
+  newLat: number | null;
+  newLon: number | null;
+  /** Always `manual` or `confirmed` when set — the only two provenances ever persisted. */
+  positionSource: PositionSource | null;
+  positionUncertaintyM: number | null;
+  positionKind: PersistHalfKind;
   /** True when the file changed on disk since it was scanned (SPEC §8.3). */
   stale: boolean;
 }
@@ -68,6 +80,9 @@ export interface PersistedSnapshot {
   wroteGps: boolean;
   originalDateTimeOriginal: string | null;
   originalOffsetTimeOriginal: string | null;
+  originalGpsPresent: boolean;
+  originalGpsLatitude: number | null;
+  originalGpsLongitude: number | null;
 }
 
 export interface OplogEntry {

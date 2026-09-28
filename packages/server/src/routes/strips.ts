@@ -103,6 +103,17 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
     return timeline();
   });
 
+  /**
+   * Reset to original (SPEC §6.3, §9.4): shown once any file in the strip has been
+   * persisted. Flag-setting only — nothing is written until the next Persist run.
+   */
+  app.post<{ Params: { id: string } }>('/api/strips/:id/reset-to-original', async (req, reply) => {
+    const id = parseId(req.params.id);
+    if (id === null) return badRequest(reply, 'A strip id is needed.');
+    sessions.require().strips.resetToOriginal(id);
+    return timeline();
+  });
+
   app.post<{ Params: { id: string }; Body: StripUtcOffsetRequest }>(
     '/api/strips/:id/utc-offset',
     async (req, reply) => {

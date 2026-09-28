@@ -9,7 +9,7 @@ import { configureExiftool, exiftool, readRawTags, shutdownExiftool } from '../m
 import { metadataFromTags } from '../metadata/reader.js';
 import { StripService } from '../strips/service.js';
 import { ensureExiftoolConfig, GEOTAGGER_GROUP } from './exiftool-config.js';
-import { planFor, revertTime, runPersist, type PersistContext } from './persist.js';
+import { planFor, runPersist, type PersistContext } from './persist.js';
 
 /**
  * Metadata round-trip (SPEC §13): write, re-read, and revert against a real file
@@ -119,19 +119,83 @@ describe('persist and revert against a real JPEG', () => {
     // what is compared.
     expect(rawValueOf(preserved[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 14:32:10');
     expect(preserved[`${GEOTAGGER_GROUP}:TimeShiftSeconds`]).toBe(-3732);
-    // ExifTool reads "True"/"False" back as a boolean, so this is compared loosely.
-    expect(String(preserved[`${GEOTAGGER_GROUP}:OriginalGPSPresent`])).toMatch(/^false$/i);
+    // Nothing GPS was ever touched, so the position half of the block was never
+    // written at all — not even to say GPS is absent (SPEC §9.3's two halves).
+    expect(preserved[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBeUndefined();
 
     // Persisting again writes nothing: the file already says what it should.
     expect(planFor(context()).entries).toEqual([]);
 
-    const reverted = await revertTime(context(), store.getFile(id) as never);
-    expect(reverted.ok).toBe(true);
+    // Reset to original (SPEC §9.4): flag-setting only, then queued for the next
+    // Persist — it does not write immediately.
+    service.resetToOriginal((strip as { id: number }).id);
+    const untouchedByFlagAlone = await readRawTags(path.join(folder, 'IMG_0001.JPG'), 'image');
+    expect(untouchedByFlagAlone['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 13:29:58/);
+
+    const restorePlan = planFor(context());
+    expect(restorePlan.entries[0]?.timeKind).toBe('restore');
+
+    const restoreProgress = await runPersist(context(), {}, () => undefined);
+    expect(restoreProgress.failed).toBe(0);
     const back = await readRawTags(path.join(folder, 'IMG_0001.JPG'), 'image');
     expect(back['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 14:32:10/);
     expect(back['EXIF:OffsetTimeOriginal']).toBeUndefined();
     const cleared = await exiftool().readRaw(path.join(folder, 'IMG_0001.JPG'), ['-G1', `-${GEOTAGGER_GROUP}:all`]);
     expect(cleared[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBeUndefined();
+    expect(store.getPersisted(id)).toBeNull();
+  }, 60_000);
+
+  it('writes a confirmed position alongside a time correction in one write, then resets it to original', async () => {
+    await makeJpeg('IMG_0003.JPG', '2024:07:12 09:00:00');
+    const id = await index('IMG_0003.JPG');
+    store.folderUtcOffsetMinutes = 120;
+    service.regroup('device');
+    const strip = service.strips().strips.find((s) => s.fileCount > 0);
+    service.setOffset((strip as { id: number }).id, 300);
+    store.confirmPosition(id, 47.1234, 11.3456, null, true);
+
+    const plan = planFor(context());
+    const entry = plan.entries.find((e) => e.fileId === id);
+    expect(entry?.timeKind).toBe('write');
+    expect(entry?.positionKind).toBe('write');
+
+    const progress = await runPersist(context(), { fileIds: [id] }, () => undefined);
+    expect(progress.failed).toBe(0);
+    expect(progress.written).toBe(1);
+
+    const after = await readRawTags(path.join(folder, 'IMG_0003.JPG'), 'image');
+    expect(after['Composite:GPSLatitude']).toBeCloseTo(47.1234, 3);
+    expect(after['Composite:GPSLongitude']).toBeCloseTo(11.3456, 3);
+
+    const preserved = await exiftool().readRaw(path.join(folder, 'IMG_0003.JPG'), ['-G1', `-${GEOTAGGER_GROUP}:all`]);
+    expect(String(preserved[`${GEOTAGGER_GROUP}:OriginalGPSPresent`])).toMatch(/^false$/i);
+    expect(preserved[`${GEOTAGGER_GROUP}:PositionSource`]).toBe('manual');
+
+    // Reset the position to original, leaving the time correction alone — the two
+    // halves clear independently (SPEC §9.3, §9.4).
+    store.resetPositionToOriginal(id);
+    const positionRestorePlan = planFor(context());
+    const restoreEntry = positionRestorePlan.entries.find((e) => e.fileId === id);
+    expect(restoreEntry?.positionKind).toBe('restore');
+    expect(restoreEntry?.timeKind).toBe('none');
+
+    const restoreProgress = await runPersist(context(), { fileIds: [id] }, () => undefined);
+    expect(restoreProgress.failed).toBe(0);
+
+    const gpsCleared = await readRawTags(path.join(folder, 'IMG_0003.JPG'), 'image');
+    expect(gpsCleared['Composite:GPSLatitude']).toBeUndefined();
+    // The time half survives — it was never part of this reset.
+    expect(gpsCleared['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 09:05:00/);
+
+    const half = await exiftool().readRaw(path.join(folder, 'IMG_0003.JPG'), ['-G1', `-${GEOTAGGER_GROUP}:all`]);
+    expect(half[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBeUndefined();
+    // ModifiedAt/AppVersion stay: the time half is still active.
+    expect(half[`${GEOTAGGER_GROUP}:AppVersion`]).toBe('0.1.0-test');
+    expect(rawValueOf(half[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 09:00:00');
+
+    const row = store.getPersisted(id);
+    expect(row?.wroteGps).toBe(false);
+    expect(row?.wroteTime).toBe(true);
   }, 60_000);
 
   it('does not clobber a file that changed on disk since it was scanned (SPEC §8.3)', async () => {

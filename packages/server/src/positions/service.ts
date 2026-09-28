@@ -2,6 +2,7 @@ import type { ComputedPosition, FileRecord, KnownPosition, PositionInput } from 
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
+import type { AppliedState } from '../write/tags.js';
 
 /**
  * Turns a folder's files into map positions (SPEC §5).
@@ -40,5 +41,28 @@ export class PositionService {
     });
 
     return [...computePositions(inputs, DEFAULT_INTERPOLATION_PARAMS).values()];
+  }
+
+  /**
+   * A confirmed position whose on-disk state doesn't match it yet (SPEC §6.3): never
+   * persisted at all, or persisted with different coordinates than the current edit.
+   * Camera GPS, a pending drag and an unconfirmed estimate are never persisted, so
+   * they are never "unpersisted" either — only a settled, `confirmed` position is.
+   */
+  unpersistedFileIds(positions: readonly ComputedPosition[]): number[] {
+    const persisted = this.store.listPersisted();
+    return positions
+      .filter((p) => p.source === 'confirmed')
+      .filter((p) => {
+        const row = persisted.get(p.fileId);
+        if (!row || !row.wroteGps || row.appliedJson === null) return true;
+        try {
+          const applied = JSON.parse(row.appliedJson) as AppliedState;
+          return applied.lat !== p.lat || applied.lon !== p.lon;
+        } catch {
+          return true;
+        }
+      })
+      .map((p) => p.fileId);
   }
 }

@@ -3,23 +3,28 @@ import type {
   FileRecord,
   PersistFileResult,
   PersistPlan,
+  PersistPlanEntry,
   PersistProgress,
   PersistRequest,
   StalePolicy,
 } from '@geotagger/shared';
 import { contentSig, signatureOf, type FolderStore } from '../db/store.js';
 import { exiftool, readRawTags } from '../metadata/reader.js';
-import { collectDateCandidates } from '../metadata/exif-parse.js';
+import { collectDateCandidates, collectGps } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
-import { buildPersistPlan, type PlanContext } from './plan.js';
+import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import {
-  buildTimeRevert,
+  buildModifiedStamp,
+  buildPositionRestore,
+  buildPositionWrite,
+  buildTimeRestore,
   buildTimeWrite,
+  clearModifiedStamp,
   fromExifDate,
-  localIsoForFile,
   type AppliedState,
   type OriginalSnapshot,
-  type TimePayload,
+  type PositionPayload,
+  type ResolvedTimeWrite,
 } from './tags.js';
 
 /**
@@ -29,6 +34,10 @@ import {
  * re-read, and compared against what was intended. A failure does not abort the run —
  * the file keeps its pending state and can be retried — and every write, successful or
  * not, is appended to the operation log.
+ *
+ * Time and position are two independent halves (SPEC §9.3, §9.4): each resolves to a
+ * `write` or a `restore` in the plan, and this module turns that resolution into tags,
+ * merging both halves into the single ExifTool call §9.1 requires per file.
  */
 
 export interface PersistContext {
@@ -48,19 +57,35 @@ export function planFor(ctx: PersistContext): PersistPlan {
 function planContext(ctx: PersistContext): PlanContext {
   const persisted = ctx.store.listPersisted();
   const applied = new Map<number, AppliedState>();
+  const originals = new Map<number, OriginalSnapshot>();
   for (const [fileId, row] of persisted) {
-    if (row.appliedJson === null) continue;
-    try {
-      applied.set(fileId, JSON.parse(row.appliedJson) as AppliedState);
-    } catch {
-      // A corrupt row means the plan falls back to what the file said at scan time,
-      // which at worst rewrites a value that is already correct.
+    if (row.appliedJson !== null) {
+      try {
+        applied.set(fileId, JSON.parse(row.appliedJson) as AppliedState);
+      } catch {
+        // A corrupt row means the plan falls back to what the file said at scan time,
+        // which at worst rewrites a value that is already correct.
+      }
+    }
+    if (row.originalSnapshotJson !== null) {
+      try {
+        originals.set(fileId, JSON.parse(row.originalSnapshotJson) as OriginalSnapshot);
+      } catch {
+        // Nothing to restore to if the stored snapshot can't be read.
+      }
     }
   }
+
+  const confirmedPositions = new Map<number, ConfirmedPositionEdit>();
+  for (const [fileId, edit] of ctx.store.listConfirmedPositionEdits()) confirmedPositions.set(fileId, edit);
+
   return {
     files: ctx.store.listFiles(),
     timeline: ctx.timeline,
     applied,
+    originals,
+    confirmedPositions,
+    positionResetToOriginalFileIds: ctx.store.resetToOriginalPendingFileIds(),
     currentSig: (file) => statOf(ctx.absPathFor(file.relPath))?.sig ?? null,
     storedSig: (file) => contentSig(file.sizeBytes, file.mtime),
   };
@@ -111,7 +136,7 @@ export async function runPersist(
     onProgress({ ...progress });
 
     const result = file
-      ? await writeOne(ctx, file, stalePolicy)
+      ? await writeOne(ctx, file, entry, stalePolicy)
       : { fileId: entry.fileId, relPath: entry.relPath, ok: false, skipped: false, reason: 'The file is no longer in the index.' };
 
     progress.results.push(result);
@@ -131,14 +156,11 @@ export async function runPersist(
 async function writeOne(
   ctx: PersistContext,
   file: FileRecord,
+  entry: PersistPlanEntry,
   stalePolicy: StalePolicy,
 ): Promise<PersistFileResult> {
   const absPath = ctx.absPathFor(file.relPath);
   const base = { fileId: file.id, relPath: file.relPath };
-  const line = ctx.timeline.byId.get(file.id);
-  if (!line || line.effectiveMs === null) {
-    return { ...base, ok: false, skipped: true, reason: 'The file has no timestamp to write.' };
-  }
 
   // Re-checked immediately before the write, not only when the plan was built
   // (SPEC §8.3): the user may have spent minutes in the confirmation dialog.
@@ -147,26 +169,98 @@ async function writeOne(
     return recordFailure(ctx, file, 'The file is missing from disk.');
   }
   if (stat.sig !== contentSig(file.sizeBytes, file.mtime) && stalePolicy === 'skip') {
-    ctx.store.appendOplog({ fileId: file.id, action: 'persist-time', ok: false, error: 'stale' });
+    ctx.store.appendOplog({ fileId: file.id, action: 'persist', ok: false, error: 'stale' });
     return { ...base, ok: false, skipped: true, reason: 'Changed on disk since it was scanned.' };
   }
 
-  const payload: TimePayload = {
-    effectiveMs: line.effectiveMs,
-    utcOffsetMinutes: line.utcOffsetMinutes,
-    timeShiftSeconds: Math.round(line.offsetSeconds),
-  };
   const previous = ctx.store.getPersisted(file.id);
-  const original: OriginalSnapshot | null =
-    previous?.originalSnapshotJson === undefined || previous?.originalSnapshotJson === null
-      ? snapshotOf(file)
-      : null;
-  const write = buildTimeWrite(file, payload, original, ctx.appVersion);
+  // The first time either half is ever persisted, the original is whatever the file
+  // currently says — nothing has touched it yet. A later write reuses the stored one:
+  // it must never be replaced by what GeoTagger itself put there since.
+  const original: OriginalSnapshot =
+    previous?.originalSnapshotJson !== undefined && previous.originalSnapshotJson !== null
+      ? (JSON.parse(previous.originalSnapshotJson) as OriginalSnapshot)
+      : snapshotOf(file);
+
+  const line = ctx.timeline.byId.get(file.id);
+  const timeActive = entry.timeKind !== 'none' || entry.writesUtcOffset;
+  const positionActive = entry.positionKind !== 'none';
+  if (!timeActive && !positionActive) {
+    return { ...base, ok: false, skipped: true, reason: 'Nothing to write.' };
+  }
+  // An ordinary time write needs the timeline's own values (the offset in particular);
+  // a restore does not, since it comes from the stored original instead.
+  if (timeActive && entry.timeKind !== 'restore' && (!line || line.effectiveMs === null)) {
+    return { ...base, ok: false, skipped: true, reason: 'The file has no timestamp to write.' };
+  }
+
+  const tags: Record<string, string | number | null> = {};
+  let writtenLocalIso: string | null = null;
+  let writtenLat: number | null = null;
+  let writtenLon: number | null = null;
+  let wroteTimeNow = previous?.wroteTime ?? false;
+  let wroteGpsNow = previous?.wroteGps ?? false;
+  let timeWasWritten = false;
+  let positionWasWritten = false;
+
+  if (entry.timeKind === 'restore') {
+    const r = buildTimeRestore(file, original);
+    Object.assign(tags, r.tags);
+    writtenLocalIso = r.restoredLocalIso;
+    wroteTimeNow = false;
+  } else if (timeActive && line && line.effectiveMs !== null) {
+    const resolved: ResolvedTimeWrite = {
+      localIso: entry.newLocalIso as string,
+      utcOffsetMinutes: line.utcOffsetMinutes,
+      timeShiftSeconds: entry.timeShiftSeconds,
+    };
+    const stampOriginal = previous?.wroteTime
+      ? null
+      : { dateTimeOriginal: original.dateTimeOriginal, offsetTimeOriginal: original.offsetTimeOriginal };
+    const w = buildTimeWrite(file, resolved, stampOriginal);
+    Object.assign(tags, w.tags);
+    writtenLocalIso = w.writtenLocalIso;
+    wroteTimeNow = true;
+    timeWasWritten = true;
+  }
+
+  if (entry.positionKind === 'restore') {
+    const r = buildPositionRestore(file, original);
+    Object.assign(tags, r.tags);
+    writtenLat = r.restoredLat;
+    writtenLon = r.restoredLon;
+    wroteGpsNow = false;
+  } else if (positionActive && entry.newLat !== null && entry.newLon !== null) {
+    const payload: PositionPayload = {
+      lat: entry.newLat,
+      lon: entry.newLon,
+      source: entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed',
+      uncertaintyM: entry.positionUncertaintyM,
+    };
+    const stampOriginal = previous?.wroteGps
+      ? null
+      : { gpsPresent: original.gpsPresent, gpsLatitude: original.gpsLatitude, gpsLongitude: original.gpsLongitude };
+    const w = buildPositionWrite(file, payload, stampOriginal);
+    Object.assign(tags, w.tags);
+    writtenLat = w.writtenLat;
+    writtenLon = w.writtenLon;
+    wroteGpsNow = true;
+    positionWasWritten = true;
+  }
+
+  // The shared stamp belongs to neither half (SPEC §9.3): refreshed on any fresh
+  // write, removed once neither half remains, left alone when an untouched half from
+  // an earlier persist is still active.
+  if (timeWasWritten || positionWasWritten) {
+    Object.assign(tags, buildModifiedStamp(ctx.appVersion));
+  } else if (!wroteTimeNow && !wroteGpsNow) {
+    Object.assign(tags, clearModifiedStamp());
+  }
 
   try {
-    const result = await exiftool().write(absPath, write.tags, WRITE_ARGS);
+    const result = await exiftool().write(absPath, tags, WRITE_ARGS);
 
-    const verified = await verify(absPath, file, write.writtenLocalIso);
+    const verified = await verify(absPath, file, writtenLocalIso, writtenLat, writtenLon);
     if (!verified.ok) {
       return recordFailure(ctx, file, verified.reason ?? 'The file did not read back with the value written.');
     }
@@ -174,24 +268,39 @@ async function writeOne(
     const after = statOf(absPath);
     ctx.store.transact(() => {
       if (after) ctx.store.updateFileSignature(file.id, after.sizeBytes, after.mtime);
-      ctx.store.recordPersisted({
-        fileId: file.id,
-        persistedAt: Date.now(),
-        wroteGps: false,
-        wroteTime: true,
-        originalSnapshotJson: original === null ? null : JSON.stringify(original),
-        appliedJson: JSON.stringify({
-          localIso: write.writtenLocalIso,
-          utcOffsetMinutes: write.wroteUtcOffset ? payload.utcOffsetMinutes : null,
-          timeShiftSeconds: payload.timeShiftSeconds,
-        } satisfies AppliedState),
-        exiftoolResult: JSON.stringify({ updated: result.updated, warnings: result.warnings ?? [] }),
-      });
+
+      if (!wroteTimeNow && !wroteGpsNow) {
+        ctx.store.clearPersistedTime(file.id);
+        ctx.store.clearPersistedGps(file.id);
+      } else {
+        if (!wroteTimeNow && previous?.wroteTime) ctx.store.clearPersistedTime(file.id);
+        if (!wroteGpsNow && previous?.wroteGps) ctx.store.clearPersistedGps(file.id);
+        if (wroteTimeNow || wroteGpsNow) {
+          ctx.store.recordPersisted({
+            fileId: file.id,
+            persistedAt: Date.now(),
+            wroteGps: wroteGpsNow,
+            wroteTime: wroteTimeNow,
+            originalSnapshotJson: JSON.stringify(original),
+            appliedJson: JSON.stringify({
+              localIso: writtenLocalIso,
+              utcOffsetMinutes: line?.utcOffsetMinutes ?? null,
+              timeShiftSeconds: entry.timeShiftSeconds,
+              lat: writtenLat,
+              lon: writtenLon,
+              positionSource: positionWasWritten ? (entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed') : null,
+              positionUncertaintyM: positionWasWritten ? entry.positionUncertaintyM : null,
+            } satisfies AppliedState),
+            exiftoolResult: JSON.stringify({ updated: result.updated, warnings: result.warnings ?? [] }),
+          });
+        }
+      }
+
       ctx.store.appendOplog({
         fileId: file.id,
-        action: 'persist-time',
-        before: { localIso: file.captureTimeRaw, utcOffsetMinutes: file.captureUtcOffsetMinutes },
-        after: { localIso: write.writtenLocalIso, utcOffsetMinutes: payload.utcOffsetMinutes },
+        action: timeWasWritten || positionWasWritten ? 'persist' : 'reset-to-original',
+        before: { localIso: file.captureTimeRaw, lat: file.origLat, lon: file.origLon },
+        after: { localIso: writtenLocalIso, lat: writtenLat, lon: writtenLon },
       });
     });
 
@@ -211,22 +320,38 @@ async function writeOne(
 async function verify(
   absPath: string,
   file: FileRecord,
-  expectedLocalIso: string,
+  expectedLocalIso: string | null,
+  expectedLat: number | null,
+  expectedLon: number | null,
 ): Promise<{ ok: boolean; reason: string | null }> {
   try {
     const tags = await readRawTags(absPath, file.kind);
-    const candidates = collectDateCandidates(tags);
-    const written =
-      file.kind === 'video'
-        ? candidates['quicktime:CreateDate']?.localIso
-        : candidates['exif:DateTimeOriginal']?.localIso;
-    if (written === undefined) {
-      return { ok: false, reason: 'No timestamp could be read back after writing.' };
+
+    if (expectedLocalIso !== null) {
+      const candidates = collectDateCandidates(tags);
+      const written =
+        file.kind === 'video'
+          ? candidates['quicktime:CreateDate']?.localIso
+          : candidates['exif:DateTimeOriginal']?.localIso;
+      if (written === undefined) {
+        return { ok: false, reason: 'No timestamp could be read back after writing.' };
+      }
+      const normalised = fromExifDate(written) ?? written;
+      if (normalised !== expectedLocalIso) {
+        return { ok: false, reason: `Read back ${normalised}, expected ${expectedLocalIso}.` };
+      }
     }
-    const normalised = fromExifDate(written) ?? written;
-    if (normalised !== expectedLocalIso) {
-      return { ok: false, reason: `Read back ${normalised}, expected ${expectedLocalIso}.` };
+
+    if (expectedLat !== null && expectedLon !== null) {
+      const gps = collectGps(tags);
+      if (gps === null) {
+        return { ok: false, reason: 'No position could be read back after writing.' };
+      }
+      if (Math.abs(gps.lat - expectedLat) > 0.0001 || Math.abs(gps.lon - expectedLon) > 0.0001) {
+        return { ok: false, reason: `Read back ${gps.lat}, ${gps.lon}, expected ${expectedLat}, ${expectedLon}.` };
+      }
     }
+
     return { ok: true, reason: null };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
@@ -234,7 +359,7 @@ async function verify(
 }
 
 function recordFailure(ctx: PersistContext, file: FileRecord, reason: string): PersistFileResult {
-  ctx.store.appendOplog({ fileId: file.id, action: 'persist-time', ok: false, error: reason });
+  ctx.store.appendOplog({ fileId: file.id, action: 'persist', ok: false, error: reason });
   return { fileId: file.id, relPath: file.relPath, ok: false, skipped: false, reason };
 }
 
@@ -253,55 +378,4 @@ function formatOffsetTag(minutes: number): string {
   const sign = minutes < 0 ? '-' : '+';
   const abs = Math.abs(minutes);
   return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
-}
-
-/**
- * Undoes GeoTagger's time changes to one file (SPEC §9.4).
- *
- * Timestamps revert independently of positions, and the originals come from the edit
- * store, which is the copy that survives the file being rewritten by anything else.
- */
-export async function revertTime(ctx: PersistContext, file: FileRecord): Promise<PersistFileResult> {
-  const base = { fileId: file.id, relPath: file.relPath };
-  const row = ctx.store.getPersisted(file.id);
-  if (!row || !row.wroteTime || row.originalSnapshotJson === null) {
-    return { ...base, ok: false, skipped: true, reason: 'GeoTagger has not written a time to this file.' };
-  }
-
-  let original: OriginalSnapshot;
-  try {
-    original = JSON.parse(row.originalSnapshotJson) as OriginalSnapshot;
-  } catch {
-    return { ...base, ok: false, skipped: false, reason: 'The stored original could not be read.' };
-  }
-
-  const revert = buildTimeRevert(file, original);
-  try {
-    await exiftool().write(ctx.absPathFor(file.relPath), revert.tags, WRITE_ARGS);
-    const after = statOf(ctx.absPathFor(file.relPath));
-    ctx.store.transact(() => {
-      if (after) ctx.store.updateFileSignature(file.id, after.sizeBytes, after.mtime);
-      ctx.store.clearPersisted(file.id);
-      ctx.store.appendOplog({
-        fileId: file.id,
-        action: 'revert-time',
-        before: { localIso: localIsoForFile(file.kind, currentPayload(ctx, file)) },
-        after: { localIso: revert.restoredLocalIso },
-      });
-    });
-    return { ...base, ok: true, skipped: false, reason: null };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    ctx.store.appendOplog({ fileId: file.id, action: 'revert-time', ok: false, error: reason });
-    return { ...base, ok: false, skipped: false, reason };
-  }
-}
-
-function currentPayload(ctx: PersistContext, file: FileRecord): TimePayload {
-  const line = ctx.timeline.byId.get(file.id);
-  return {
-    effectiveMs: line?.effectiveMs ?? 0,
-    utcOffsetMinutes: line?.utcOffsetMinutes ?? 0,
-    timeShiftSeconds: Math.round(line?.offsetSeconds ?? 0),
-  };
 }

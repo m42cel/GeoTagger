@@ -191,6 +191,18 @@ export class StripService {
     this.settleLanes(id);
   }
 
+  /**
+   * Reset to original (SPEC §6.3, §9.4): zeroes the offset like `reset`, but is
+   * guaranteed — via a flag the persist plan checks — to restore every already-
+   * persisted file in the strip to its own raw original time on the next Persist.
+   */
+  resetToOriginal(id: number): void {
+    this.requireUnlocked(id);
+    this.pushUndo();
+    this.store.resetStripToOriginal(id);
+    this.settleLanes(id);
+  }
+
   /** Rebuilds every strip from the current grouping mode, discarding everything. */
   resetAll(): void {
     const mode = this.store.groupingMode;
