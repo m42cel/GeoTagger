@@ -78,7 +78,6 @@ export class StripService {
       strips: timeline.strips,
       assignments: this.store.stripAssignments(),
       canUndo: this.undoStack.length > 0,
-      timeRestorableStripIds: this.store.timeRestorableStripIds(),
     };
   }
 
@@ -90,7 +89,6 @@ export class StripService {
       strips: timeline.strips,
       assignments: this.store.stripAssignments(),
       canUndo: this.undoStack.length > 0,
-      timeRestorableStripIds: this.store.timeRestorableStripIds(),
       files: timeline.files,
       utcOffsetRules: rules,
       displayUtcOffsetMinutes: timeline.displayUtcOffsetMinutes,
@@ -190,18 +188,6 @@ export class StripService {
     this.requireUnlocked(id);
     this.pushUndo();
     this.store.setStripOffset(id, 0);
-    this.settleLanes(id);
-  }
-
-  /**
-   * Reset to original (SPEC §6.3, §9.4): zeroes the offset like `reset`, but is
-   * guaranteed — via a flag the persist plan checks — to restore every already-
-   * persisted file in the strip to its own raw original time on the next Persist.
-   */
-  resetToOriginal(id: number): void {
-    this.requireUnlocked(id);
-    this.pushUndo();
-    this.store.resetStripToOriginal(id);
     this.settleLanes(id);
   }
 

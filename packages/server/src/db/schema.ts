@@ -71,7 +71,6 @@ CREATE TABLE IF NOT EXISTS strips (
   offset_seconds        INTEGER NOT NULL DEFAULT 0,
   locked                INTEGER NOT NULL DEFAULT 0,
   utc_offset_override_minutes INTEGER,
-  reset_to_original_at  INTEGER,
   created_at            INTEGER NOT NULL
 );
 
@@ -102,8 +101,7 @@ CREATE TABLE IF NOT EXISTS edits (
   confirmed_at               INTEGER,
   pending_lat                REAL,
   pending_lon                REAL,
-  utc_offset_override_minutes INTEGER,
-  reset_to_original_at       INTEGER
+  utc_offset_override_minutes INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS persisted (
@@ -152,8 +150,6 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
-  addColumnIfMissing(db, 'edits', 'reset_to_original_at', 'INTEGER');
-  addColumnIfMissing(db, 'strips', 'reset_to_original_at', 'INTEGER');
   collapseOffsetRamp(db);
 }
 

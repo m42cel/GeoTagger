@@ -14,7 +14,6 @@ export function registerFileRoutes(app: FastifyInstance, sessions: SessionManage
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
-      positionRestorableFileIds: session.store.positionRestorableFileIds(),
     };
   });
 

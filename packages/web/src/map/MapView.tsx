@@ -129,10 +129,6 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
     if (selectedId !== null) void editPosition(() => api.resetPosition(selectedId));
   }
 
-  function handleResetToOriginal(): void {
-    if (selectedId !== null) void editPosition(() => api.resetPositionToOriginal(selectedId));
-  }
-
   // Tray drag-onto-map (SPEC §6.4): dragging a tray item onto the map sets its
   // position, same as dragging an existing marker — it goes through the same
   // `dragPosition` route and stays unconfirmed (red) until the user confirms it,
@@ -195,7 +191,6 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
 
   const unpersistedIds = useMemo(() => new Set(filesResp?.unpersistedFileIds ?? []), [filesResp]);
-  const positionRestorable = useMemo(() => new Set(filesResp?.positionRestorableFileIds ?? []), [filesResp]);
 
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
@@ -722,8 +717,6 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
           onConfirm={handleConfirm}
           onRevert={handleRevert}
           onReset={handleReset}
-          onResetToOriginal={handleResetToOriginal}
-          canResetToOriginal={selected !== null && positionRestorable.has(selected.file.id)}
           busy={busy}
           multiSelectedItems={multiSelectedItems}
           onSelectOne={handleSelectOne}

@@ -225,58 +225,47 @@ function fieldsFor(entry: PersistPlanEntry, rawExif: boolean): Field[] {
   return fields;
 }
 
+/** No such tag, on either side of a row: nothing there before, or nothing left after. */
 const NA = '—';
+/** The literal value the `geotagger` block uses for a tag the file did not have. */
+const ABSENT = 'n/a';
 
 /**
- * The `geotagger:Original*` preservation tags (SPEC §9.3): stamped once, the first
- * time a half is ever written, using what the file currently says; cleared on a
- * restore, back to what they held. A later ordinary write touches neither — the
- * preserved original doesn't change just because the edit did.
+ * The `geotagger:Original*` preservation tags (SPEC §9.3): stamped once, the first time
+ * a half is ever written, with what the file currently says. A later write touches none
+ * of them — the preserved original doesn't change just because the edit did.
+ *
+ * Only the tags whose prior value the plan itself knows are listed. The write stamps one
+ * `Original*` per tag it touches, including `EXIF:CreateDate` and the `XMP:GPS*` pair,
+ * whose prior values are read from the file at write time.
  */
 function geotaggerFieldsFor(entry: PersistPlanEntry): Field[] {
   const fields: Field[] = [];
 
   if (entry.stampsOriginalTime) {
     fields.push(
-      { key: 'g-date', label: 'original date', rawLabel: 'geotagger:OriginalDateTimeOriginal', old: NA, next: rawExifDate(entry.oldLocalIso) },
+      {
+        key: 'g-date',
+        label: 'original date',
+        rawLabel: 'geotagger:OriginalDateTimeOriginal',
+        old: NA,
+        next: entry.oldLocalIso === null ? ABSENT : rawExifDate(entry.oldLocalIso),
+      },
       {
         key: 'g-offset',
         label: 'original offset',
         rawLabel: 'geotagger:OriginalOffsetTimeOriginal',
         old: NA,
-        next: entry.oldUtcOffsetMinutes === null ? NA : formatUtcOffset(entry.oldUtcOffsetMinutes),
+        next: entry.oldUtcOffsetMinutes === null ? ABSENT : formatUtcOffset(entry.oldUtcOffsetMinutes),
       },
-    );
-  } else if (entry.timeKind === 'restore') {
-    fields.push(
-      { key: 'g-date', label: 'original date', rawLabel: 'geotagger:OriginalDateTimeOriginal', old: rawExifDate(entry.originalDateTimeOriginal), next: NA },
-      { key: 'g-offset', label: 'original offset', rawLabel: 'geotagger:OriginalOffsetTimeOriginal', old: entry.originalOffsetTimeOriginal ?? NA, next: NA },
     );
   }
 
   if (entry.stampsOriginalPosition) {
-    const present = entry.oldLat !== null && entry.oldLon !== null;
-    fields.push({ key: 'g-gps', label: 'original GPS present', rawLabel: 'geotagger:OriginalGPSPresent', old: NA, next: present ? 'True' : 'False' });
-    if (present) {
-      fields.push(
-        { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: NA, next: String(entry.oldLat) },
-        { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: NA, next: String(entry.oldLon) },
-      );
-    }
-  } else if (entry.positionKind === 'restore') {
-    fields.push({
-      key: 'g-gps',
-      label: 'original GPS present',
-      rawLabel: 'geotagger:OriginalGPSPresent',
-      old: entry.originalGpsPresent ? 'True' : 'False',
-      next: NA,
-    });
-    if (entry.originalGpsPresent && entry.originalGpsLatitude !== null && entry.originalGpsLongitude !== null) {
-      fields.push(
-        { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: String(entry.originalGpsLatitude), next: NA },
-        { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: String(entry.originalGpsLongitude), next: NA },
-      );
-    }
+    fields.push(
+      { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: NA, next: entry.oldLat === null ? ABSENT : String(entry.oldLat) },
+      { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: NA, next: entry.oldLon === null ? ABSENT : String(entry.oldLon) },
+    );
   }
 
   return fields;

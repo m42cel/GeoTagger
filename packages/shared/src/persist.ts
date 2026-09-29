@@ -5,12 +5,11 @@ import type { PositionSource } from './positions.js';
  *
  * A file with both a timestamp and a position change is written exactly once, both
  * payloads in a single ExifTool command (§9.1). Each half — time, position — resolves
- * independently to `write` (an ordinary correction) or `restore` (the plan-time
- * comparison of §9.4 found the intended value now equals the stored original, so this
- * half writes the original back and clears only its own half of the `geotagger` block).
+ * independently: it is either left alone or written. The first write of a half also
+ * stamps that half's `geotagger:Original*` tags, which are never touched again (§9.3).
  */
 
-export type PersistHalfKind = 'none' | 'write' | 'restore';
+export type PersistHalfKind = 'none' | 'write';
 
 export interface PersistPlanEntry {
   fileId: number;
@@ -27,15 +26,13 @@ export interface PersistPlanEntry {
   timeKind: PersistHalfKind;
   writesUtcOffset: boolean;
   /**
-   * True when this write is the time half's first ever — the only time
-   * `geotagger:OriginalDateTimeOriginal`/`OriginalOffsetTimeOriginal` get stamped
-   * (SPEC §9.3). Kept separate from `timeKind === 'write'`: a second or later write
-   * touches the ordinary tags but leaves the preserved original alone.
+   * True when this write is the time half's first ever — the only time the half's
+   * `geotagger:Original*` tags get stamped (SPEC §9.3). Kept separate from
+   * `timeKind === 'write'`: adding the UTC offset alone is a first write too, while a
+   * second or later write touches the ordinary tags but leaves the preserved original
+   * alone.
    */
   stampsOriginalTime: boolean;
-  /** What the stored original says, for the raw-EXIF view of the `geotagger` block — null when nothing has been persisted before. */
-  originalDateTimeOriginal: string | null;
-  originalOffsetTimeOriginal: string | null;
   oldLat: number | null;
   oldLon: number | null;
   /** The position that will be written, or null when nothing changes there. */
@@ -45,11 +42,8 @@ export interface PersistPlanEntry {
   positionSource: PositionSource | null;
   positionUncertaintyM: number | null;
   positionKind: PersistHalfKind;
-  /** Same idea as `stampsOriginalTime`, for the position half's `OriginalGPS*` tags. */
+  /** Same idea as `stampsOriginalTime`, for the position half's `Original*` tags. */
   stampsOriginalPosition: boolean;
-  originalGpsPresent: boolean | null;
-  originalGpsLatitude: number | null;
-  originalGpsLongitude: number | null;
   /** True when the file changed on disk since it was scanned (SPEC §8.3). */
   stale: boolean;
 }
@@ -89,20 +83,6 @@ export interface PersistProgress {
   failed: number;
   results: PersistFileResult[];
   error: string | null;
-}
-
-/** A file whose GeoTagger changes can be undone, with what it originally said. */
-export interface PersistedSnapshot {
-  fileId: number;
-  relPath: string;
-  persistedAt: number;
-  wroteTime: boolean;
-  wroteGps: boolean;
-  originalDateTimeOriginal: string | null;
-  originalOffsetTimeOriginal: string | null;
-  originalGpsPresent: boolean;
-  originalGpsLatitude: number | null;
-  originalGpsLongitude: number | null;
 }
 
 export interface OplogEntry {

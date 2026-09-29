@@ -33,7 +33,6 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
-      positionRestorableFileIds: session.store.positionRestorableFileIds(),
     };
   };
 
@@ -75,18 +74,6 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
     const id = parseId(req.params.id);
     if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
     session.store.resetPosition(id);
-    return filesResponse(session);
-  });
-
-  /**
-   * Reset to original (SPEC §6.5, §9.4): shown only once the file has been persisted.
-   * Flag-setting only — nothing is written until the next Persist run.
-   */
-  app.post<{ Params: { id: string } }>('/api/files/:id/reset-position-to-original', async (req, reply) => {
-    const session = sessions.require();
-    const id = parseId(req.params.id);
-    if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
-    session.store.resetPositionToOriginal(id);
     return filesResponse(session);
   });
 

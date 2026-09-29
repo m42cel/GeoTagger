@@ -14,15 +14,15 @@ import { collectDateCandidates, collectGps } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
 import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import {
+  ORIGINAL_ABSENT,
   buildModifiedStamp,
-  buildPositionRestore,
   buildPositionWrite,
-  buildTimeRestore,
   buildTimeWrite,
-  clearModifiedStamp,
   fromExifDate,
+  preservedTagsFor,
   type AppliedState,
   type OriginalSnapshot,
+  type OriginalTagValues,
   type PositionPayload,
   type ResolvedTimeWrite,
 } from './tags.js';
@@ -35,9 +35,10 @@ import {
  * the file keeps its pending state and can be retried — and every write, successful or
  * not, is appended to the operation log.
  *
- * Time and position are two independent halves (SPEC §9.3, §9.4): each resolves to a
- * `write` or a `restore` in the plan, and this module turns that resolution into tags,
- * merging both halves into the single ExifTool call §9.1 requires per file.
+ * Time and position are two independent halves (SPEC §9.3): the plan decides which of
+ * them a file needs written, and this module turns that into tags, merging both halves
+ * into the single ExifTool call §9.1 requires per file. A half's first write also stamps
+ * its `geotagger:Original*` tags, which no later write touches again.
  */
 
 export interface PersistContext {
@@ -57,7 +58,6 @@ export function planFor(ctx: PersistContext): PersistPlan {
 function planContext(ctx: PersistContext): PlanContext {
   const persisted = ctx.store.listPersisted();
   const applied = new Map<number, AppliedState>();
-  const originals = new Map<number, OriginalSnapshot>();
   for (const [fileId, row] of persisted) {
     if (row.appliedJson !== null) {
       try {
@@ -65,13 +65,6 @@ function planContext(ctx: PersistContext): PlanContext {
       } catch {
         // A corrupt row means the plan falls back to what the file said at scan time,
         // which at worst rewrites a value that is already correct.
-      }
-    }
-    if (row.originalSnapshotJson !== null) {
-      try {
-        originals.set(fileId, JSON.parse(row.originalSnapshotJson) as OriginalSnapshot);
-      } catch {
-        // Nothing to restore to if the stored snapshot can't be read.
       }
     }
   }
@@ -86,10 +79,8 @@ function planContext(ctx: PersistContext): PlanContext {
     files: ctx.store.listFiles(),
     timeline: ctx.timeline,
     applied,
-    originals,
     confirmedPositions,
     persistedHalves,
-    positionResetToOriginalFileIds: ctx.store.resetToOriginalPendingFileIds(),
     currentSig: (file) => statOf(ctx.absPathFor(file.relPath))?.sig ?? null,
     storedSig: (file) => contentSig(file.sizeBytes, file.mtime),
   };
@@ -179,12 +170,13 @@ async function writeOne(
 
   const previous = ctx.store.getPersisted(file.id);
   // The first time either half is ever persisted, the original is whatever the file
-  // currently says — nothing has touched it yet. A later write reuses the stored one:
-  // it must never be replaced by what GeoTagger itself put there since.
+  // currently says — nothing has touched it yet, so both halves' tags are read here even
+  // if only one of them is being written. A later write reuses the stored snapshot: it
+  // must never be replaced by what GeoTagger itself put there since.
   const original: OriginalSnapshot =
     previous?.originalSnapshotJson !== undefined && previous.originalSnapshotJson !== null
       ? (JSON.parse(previous.originalSnapshotJson) as OriginalSnapshot)
-      : snapshotOf(file);
+      : snapshotOf(file, await readPreservedTags(absPath, file.kind));
 
   const line = ctx.timeline.byId.get(file.id);
   const timeActive = entry.timeKind !== 'none' || entry.writesUtcOffset;
@@ -192,9 +184,7 @@ async function writeOne(
   if (!timeActive && !positionActive) {
     return { ...base, ok: false, skipped: true, reason: 'Nothing to write.' };
   }
-  // An ordinary time write needs the timeline's own values (the offset in particular);
-  // a restore does not, since it comes from the stored original instead.
-  if (timeActive && entry.timeKind !== 'restore' && (!line || line.effectiveMs === null)) {
+  if (timeActive && (!line || line.effectiveMs === null)) {
     return { ...base, ok: false, skipped: true, reason: 'The file has no timestamp to write.' };
   }
 
@@ -202,64 +192,39 @@ async function writeOne(
   let writtenLocalIso: string | null = null;
   let writtenLat: number | null = null;
   let writtenLon: number | null = null;
-  let wroteTimeNow = previous?.wroteTime ?? false;
-  let wroteGpsNow = previous?.wroteGps ?? false;
   let timeWasWritten = false;
   let positionWasWritten = false;
 
-  if (entry.timeKind === 'restore') {
-    const r = buildTimeRestore(file, original);
-    Object.assign(tags, r.tags);
-    writtenLocalIso = r.restoredLocalIso;
-    wroteTimeNow = false;
-  } else if (timeActive && line && line.effectiveMs !== null) {
+  if (timeActive && line && line.effectiveMs !== null) {
     const resolved: ResolvedTimeWrite = {
       localIso: entry.newLocalIso as string,
       utcOffsetMinutes: line.utcOffsetMinutes,
+      writesUtcOffset: entry.writesUtcOffset,
       timeShiftSeconds: entry.timeShiftSeconds,
     };
-    const stampOriginal = entry.stampsOriginalTime
-      ? { dateTimeOriginal: original.dateTimeOriginal, offsetTimeOriginal: original.offsetTimeOriginal }
-      : null;
-    const w = buildTimeWrite(file, resolved, stampOriginal);
+    const w = buildTimeWrite(file, resolved, entry.stampsOriginalTime ? original.tags : null);
     Object.assign(tags, w.tags);
     writtenLocalIso = w.writtenLocalIso;
-    wroteTimeNow = true;
     timeWasWritten = true;
   }
 
-  if (entry.positionKind === 'restore') {
-    const r = buildPositionRestore(file, original);
-    Object.assign(tags, r.tags);
-    writtenLat = r.restoredLat;
-    writtenLon = r.restoredLon;
-    wroteGpsNow = false;
-  } else if (positionActive && entry.newLat !== null && entry.newLon !== null) {
+  if (positionActive && entry.newLat !== null && entry.newLon !== null) {
     const payload: PositionPayload = {
       lat: entry.newLat,
       lon: entry.newLon,
       source: entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed',
       uncertaintyM: entry.positionUncertaintyM,
     };
-    const stampOriginal = entry.stampsOriginalPosition
-      ? { gpsPresent: original.gpsPresent, gpsLatitude: original.gpsLatitude, gpsLongitude: original.gpsLongitude }
-      : null;
-    const w = buildPositionWrite(file, payload, stampOriginal);
+    const w = buildPositionWrite(file, payload, entry.stampsOriginalPosition ? original.tags : null);
     Object.assign(tags, w.tags);
     writtenLat = w.writtenLat;
     writtenLon = w.writtenLon;
-    wroteGpsNow = true;
     positionWasWritten = true;
   }
 
-  // The shared stamp belongs to neither half (SPEC §9.3): refreshed on any fresh
-  // write, removed once neither half remains, left alone when an untouched half from
-  // an earlier persist is still active.
-  if (timeWasWritten || positionWasWritten) {
-    Object.assign(tags, buildModifiedStamp(ctx.appVersion));
-  } else if (!wroteTimeNow && !wroteGpsNow) {
-    Object.assign(tags, clearModifiedStamp());
-  }
+  // The shared stamp belongs to neither half (SPEC §9.3), so it is refreshed whichever
+  // of them this write touched, and left alone on the half it did not.
+  Object.assign(tags, buildModifiedStamp(ctx.appVersion));
 
   try {
     const result = await exiftool().write(absPath, tags, WRITE_ARGS);
@@ -273,36 +238,30 @@ async function writeOne(
     ctx.store.transact(() => {
       if (after) ctx.store.updateFileSignature(file.id, after.sizeBytes, after.mtime);
 
-      if (!wroteTimeNow && !wroteGpsNow) {
-        ctx.store.clearPersistedTime(file.id);
-        ctx.store.clearPersistedGps(file.id);
-      } else {
-        if (!wroteTimeNow && previous?.wroteTime) ctx.store.clearPersistedTime(file.id);
-        if (!wroteGpsNow && previous?.wroteGps) ctx.store.clearPersistedGps(file.id);
-        if (wroteTimeNow || wroteGpsNow) {
-          ctx.store.recordPersisted({
-            fileId: file.id,
-            persistedAt: Date.now(),
-            wroteGps: wroteGpsNow,
-            wroteTime: wroteTimeNow,
-            originalSnapshotJson: JSON.stringify(original),
-            appliedJson: JSON.stringify({
-              localIso: writtenLocalIso,
-              utcOffsetMinutes: line?.utcOffsetMinutes ?? null,
-              timeShiftSeconds: entry.timeShiftSeconds,
-              lat: writtenLat,
-              lon: writtenLon,
-              positionSource: positionWasWritten ? (entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed') : null,
-              positionUncertaintyM: positionWasWritten ? entry.positionUncertaintyM : null,
-            } satisfies AppliedState),
-            exiftoolResult: JSON.stringify({ updated: result.updated, warnings: result.warnings ?? [] }),
-          });
-        }
-      }
+      // `recordPersisted` ORs the half flags into whatever the row already says, so a
+      // write of one half never forgets that the other was persisted earlier — and the
+      // stored snapshot is kept, never replaced by values GeoTagger itself wrote.
+      ctx.store.recordPersisted({
+        fileId: file.id,
+        persistedAt: Date.now(),
+        wroteGps: positionWasWritten,
+        wroteTime: timeWasWritten,
+        originalSnapshotJson: JSON.stringify(original),
+        appliedJson: JSON.stringify({
+          localIso: writtenLocalIso,
+          utcOffsetMinutes: line?.utcOffsetMinutes ?? null,
+          timeShiftSeconds: entry.timeShiftSeconds,
+          lat: writtenLat,
+          lon: writtenLon,
+          positionSource: positionWasWritten ? (entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed') : null,
+          positionUncertaintyM: positionWasWritten ? entry.positionUncertaintyM : null,
+        } satisfies AppliedState),
+        exiftoolResult: JSON.stringify({ updated: result.updated, warnings: result.warnings ?? [] }),
+      });
 
       ctx.store.appendOplog({
         fileId: file.id,
-        action: timeWasWritten || positionWasWritten ? 'persist' : 'reset-to-original',
+        action: 'persist',
         before: { localIso: file.captureTimeRaw, lat: file.origLat, lon: file.origLon },
         after: { localIso: writtenLocalIso, lat: writtenLat, lon: writtenLon },
       });
@@ -367,15 +326,61 @@ function recordFailure(ctx: PersistContext, file: FileRecord, reason: string): P
   return { fileId: file.id, relPath: file.relPath, ok: false, skipped: false, reason };
 }
 
-function snapshotOf(file: FileRecord): OriginalSnapshot {
+/**
+ * What the file says right now, kept as its pre-GeoTagger record (SPEC §9.3).
+ *
+ * The four summary values come from the index — they are what the app planned against,
+ * and a capture time can be resolved from a tag GeoTagger never writes (SPEC §4.1) —
+ * while `tags` holds the literal tags, read from the file itself a moment before the
+ * write, one per `Original*` stamped into it. Both describe the same untouched file: a
+ * file that changed since it was scanned is refused above (SPEC §8.3) rather than
+ * snapshotted.
+ */
+function snapshotOf(file: FileRecord, tags: OriginalTagValues): OriginalSnapshot {
   return {
     dateTimeOriginal: file.captureTimeRaw,
     offsetTimeOriginal:
       file.captureUtcOffsetMinutes === null ? null : formatOffsetTag(file.captureUtcOffsetMinutes),
-    gpsPresent: file.origGpsPresent,
-    gpsLatitude: file.origLat,
-    gpsLongitude: file.origLon,
+    gpsLatitude: file.origGpsPresent ? file.origLat : null,
+    gpsLongitude: file.origGpsPresent ? file.origLon : null,
+    tags,
   };
+}
+
+/**
+ * Reads the tags a write would overwrite, exactly as the file holds them.
+ *
+ * `-n` turns off ExifTool's print conversion, so coordinates come back as the signed
+ * decimals and bare `N`/`E` refs that can be handed straight back to it — the whole
+ * point being that the record holds the same characters the file had. Unlike the scan
+ * (SPEC §10.1) this read cannot use `-fast2`: XMP can sit outside the header GeoTagger's
+ * scan stops at, and a tag missed here would be recorded as absent when it was not. It
+ * runs once per file, on the first write of either half.
+ */
+async function readPreservedTags(absPath: string, kind: FileRecord['kind']): Promise<OriginalTagValues> {
+  const preserved = preservedTagsFor(kind);
+  const raw = await exiftool().readRaw(absPath, [
+    '-G0',
+    '-n',
+    '-charset',
+    'filename=utf8',
+    ...preserved.map((p) => `-${p.tag}`),
+  ]);
+
+  const values: OriginalTagValues = {};
+  for (const { tag } of preserved) values[tag] = tagValueOf((raw as Record<string, unknown>)[tag]);
+  return values;
+}
+
+/** One tag as the characters ExifTool would write back, or null when it is absent. */
+function tagValueOf(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  // A date-shaped value comes back parsed; `rawValue` is what was in the file.
+  const raw = typeof value === 'object' ? (value as { rawValue?: unknown }).rawValue : value;
+  const text = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : String(value);
+  // `n/a` is the sentinel for "there was no such tag", so a tag that literally says that
+  // counts as absent — better than preserving a value the sentinel cannot express.
+  return text === '' || text === ORIGINAL_ABSENT ? null : text;
 }
 
 function formatOffsetTag(minutes: number): string {

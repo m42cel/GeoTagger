@@ -426,7 +426,6 @@ export class FolderStore {
         id: number; lane: number; ordinal: number; label: string; grouping_source: string;
         parent_strip_id: number | null; offset_seconds: number;
         locked: number; utc_offset_override_minutes: number | null;
-        reset_to_original_at: number | null;
         created_at: number; file_count: number;
         first_capture: string | null; last_capture: string | null;
       }>(
@@ -450,7 +449,6 @@ export class FolderStore {
       offsetSeconds: r.offset_seconds,
       locked: r.locked !== 0,
       utcOffsetOverrideMinutes: r.utc_offset_override_minutes,
-      resetToOriginalAt: r.reset_to_original_at,
       createdAt: r.created_at,
       fileCount: r.file_count,
       firstCaptureMs: parseNaive(r.first_capture),
@@ -502,26 +500,8 @@ export class FolderStore {
 
   // ---- strip edits (SPEC §4.3) -------------------------------------------
 
-  /**
-   * Any offset change — including `reset`'s own zeroing — supersedes a pending
-   * reset-to-original (SPEC §9.4): it clears the flag, so `resetToOriginal` below sets
-   * it again immediately after, rather than this method special-casing zero.
-   */
   setStripOffset(id: number, seconds: number): void {
-    this.db
-      .prepare('UPDATE strips SET offset_seconds = ?, reset_to_original_at = NULL WHERE id = ?')
-      .run(Math.round(seconds), id);
-  }
-
-  /**
-   * Reset to original (SPEC §6.3, §9.4): zeroes the offset like `reset`, and sets a
-   * flag the persist plan checks to force a restore of every already-persisted file in
-   * the strip, regardless of what a zeroed offset would otherwise derive.
-   */
-  resetStripToOriginal(id: number): void {
-    this.db
-      .prepare('UPDATE strips SET offset_seconds = 0, reset_to_original_at = ? WHERE id = ?')
-      .run(Date.now(), id);
+    this.db.prepare('UPDATE strips SET offset_seconds = ? WHERE id = ?').run(Math.round(seconds), id);
   }
 
   setStripLocked(id: number, locked: boolean): void {
@@ -647,10 +627,10 @@ export class FolderStore {
       const insertStrip = this.db.prepare(
         `INSERT INTO strips (id, lane, ordinal, label, grouping_source, parent_strip_id,
                              offset_seconds, locked,
-                             utc_offset_override_minutes, reset_to_original_at, created_at)
+                             utc_offset_override_minutes, created_at)
          VALUES (@id, @lane, @ordinal, @label, @grouping_source, @parent_strip_id,
                  @offset_seconds, @locked,
-                 @utc_offset_override_minutes, @reset_to_original_at, @created_at)`,
+                 @utc_offset_override_minutes, @created_at)`,
       );
       const insertMember = this.db.prepare('INSERT INTO strip_files (strip_id, file_id) VALUES (?, ?)');
       // Origin references point at other rows in this same set, so every strip has to
@@ -750,20 +730,6 @@ export class FolderStore {
   }
 
   /**
-   * Reset-to-original is pending for a file (SPEC §9.4): `resetPositionToOriginal`
-   * clears any confirmed position when it sets the flag, so this is disjoint from
-   * `listConfirmedPositionEdits` — a file is in exactly one of the two.
-   */
-  resetToOriginalPendingFileIds(): Set<number> {
-    return new Set(
-      this.db
-        .prepare<[], { file_id: number }>('SELECT file_id FROM edits WHERE reset_to_original_at IS NOT NULL')
-        .all()
-        .map((r) => r.file_id),
-    );
-  }
-
-  /**
    * Drags in progress, keyed by file id. Overrides a file's own displayed position
    * without anchoring anything (SPEC §5.5) — a confirmed position or camera GPS
    * underneath, if any, keeps anchoring everyone else until this is confirmed or
@@ -790,8 +756,7 @@ export class FolderStore {
         `INSERT INTO edits (file_id, pending_lat, pending_lon, placed_at)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(file_id) DO UPDATE SET
-           pending_lat = excluded.pending_lat, pending_lon = excluded.pending_lon, placed_at = excluded.placed_at,
-           reset_to_original_at = NULL`,
+           pending_lat = excluded.pending_lat, pending_lon = excluded.pending_lon, placed_at = excluded.placed_at`,
       )
       .run(fileId, lat, lon, Date.now());
   }
@@ -812,7 +777,7 @@ export class FolderStore {
          ON CONFLICT(file_id) DO UPDATE SET
            lat = excluded.lat, lon = excluded.lon, position_source = excluded.position_source,
            uncertainty_m = excluded.uncertainty_m, confirmed_at = excluded.confirmed_at,
-           pending_lat = NULL, pending_lon = NULL, reset_to_original_at = NULL`,
+           pending_lat = NULL, pending_lon = NULL`,
       )
       .run(fileId, lat, lon, fromDrag ? 'drag' : 'estimate', uncertaintyM, Date.now());
   }
@@ -840,30 +805,10 @@ export class FolderStore {
       .prepare(
         `UPDATE edits SET lat = NULL, lon = NULL, position_source = NULL,
            uncertainty_m = NULL, placed_at = NULL, confirmed_at = NULL,
-           pending_lat = NULL, pending_lon = NULL, reset_to_original_at = NULL
+           pending_lat = NULL, pending_lon = NULL
          WHERE file_id = ?`,
       )
       .run(fileId);
-  }
-
-  /**
-   * Reset to original (SPEC §6.5, §9.4): discards the position the same way `reset`
-   * does, but sets a flag the persist plan checks to force a restore of the file's
-   * stored original GPS, regardless of what camera GPS or interpolation would
-   * otherwise derive.
-   */
-  resetPositionToOriginal(fileId: number): void {
-    this.db
-      .prepare(
-        `INSERT INTO edits (file_id, lat, lon, position_source, uncertainty_m,
-                            placed_at, confirmed_at, pending_lat, pending_lon, reset_to_original_at)
-         VALUES (?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?)
-         ON CONFLICT(file_id) DO UPDATE SET
-           lat = NULL, lon = NULL, position_source = NULL, uncertainty_m = NULL,
-           placed_at = NULL, confirmed_at = NULL, pending_lat = NULL, pending_lon = NULL,
-           reset_to_original_at = excluded.reset_to_original_at`,
-      )
-      .run(fileId, Date.now());
   }
 
   setFileUtcOffsetOverride(fileId: number, minutes: number | null): void {
@@ -947,45 +892,6 @@ export class FolderStore {
     return new Set(
       this.db.prepare<[], { file_id: number }>('SELECT file_id FROM persisted').all().map((r) => r.file_id),
     );
-  }
-
-  /** Files with a stored GPS original to restore to (SPEC §6.5, §9.4). */
-  positionRestorableFileIds(): number[] {
-    return this.db
-      .prepare<[], { file_id: number }>('SELECT file_id FROM persisted WHERE wrote_gps = 1')
-      .all()
-      .map((r) => r.file_id);
-  }
-
-  /** Strips with at least one file whose time has been persisted (SPEC §6.3, §9.4). */
-  timeRestorableStripIds(): number[] {
-    return this.db
-      .prepare<[], { strip_id: number }>(
-        `SELECT DISTINCT sf.strip_id FROM persisted p
-         JOIN strip_files sf ON sf.file_id = p.file_id
-         WHERE p.wrote_time = 1`,
-      )
-      .all()
-      .map((r) => r.strip_id);
-  }
-
-  /**
-   * Restoring a half clears only that half's bookkeeping — the row (and with it the
-   * `geotagger` block) is removed only once both halves are gone (SPEC §9.3, §9.4).
-   */
-  clearPersistedTime(fileId: number): void {
-    this.clearPersistedHalf(fileId, 'wrote_time');
-  }
-
-  clearPersistedGps(fileId: number): void {
-    this.clearPersistedHalf(fileId, 'wrote_gps');
-  }
-
-  private clearPersistedHalf(fileId: number, column: 'wrote_time' | 'wrote_gps'): void {
-    this.db.prepare(`UPDATE persisted SET ${column} = 0 WHERE file_id = ?`).run(fileId);
-    this.db
-      .prepare('DELETE FROM persisted WHERE file_id = ? AND wrote_time = 0 AND wrote_gps = 0')
-      .run(fileId);
   }
 
   // ---- operation log (SPEC §10.3) ----------------------------------------

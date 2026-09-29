@@ -3,7 +3,7 @@ import type { FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
 import { naiveToMs } from '@geotagger/shared';
 import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import type { Timeline } from '../time/timeline.js';
-import type { AppliedState, OriginalSnapshot } from './tags.js';
+import type { AppliedState } from './tags.js';
 
 const at = (iso: string) => naiveToMs(iso) as number;
 
@@ -61,7 +61,6 @@ function strip(over: Partial<StripRecord> = {}): StripRecord {
     offsetSeconds: 0,
     locked: false,
     utcOffsetOverrideMinutes: null,
-    resetToOriginalAt: null,
     createdAt: 0,
     fileCount: 1,
     firstCaptureMs: null,
@@ -88,10 +87,8 @@ function context(
     files,
     timeline,
     applied: new Map<number, AppliedState>(),
-    originals: new Map<number, OriginalSnapshot>(),
     confirmedPositions: new Map<number, ConfirmedPositionEdit>(),
     persistedHalves: new Map<number, { wroteTime: boolean; wroteGps: boolean }>(),
-    positionResetToOriginalFileIds: new Set<number>(),
     currentSig: () => '1024:10',
     storedSig: () => '1024:10',
     ...rest,
@@ -106,6 +103,27 @@ describe('buildPersistPlan — time (SPEC §9.1)', () => {
     expect(plan.entries[0]?.writesUtcOffset).toBe(true);
     expect(plan.correctedTimestamps).toBe(0);
     expect(plan.utcOffsetsAdded).toBe(1);
+  });
+
+  it('stamps the preserved originals when the first write only adds the UTC offset', () => {
+    // Offset-only is still the time half's first write, and the originals have to be
+    // stamped before it lands — otherwise nothing is left to restore to (SPEC §9.3).
+    const plan = buildPersistPlan(context([file()], [line()]));
+    expect(plan.entries[0]?.timeKind).toBe('none');
+    expect(plan.entries[0]?.writesUtcOffset).toBe(true);
+    expect(plan.entries[0]?.stampsOriginalTime).toBe(true);
+  });
+
+  it('stamps the preserved originals once, not again on a later correction', () => {
+    const applied = new Map<number, AppliedState>([[1, timeApplied('2024-07-12T14:00:00', 120, 0)]]);
+    const plan = buildPersistPlan(
+      context([file()], [line({ offsetSeconds: 3600, effectiveMs: at('2024-07-12T13:00:00') })], {
+        applied,
+        persistedHalves: persisted({ wroteTime: true }),
+      }),
+    );
+    expect(plan.entries[0]?.timeKind).toBe('write');
+    expect(plan.entries[0]?.stampsOriginalTime).toBe(false);
   });
 
   it('writes a corrected timestamp', () => {
@@ -247,71 +265,6 @@ describe('buildPersistPlan — position (SPEC §9.1, §9.2)', () => {
     expect(plan.entries).toEqual([]);
   });
 
-  it('resolves to a restore when the confirmed position happens to equal the stored original', () => {
-    const confirmedPositions = new Map<number, ConfirmedPositionEdit>([
-      [1, { lat: 1.5, lon: 2.5, positionSource: 'drag', uncertaintyM: null }],
-    ]);
-    const originals = new Map<number, OriginalSnapshot>([
-      [1, originalSnapshot({ gpsPresent: true, gpsLatitude: 1.5, gpsLongitude: 2.5 })],
-    ]);
-    const plan = buildPersistPlan(context([file()], [line()], { confirmedPositions, originals }));
-    expect(plan.entries[0]?.positionKind).toBe('restore');
-  });
-
-  it('forces a restore to the original when reset-to-original is pending, regardless of camera GPS', () => {
-    const originals = new Map<number, OriginalSnapshot>([
-      [1, originalSnapshot({ gpsPresent: true, gpsLatitude: 5, gpsLongitude: 6 })],
-    ]);
-    const plan = buildPersistPlan(
-      context([file({ origGpsPresent: true, origLat: 99, origLon: 99 })], [line()], {
-        originals,
-        positionResetToOriginalFileIds: new Set([1]),
-      }),
-    );
-    expect(plan.entries[0]?.positionKind).toBe('restore');
-    expect(plan.entries[0]?.newLat).toBe(5);
-    expect(plan.entries[0]?.newLon).toBe(6);
-  });
-
-  it('needs nothing when reset-to-original is pending and the file already matches its original', () => {
-    const originals = new Map<number, OriginalSnapshot>([
-      [1, originalSnapshot({ gpsPresent: true, gpsLatitude: 5, gpsLongitude: 6 })],
-    ]);
-    const applied = new Map<number, AppliedState>([[1, timeApplied(null, null, 0, { lat: 5, lon: 6 })]]);
-    const plan = buildPersistPlan(
-      context([file({ captureUtcOffsetMinutes: 120 })], [line()], {
-        originals,
-        applied,
-        positionResetToOriginalFileIds: new Set([1]),
-      }),
-    );
-    expect(plan.entries).toEqual([]);
-  });
-});
-
-describe('buildPersistPlan — strip reset-to-original (SPEC §9.4)', () => {
-  it('forces every already-persisted file in a flagged strip back to its own raw original time', () => {
-    const originals = new Map<number, OriginalSnapshot>([
-      [1, originalSnapshot({ dateTimeOriginal: '2024-07-12T09:00:00', offsetTimeOriginal: null })],
-    ]);
-    const plan = buildPersistPlan(
-      context([file()], [line({ offsetSeconds: 0, effectiveMs: at('2024-07-12T12:00:00') })], {
-        originals,
-        strips: [strip({ resetToOriginalAt: Date.now() })],
-      }),
-    );
-    expect(plan.entries[0]?.timeKind).toBe('restore');
-    expect(plan.entries[0]?.newLocalIso).toBe('2024-07-12T09:00:00');
-  });
-
-  it('leaves a never-persisted file in a flagged strip to the ordinary zeroed-offset write', () => {
-    const plan = buildPersistPlan(
-      context([file()], [line({ offsetSeconds: 0, effectiveMs: at('2024-07-12T12:00:00') })], {
-        strips: [strip({ resetToOriginalAt: Date.now() })],
-      }),
-    );
-    expect(plan.entries[0]?.timeKind).toBe('none');
-  });
 });
 
 function timeApplied(
@@ -331,13 +284,7 @@ function timeApplied(
   };
 }
 
-function originalSnapshot(over: Partial<OriginalSnapshot> = {}): OriginalSnapshot {
-  return {
-    dateTimeOriginal: null,
-    offsetTimeOriginal: null,
-    gpsPresent: false,
-    gpsLatitude: null,
-    gpsLongitude: null,
-    ...over,
-  };
+/** Which halves GeoTagger already wrote to a file — the plan's "first write" side. */
+function persisted(over: { wroteTime?: boolean; wroteGps?: boolean } = {}): Map<number, { wroteTime: boolean; wroteGps: boolean }> {
+  return new Map([[1, { wroteTime: over.wroteTime ?? false, wroteGps: over.wroteGps ?? false }]]);
 }

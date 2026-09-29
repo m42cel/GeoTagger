@@ -2,11 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { naiveToMs } from '@geotagger/shared';
 import {
   buildModifiedStamp,
-  buildPositionRestore,
   buildPositionWrite,
-  buildTimeRestore,
   buildTimeWrite,
-  clearModifiedStamp,
   fromExifDate,
   localIsoForFile,
   toExifDate,
@@ -26,15 +23,43 @@ const payload: TimePayload = {
   timeShiftSeconds: 3732,
 };
 
-const resolved: ResolvedTimeWrite = { localIso: '2024-07-12T14:32:10', utcOffsetMinutes: 120, timeShiftSeconds: 3732 };
-const resolvedVideo: ResolvedTimeWrite = { localIso: '2024-07-12T12:32:10', utcOffsetMinutes: 120, timeShiftSeconds: 3732 };
+const resolved: ResolvedTimeWrite = { localIso: '2024-07-12T14:32:10', utcOffsetMinutes: 120, writesUtcOffset: true, timeShiftSeconds: 3732 };
+const resolvedVideo: ResolvedTimeWrite = { localIso: '2024-07-12T12:32:10', utcOffsetMinutes: 120, writesUtcOffset: false, timeShiftSeconds: 3732 };
 
+/** A photo with a date but no offset and no GPS, as the file itself held it. */
 const original: OriginalSnapshot = {
   dateTimeOriginal: '2024-07-12T13:30:00',
   offsetTimeOriginal: null,
-  gpsPresent: false,
   gpsLatitude: null,
   gpsLongitude: null,
+  tags: {
+    'EXIF:DateTimeOriginal': '2024:07:12 13:30:00',
+    'EXIF:CreateDate': '2024:07:12 13:29:00',
+    'EXIF:OffsetTimeOriginal': null,
+    'EXIF:OffsetTimeDigitized': null,
+    'QuickTime:CreateDate': '2024:07:12 13:30:00',
+    'EXIF:GPSLatitude': null,
+    'EXIF:GPSLatitudeRef': null,
+    'EXIF:GPSLongitude': null,
+    'EXIF:GPSLongitudeRef': null,
+    'QuickTime:GPSCoordinates': null,
+    'XMP:GPSLatitude': null,
+    'XMP:GPSLongitude': null,
+  },
+};
+
+/** The same file with the camera's own coordinates, EXIF only — no XMP block. */
+const withCameraGps: OriginalSnapshot = {
+  ...original,
+  gpsLatitude: 1.5,
+  gpsLongitude: -2.5,
+  tags: {
+    ...original.tags,
+    'EXIF:GPSLatitude': '1.5',
+    'EXIF:GPSLatitudeRef': 'N',
+    'EXIF:GPSLongitude': '2.5',
+    'EXIF:GPSLongitudeRef': 'W',
+  },
 };
 
 const positionPayload: PositionPayload = {
@@ -64,8 +89,19 @@ describe('buildTimeWrite', () => {
     expect(wroteUtcOffset).toBe(true);
   });
 
+  it('corrects the date without touching the offset tags when the plan withholds it', () => {
+    // The offset was only assumed, so §4.2 keeps the file's local time as ambiguous as
+    // it was: the date is still corrected, but nothing claims to know the zone.
+    const { tags, wroteUtcOffset } = buildTimeWrite({ kind: 'image' }, { ...resolved, writesUtcOffset: false }, null);
+    expect(tags['EXIF:DateTimeOriginal']).toBe('2024:07:12 14:32:10');
+    expect(tags['EXIF:OffsetTimeOriginal']).toBeUndefined();
+    expect(tags['EXIF:OffsetTimeDigitized']).toBeUndefined();
+    expect(wroteUtcOffset).toBe(false);
+  });
+
   it('writes QuickTime UTC for a video, and no EXIF offset tags', () => {
-    const { tags, wroteUtcOffset } = buildTimeWrite({ kind: 'video' }, resolvedVideo, null);
+    // Passed `writesUtcOffset: true` a video still gets none: the tags are EXIF.
+    const { tags, wroteUtcOffset } = buildTimeWrite({ kind: 'video' }, { ...resolvedVideo, writesUtcOffset: true }, null);
     expect(tags['QuickTime:CreateDate']).toBe('2024:07:12 12:32:10');
     expect(tags['EXIF:DateTimeOriginal']).toBeUndefined();
     expect(tags['EXIF:OffsetTimeOriginal']).toBeUndefined();
@@ -73,12 +109,27 @@ describe('buildTimeWrite', () => {
     expect(writesUtcOffsetTag('video')).toBe(false);
   });
 
-  it('preserves the original values in the geotagger namespace on the first write', () => {
-    const { tags } = buildTimeWrite({ kind: 'image' }, resolved, original);
+  it('preserves one original per tag it writes, on the first write', () => {
+    const { tags } = buildTimeWrite({ kind: 'image' }, resolved, original.tags);
     expect(tags[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBe('2024:07:12 13:30:00');
+    // Its own value, not the one derived from DateTimeOriginal.
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalCreateDate`]).toBe('2024:07:12 13:29:00');
     expect(tags[`${GEOTAGGER_GROUP}:TimeShiftSeconds`]).toBe('3732');
     // GPS originals are the position half's business, not time's.
-    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBeUndefined();
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSLatitude`]).toBeUndefined();
+  });
+
+  it('preserves a tag the file did not have as n/a, not as nothing at all', () => {
+    const { tags } = buildTimeWrite({ kind: 'image' }, resolved, original.tags);
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBe('n/a');
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalOffsetTimeDigitized`]).toBe('n/a');
+  });
+
+  it('preserves only the video tag it actually writes', () => {
+    const { tags } = buildTimeWrite({ kind: 'video' }, resolvedVideo, original.tags);
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalCreateDate`]).toBe('2024:07:12 13:30:00');
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBeUndefined();
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBeUndefined();
   });
 
   it('leaves the preserved originals alone on a second write', () => {
@@ -125,67 +176,17 @@ describe('buildPositionWrite', () => {
     expect(tags[`${GEOTAGGER_GROUP}:PositionUncertaintyMeters`]).toBe('42');
   });
 
-  it('preserves the original GPS in the geotagger namespace on the first write', () => {
-    const { tags } = buildPositionWrite(
-      { kind: 'image' },
-      positionPayload,
-      { gpsPresent: true, gpsLatitude: 1.5, gpsLongitude: 2.5 },
-    );
-    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBe('True');
+  it('preserves one original per GPS tag it writes, on the first write', () => {
+    const { tags } = buildPositionWrite({ kind: 'image' }, positionPayload, withCameraGps.tags);
     expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSLatitude`]).toBe('1.5');
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSLatitudeRef`]).toBe('N');
     expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSLongitude`]).toBe('2.5');
-  });
-});
-
-describe('buildTimeRestore', () => {
-  it('puts back what the file said, and clears only the time half', () => {
-    const { tags, restoredLocalIso } = buildTimeRestore({ kind: 'image' }, original);
-    expect(tags['EXIF:DateTimeOriginal']).toBe('2024:07:12 13:30:00');
-    expect(tags['EXIF:OffsetTimeOriginal']).toBeNull();
-    expect(tags[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBeNull();
-    expect(tags[`${GEOTAGGER_GROUP}:TimeShiftSeconds`]).toBeNull();
-    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBeUndefined();
-    expect(restoredLocalIso).toBe('2024-07-12T13:30:00');
-  });
-
-  it('removes the tags entirely from a file that never had a date', () => {
-    const { tags } = buildTimeRestore({ kind: 'image' }, { ...original, dateTimeOriginal: null });
-    expect(tags['EXIF:DateTimeOriginal']).toBeNull();
-    expect(tags['EXIF:CreateDate']).toBeNull();
-  });
-
-  it('reverts a video’s QuickTime date and nothing EXIF', () => {
-    const { tags } = buildTimeRestore({ kind: 'video' }, original);
-    expect(tags['QuickTime:CreateDate']).toBe('2024:07:12 13:30:00');
-    expect(tags['EXIF:DateTimeOriginal']).toBeUndefined();
-  });
-});
-
-describe('buildPositionRestore', () => {
-  it('puts back the original GPS and clears only the position half', () => {
-    const { tags, restoredLat, restoredLon } = buildPositionRestore(
-      { kind: 'image' },
-      { gpsPresent: true, gpsLatitude: 1.5, gpsLongitude: -2.5 },
-    );
-    expect(tags['EXIF:GPSLatitude']).toBe(1.5);
-    expect(tags['EXIF:GPSLatitudeRef']).toBe('N');
-    expect(tags['EXIF:GPSLongitude']).toBe(2.5);
-    expect(tags['EXIF:GPSLongitudeRef']).toBe('W');
-    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSPresent`]).toBeNull();
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalGPSLongitudeRef`]).toBe('W');
+    // The file had EXIF coordinates but no XMP ones, and says so.
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalXMPGPSLatitude`]).toBe('n/a');
+    expect(tags[`${GEOTAGGER_GROUP}:OriginalXMPGPSLongitude`]).toBe('n/a');
+    // Time originals are the other half's business.
     expect(tags[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBeUndefined();
-    expect(restoredLat).toBe(1.5);
-    expect(restoredLon).toBe(-2.5);
-  });
-
-  it('removes GPS tags entirely from a file that never had any', () => {
-    const { tags, restoredLat, restoredLon } = buildPositionRestore(
-      { kind: 'image' },
-      { gpsPresent: false, gpsLatitude: null, gpsLongitude: null },
-    );
-    expect(tags['EXIF:GPSLatitude']).toBeNull();
-    expect(tags['XMP:GPSLatitude']).toBeNull();
-    expect(restoredLat).toBeNull();
-    expect(restoredLon).toBeNull();
   });
 });
 
@@ -194,12 +195,6 @@ describe('the shared ModifiedAt/AppVersion stamp', () => {
     const stamp = buildModifiedStamp('0.1.0');
     expect(stamp[`${GEOTAGGER_GROUP}:AppVersion`]).toBe('0.1.0');
     expect(stamp[`${GEOTAGGER_GROUP}:ModifiedAt`]).toBeTruthy();
-  });
-
-  it('clears cleanly once neither half remains', () => {
-    const cleared = clearModifiedStamp();
-    expect(cleared[`${GEOTAGGER_GROUP}:ModifiedAt`]).toBeNull();
-    expect(cleared[`${GEOTAGGER_GROUP}:AppVersion`]).toBeNull();
   });
 });
 
