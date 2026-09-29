@@ -21,7 +21,6 @@ import {
   writesUtcOffsetTag,
   type OriginalTagValues,
   type PositionIntent,
-  type PreservedTag,
   type TimeIntent,
 } from './tags.js';
 
@@ -86,7 +85,7 @@ export function planEntryFor(file: FileRecord, ctx: PlanContext): PersistPlanEnt
   if (!line || line.effectiveMs === null || line.rawCaptureMs === null) return null;
 
   const preserved = preservedTagsFor(file.kind);
-  const current = currentValues(file, preserved, ctx.written.get(file.id) ?? {});
+  const current = tagValuesOnDisk(file, ctx.written.get(file.id) ?? {});
   const confirmed = ctx.confirmedPositions.get(file.id);
 
   // An offset nothing established is a guess, and writing it would stamp UTC onto a photo
@@ -143,11 +142,7 @@ export function planEntryFor(file: FileRecord, ctx: PlanContext): PersistPlanEnt
  * as the file had it. It never writes a wrong value, and the first write of that field
  * corrects the record for good.
  */
-function currentValues(
-  file: FileRecord,
-  preserved: readonly PreservedTag[],
-  written: OriginalTagValues,
-): OriginalTagValues {
+export function tagValuesOnDisk(file: FileRecord, written: OriginalTagValues): OriginalTagValues {
   const scanned = desiredTagValues(
     file.kind,
     file.captureTimeRaw === null
@@ -163,7 +158,7 @@ function currentValues(
   );
 
   const out: OriginalTagValues = {};
-  for (const { tag } of preserved) out[tag] = written[tag] ?? scanned[tag] ?? null;
+  for (const { tag } of preservedTagsFor(file.kind)) out[tag] = written[tag] ?? scanned[tag] ?? null;
   return out;
 }
 

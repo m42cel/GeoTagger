@@ -18,7 +18,6 @@ import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from '
 import {
   ORIGINAL_ABSENT,
   buildWrite,
-  coordsFromTags,
   fromExifDate,
   legacyWrittenTags,
   preservedTagsFor,
@@ -213,7 +212,7 @@ async function writeOne(
   // per tag, so a write of one field never forgets what another field wrote.
   const writtenTags: OriginalTagValues = { ...(previousWritten ?? {}) };
   for (const change of entry.changes) writtenTags[change.tag] = change.next;
-  const expected = expectedValues(file, entry.changes, writtenTags);
+  const expected = expectedValues(entry);
 
   try {
     const result = await exiftool().write(absPath, tags, WRITE_ARGS);
@@ -261,22 +260,28 @@ interface ExpectedValues {
 /**
  * What a successful write means for the two values the app actually reasons about.
  *
- * Verification is deliberately not a tag-by-tag string comparison: ExifTool normalises
- * some of what it is given (a coordinate becomes a rational, `GPSCoordinates` is
- * reformatted), so comparing characters would fail on writes that were perfectly
- * correct. The timestamp and the position are read back through the same parser the scan
- * uses, which is the reading everything downstream depends on anyway.
+ * Taken from the plan's own per-field changes rather than reassembled from the tags: a
+ * value can be spread across tags the write does not touch — a coordinate's `GPSLatitudeRef`
+ * is left alone when the hemisphere does not change — so a tag map of just this write is
+ * missing the sign, and expecting a positive longitude of a file that correctly wrote a
+ * negative one fails a write that was perfectly good.
+ *
+ * Verification is also deliberately not a tag-by-tag string comparison: ExifTool
+ * normalises some of what it is given (a coordinate becomes a rational, `GPSCoordinates`
+ * is reformatted), so comparing characters would fail on correct writes too. The timestamp
+ * and the position are read back through the same parser the scan uses, which is the
+ * reading everything downstream depends on anyway.
  */
-function expectedValues(file: FileRecord, changes: readonly PersistTagChange[], written: OriginalTagValues): ExpectedValues {
-  const touched = new Set(changes.map((c) => c.field));
-  const dateTag = file.kind === 'video' ? 'QuickTime:CreateDate' : 'EXIF:DateTimeOriginal';
-  const date = touched.has('timestamp') ? written[dateTag] ?? null : null;
-  const coords = touched.has('position') ? coordsFromTags(file.kind, written) : null;
-  return {
-    localIso: date === null ? null : fromExifDate(date),
-    lat: coords?.lat ?? null,
-    lon: coords?.lon ?? null,
-  };
+function expectedValues(entry: PersistPlanEntry): ExpectedValues {
+  const expected: ExpectedValues = { localIso: null, lat: null, lon: null };
+  for (const field of entry.fields) {
+    if (field.field === 'timestamp') expected.localIso = field.newLocalIso;
+    if (field.field === 'position') {
+      expected.lat = field.newLat;
+      expected.lon = field.newLon;
+    }
+  }
+  return expected;
 }
 
 /**

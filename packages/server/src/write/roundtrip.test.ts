@@ -272,6 +272,31 @@ describe('persist against a real JPEG', () => {
     expect(preserved[`${GEOTAGGER_GROUP}:TimeShiftSeconds`]).toBe(7200);
   }, 60_000);
 
+  it('verifies a western-hemisphere position written over the camera’s own (SPEC §9.1)', async () => {
+    // The camera already recorded a position west of Greenwich, so `GPSLongitudeRef` is
+    // already `W` and the confirmed position does not change it — only the coordinates
+    // themselves move. Nothing about the write may depend on that ref being part of it.
+    await makeJpeg('IMG_0008.JPG', '2024:07:12 14:00:00');
+    const abs = path.join(folder, 'IMG_0008.JPG');
+    await exiftool().write(
+      abs,
+      { 'EXIF:GPSLatitude': 52.2, 'EXIF:GPSLatitudeRef': 'N', 'EXIF:GPSLongitude': 117.0, 'EXIF:GPSLongitudeRef': 'W' } as Record<string, string | number>,
+      ['-overwrite_original'],
+    );
+    const id = await index('IMG_0008.JPG');
+    store.folderUtcOffsetMinutes = -420;
+    service.regroup('device');
+    store.confirmPosition(id, 52.2816036, -117.0703125, null, true);
+
+    const progress = await runPersist(context(), { fileIds: [id] }, () => undefined);
+    if (progress.failed > 0) throw new Error(JSON.stringify(progress.results));
+    expect(progress.written).toBe(1);
+
+    const after = await readRawTags(abs, 'image');
+    expect(after['Composite:GPSLatitude']).toBeCloseTo(52.2816036, 5);
+    expect(after['Composite:GPSLongitude']).toBeCloseTo(-117.0703125, 5);
+  }, 60_000);
+
   it('does not clobber a file that changed on disk since it was scanned (SPEC §8.3)', async () => {
     await makeJpeg('IMG_0002.JPG', '2024:07:12 09:00:00');
     await index('IMG_0002.JPG');
