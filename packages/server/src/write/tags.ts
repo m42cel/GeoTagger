@@ -229,31 +229,8 @@ export function buildWrite(
 }
 
 /**
- * The per-tag record for a file persisted before GeoTagger kept one (SPEC §9.3).
- *
- * Such a row holds only the logical values of the last write plus which of the two halves
- * it covered, so the tags of those halves are reconstructed from them. Getting this right
- * matters more than it looks: a tag missing from the record reads as one GeoTagger has
- * never written, and its `Original*` would be stamped a second time — overwriting the
- * file's preserved original with a value GeoTagger itself wrote.
- */
-export function legacyWrittenTags(
-  kind: MediaKind,
-  applied: { localIso: string | null; utcOffsetMinutes: number | null; lat: number | null; lon: number | null },
-  halves: { wroteTime: boolean; wroteGps: boolean },
-): OriginalTagValues {
-  const time =
-    halves.wroteTime && applied.localIso !== null
-      ? { effectiveMs: instantOfNaive(kind, applied.localIso, applied.utcOffsetMinutes ?? 0), utcOffsetMinutes: applied.utcOffsetMinutes ?? 0, writeOffset: applied.utcOffsetMinutes !== null }
-      : null;
-  const position = halves.wroteGps && applied.lat !== null && applied.lon !== null ? { lat: applied.lat, lon: applied.lon } : null;
-  return desiredTagValues(kind, time, position);
-}
-
-/**
  * A naive wall clock back to the instant `desiredTagValues` starts from — the inverse of
- * `localIsoForFile`, for the two places that have a reading rather than an instant: a
- * legacy record of what was written, and the scan's own reading of a file.
+ * `localIsoForFile`, for the plan's own reading of what the scan found in a file.
  */
 export function instantOfNaive(kind: MediaKind, localIso: string, utcOffsetMinutes: number): number {
   const ms = Date.parse(`${localIso}Z`);

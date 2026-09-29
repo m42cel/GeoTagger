@@ -850,8 +850,7 @@ export class FolderStore {
   getPersisted(fileId: number): PersistedRow | null {
     const row = this.db
       .prepare<[number], RawPersistedRow>(
-        `SELECT persisted_at, wrote_gps, wrote_time, original_snapshot_json, applied_json,
-                written_tags_json FROM persisted WHERE file_id = ?`,
+        'SELECT persisted_at, original_snapshot_json, written_tags_json FROM persisted WHERE file_id = ?',
       )
       .get(fileId);
     return row ? toPersistedRow(row) : null;
@@ -941,21 +940,11 @@ export interface PersistedRow {
   originalSnapshotJson: string | null;
   /** The value GeoTagger last wrote to each tag it has written, keyed by tag name. */
   writtenTagsJson: string | null;
-  /**
-   * The two half flags and the logical values of the last write, as rows written before
-   * the per-tag record kept them. Read only to reconstruct that record (SPEC §9.3).
-   */
-  wroteGps: boolean;
-  wroteTime: boolean;
-  appliedJson: string | null;
 }
 
 interface RawPersistedRow {
   persisted_at: number;
-  wrote_gps: number;
-  wrote_time: number;
   original_snapshot_json: string | null;
-  applied_json: string | null;
   written_tags_json: string | null;
 }
 
@@ -964,8 +953,5 @@ function toPersistedRow(r: RawPersistedRow): PersistedRow {
     persistedAt: r.persisted_at,
     originalSnapshotJson: r.original_snapshot_json,
     writtenTagsJson: r.written_tags_json,
-    wroteGps: r.wrote_gps !== 0,
-    wroteTime: r.wrote_time !== 0,
-    appliedJson: r.applied_json,
   };
 }

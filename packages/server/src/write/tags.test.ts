@@ -7,7 +7,6 @@ import {
   desiredTagValues,
   formatCoord,
   fromExifDate,
-  legacyWrittenTags,
   localIsoForFile,
   preservedTagsFor,
   toExifDate,
@@ -186,30 +185,6 @@ describe('coordsFromTags', () => {
 
   it('is null when the tags are not there', () => {
     expect(coordsFromTags('image', { 'EXIF:GPSLatitude': null })).toBeNull();
-  });
-});
-
-describe('legacyWrittenTags', () => {
-  it('reconstructs the tags of the halves an older row says were written', () => {
-    const tags = legacyWrittenTags(
-      'image',
-      { localIso: '2024-07-12T15:00:00', utcOffsetMinutes: 120, lat: 47.5, lon: 11.5 },
-      { wroteTime: true, wroteGps: true },
-    );
-    expect(tags['EXIF:DateTimeOriginal']).toBe('2024:07:12 15:00:00');
-    expect(tags['EXIF:OffsetTimeOriginal']).toBe('+02:00');
-    expect(tags['EXIF:GPSLatitude']).toBe('47.5');
-    expect(tags['XMP:GPSLongitude']).toBe('11.5');
-  });
-
-  it('leaves out a half that row never wrote, so its originals are still preserved later', () => {
-    const tags = legacyWrittenTags(
-      'image',
-      { localIso: '2024-07-12T15:00:00', utcOffsetMinutes: 120, lat: 47.5, lon: 11.5 },
-      { wroteTime: true, wroteGps: false },
-    );
-    expect(tags['EXIF:DateTimeOriginal']).toBe('2024:07:12 15:00:00');
-    expect(tags['EXIF:GPSLatitude']).toBeUndefined();
   });
 });
 

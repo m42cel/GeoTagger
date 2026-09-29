@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import type {
   FileRecord,
-  MediaKind,
   PersistFileResult,
   PersistTagChange,
   PersistPlan,
@@ -19,7 +18,6 @@ import {
   ORIGINAL_ABSENT,
   buildWrite,
   fromExifDate,
-  legacyWrittenTags,
   preservedTagsFor,
   type OriginalSnapshot,
   type OriginalTagValues,
@@ -55,13 +53,9 @@ export function planFor(ctx: PersistContext): PersistPlan {
 }
 
 function planContext(ctx: PersistContext): PlanContext {
-  const files = ctx.store.listFiles();
-  const kindById = new Map(files.map((f) => [f.id, f.kind]));
   const written = new Map<number, OriginalTagValues>();
   for (const [fileId, row] of ctx.store.listPersisted()) {
-    const kind = kindById.get(fileId);
-    if (kind === undefined) continue;
-    const values = writtenTagsOf(row, kind);
+    const values = writtenTagsOf(row);
     if (values !== null) written.set(fileId, values);
   }
 
@@ -69,7 +63,7 @@ function planContext(ctx: PersistContext): PlanContext {
   for (const [fileId, edit] of ctx.store.listConfirmedPositionEdits()) confirmedPositions.set(fileId, edit);
 
   return {
-    files,
+    files: ctx.store.listFiles(),
     timeline: ctx.timeline,
     written,
     confirmedPositions,
@@ -81,27 +75,13 @@ function planContext(ctx: PersistContext): PlanContext {
 /**
  * The tags GeoTagger has written to one file, as its row records them.
  *
- * A row from before the record was kept is reconstructed from the logical values it does
- * have (`legacyWrittenTags`). A corrupt one falls back to what the scan read, which at
- * worst rewrites a value that is already correct.
+ * A corrupt record means the plan falls back to what the scan read, which at worst
+ * rewrites a value that is already correct.
  */
-export function writtenTagsOf(row: PersistedRow, kind: MediaKind): OriginalTagValues | null {
-  if (row.writtenTagsJson !== null) {
-    try {
-      return JSON.parse(row.writtenTagsJson) as OriginalTagValues;
-    } catch {
-      return null;
-    }
-  }
-  if (row.appliedJson === null) return null;
+export function writtenTagsOf(row: PersistedRow): OriginalTagValues | null {
+  if (row.writtenTagsJson === null) return null;
   try {
-    const applied = JSON.parse(row.appliedJson) as {
-      localIso: string | null;
-      utcOffsetMinutes: number | null;
-      lat: number | null;
-      lon: number | null;
-    };
-    return legacyWrittenTags(kind, applied, { wroteTime: row.wroteTime, wroteGps: row.wroteGps });
+    return JSON.parse(row.writtenTagsJson) as OriginalTagValues;
   } catch {
     return null;
   }
@@ -190,7 +170,7 @@ async function writeOne(
   }
 
   const previous = ctx.store.getPersisted(file.id);
-  const previousWritten = previous === null ? null : writtenTagsOf(previous, file.kind);
+  const previousWritten = previous === null ? null : writtenTagsOf(previous);
   // The first time either half is ever persisted, the original is whatever the file
   // currently says — nothing has touched it yet, so both halves' tags are read here even
   // if only one of them is being written. A later write reuses the stored snapshot: it

@@ -68,7 +68,7 @@ export class PositionService {
         const file = fileById.get(p.fileId);
         if (file === undefined || p.lat === null || p.lon === null) return true;
         const row = persisted.get(p.fileId);
-        const written = row === undefined ? null : writtenTagsOf(row, file.kind);
+        const written = row === undefined ? null : writtenTagsOf(row);
         const onDisk = coordsFromTags(file.kind, tagValuesOnDisk(file, written ?? {}));
         if (onDisk === null) return true;
         return formatCoord(onDisk.lat) !== formatCoord(p.lat) || formatCoord(onDisk.lon) !== formatCoord(p.lon);

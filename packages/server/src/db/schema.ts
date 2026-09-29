@@ -107,10 +107,7 @@ CREATE TABLE IF NOT EXISTS edits (
 CREATE TABLE IF NOT EXISTS persisted (
   file_id                INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   persisted_at           INTEGER NOT NULL,
-  wrote_gps              INTEGER NOT NULL DEFAULT 0,
-  wrote_time             INTEGER NOT NULL DEFAULT 0,
   original_snapshot_json TEXT,
-  applied_json           TEXT,
   written_tags_json      TEXT,
   exiftool_result        TEXT
 );
@@ -147,10 +144,13 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'files', 'gps_time_utc', 'TEXT');
   addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
-  addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
+  // Schema 5 recorded a whole write as one `applied_json` object; 6 records a value per
+  // tag instead (SPEC §9.1). The old column is left where it is — nothing reads it, and
+  // the values it holds are of a file's last write, not of anything that predates
+  // GeoTagger, so there is nothing in it worth carrying across.
   addColumnIfMissing(db, 'persisted', 'written_tags_json', 'TEXT');
   collapseOffsetRamp(db);
 }
