@@ -818,8 +818,28 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .persist-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .persist-value-new { font-weight: 600; }
 
-.persist-status { text-align: right; white-space: nowrap; }
+/* `td.persist-status`, not `.persist-status`: the table's own `td` rule sets
+   `vertical-align: top` and would otherwise win on specificity — the same reason
+   `td.persist-file` is written that way. */
+.persist-table td.persist-status { text-align: right; white-space: nowrap; vertical-align: middle; }
 .persist-ok { color: var(--known); font-weight: 700; }
+
+/* The file being written. Sized to the checkmark it stands in for, because the status
+   column is `nowrap`: anything wider widens the table mid-run, which is enough to put a
+   horizontal scrollbar under the list and shift every row sideways. */
+.persist-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: persist-spin 0.7s linear infinite;
+}
+
+@keyframes persist-spin {
+  to { transform: rotate(360deg); }
+}
 
 .banner.warn { color: var(--weak); display: grid; gap: 4px; }
 .banner.warn label { display: inline-flex; gap: 6px; align-items: center; color: var(--fg); }

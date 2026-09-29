@@ -308,7 +308,7 @@ function EntryRows({
           <td className="persist-value persist-value-new">{field.next}</td>
           {i === 0 && (
             <td className="persist-status" rowSpan={fields.length}>
-              {active ? <em className="weak">writing…</em> : <Status result={result} />}
+              {active ? <span className="persist-spinner" role="status" aria-label="writing" /> : <Status result={result} />}
             </td>
           )}
         </tr>
