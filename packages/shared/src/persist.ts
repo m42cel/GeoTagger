@@ -3,47 +3,55 @@ import type { PositionSource } from './positions.js';
 /**
  * Writing to files (SPEC §9).
  *
- * A file with both a timestamp and a position change is written exactly once, both
- * payloads in a single ExifTool command (§9.1). Each half — time, position — resolves
- * independently: it is either left alone or written. The first write of a half also
- * stamps that half's `geotagger:Original*` tags, which are never touched again (§9.3).
+ * A file is written exactly once per Persist run, every changed tag in a single ExifTool
+ * command (§9.1). The plan is a **per-tag diff**: for each tag GeoTagger writes, what the
+ * file says now against what it should say. A tag that differs is written, and a tag
+ * written for the first time also has its prior value preserved as
+ * `geotagger:Original<tag>` (§9.3) — which is why the diff is per tag and not per field:
+ * the preserved original belongs to one tag, not to a group of them.
  */
 
-export type PersistHalfKind = 'none' | 'write';
+/** The review list's three rows (SPEC §9.1) — a display grouping over the tags. */
+export type PersistField = 'timestamp' | 'utcOffset' | 'position';
+
+/** One tag this write changes, which is also the unit the plan diffs. */
+export interface PersistTagChange {
+  /** Group-prefixed, exactly as ExifTool is given it, e.g. `EXIF:DateTimeOriginal`. */
+  tag: string;
+  field: PersistField;
+  /** What the file says now — null when it does not have the tag. */
+  old: string | null;
+  /** What will be written. */
+  next: string;
+  /**
+   * True when this is the first time GeoTagger writes this tag, so the write also stamps
+   * `geotagger:Original<tag>` (§9.3). Stamped once and never touched again, which is what
+   * keeps the preserved value the one that predates GeoTagger.
+   */
+  stampsOriginal: boolean;
+}
+
+/**
+ * The same change as the review list shows it without the raw-EXIF toggle: one row per
+ * field, in the app's own units rather than the tags' (SPEC §9.1).
+ */
+export type PersistFieldChange =
+  | { field: 'timestamp'; oldLocalIso: string | null; newLocalIso: string }
+  | { field: 'utcOffset'; oldMinutes: number | null; newMinutes: number }
+  | { field: 'position'; oldLat: number | null; oldLon: number | null; newLat: number; newLon: number };
 
 export interface PersistPlanEntry {
   fileId: number;
   relPath: string;
-  /** What the file currently says, for the persist dialog's old→new rows (SPEC §9.1). */
-  oldLocalIso: string | null;
-  oldUtcOffsetMinutes: number | null;
-  /** The corrected wall clock that will be written, naive ISO. */
-  newLocalIso: string | null;
-  /** The correction in seconds, relative to what the file says now. */
+  /** Every tag that will be written, for the raw-EXIF view. Never empty. */
+  changes: PersistTagChange[];
+  /** The same thing per field, for the human-readable view. */
+  fields: PersistFieldChange[];
+  /** The correction relative to what the file said, in seconds — written as provenance. */
   timeShiftSeconds: number;
-  /** The UTC offset that will be written as `OffsetTimeOriginal`. */
-  utcOffsetMinutes: number | null;
-  timeKind: PersistHalfKind;
-  writesUtcOffset: boolean;
-  /**
-   * True when this write is the time half's first ever — the only time the half's
-   * `geotagger:Original*` tags get stamped (SPEC §9.3). Kept separate from
-   * `timeKind === 'write'`: adding the UTC offset alone is a first write too, while a
-   * second or later write touches the ordinary tags but leaves the preserved original
-   * alone.
-   */
-  stampsOriginalTime: boolean;
-  oldLat: number | null;
-  oldLon: number | null;
-  /** The position that will be written, or null when nothing changes there. */
-  newLat: number | null;
-  newLon: number | null;
   /** Always `manual` or `confirmed` when set — the only two provenances ever persisted. */
   positionSource: PositionSource | null;
   positionUncertaintyM: number | null;
-  positionKind: PersistHalfKind;
-  /** Same idea as `stampsOriginalTime`, for the position half's `Original*` tags. */
-  stampsOriginalPosition: boolean;
   /** True when the file changed on disk since it was scanned (SPEC §8.3). */
   stale: boolean;
 }

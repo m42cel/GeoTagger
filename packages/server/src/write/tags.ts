@@ -1,32 +1,36 @@
-import type { FileRecord, MediaKind } from '@geotagger/shared';
+import type { FileRecord, MediaKind, PersistField, PersistTagChange } from '@geotagger/shared';
 import { formatUtcOffset, msToNaive } from '@geotagger/shared';
 import { GEOTAGGER_GROUP } from './exiftool-config.js';
 
 /**
- * Turning an intended time into the tags ExifTool writes (SPEC §9.2, §9.3).
+ * The tags ExifTool writes, one value at a time (SPEC §9.2, §9.3).
+ *
+ * Every tag GeoTagger writes is its own unit: it has an intended value, a value the file
+ * holds now, and a `geotagger:Original*` that records what was there before the first
+ * time GeoTagger touched *that tag*. The persist plan is the difference between the first
+ * two, tag by tag; nothing groups them beyond the field labels the review list shows.
  *
  * Pure, because this is where a mistake is silent: a photo written with the wrong tag
  * looks fine until a year later when something else reads it.
  */
 
 /**
- * The value a tag held before GeoTagger wrote it, keyed by the tag name exactly as it
- * is written. `null` means the file did not have that tag at all.
+ * The value a tag holds, keyed by the tag name exactly as it is written. `null` means
+ * the file does not have that tag at all.
  */
 export type OriginalTagValues = Record<string, string | null>;
 
-/** What a file said before GeoTagger touched it, kept for revert (SPEC §9.3, §9.4). */
+/** What a file said before GeoTagger touched it, kept as its pre-GeoTagger record (SPEC §9.3). */
 export interface OriginalSnapshot {
-  /** The capture time as the app read it, for the plan's own comparisons and the dialog. */
+  /** The capture time as the app read it, for the human-readable record. */
   dateTimeOriginal: string | null;
   offsetTimeOriginal: string | null;
   gpsLatitude: number | null;
   gpsLongitude: number | null;
   /**
-   * Every tag either half writes, as the file held it. Separate from the four above,
-   * which are what the *app* derived (the capture time can come from a tag GeoTagger
-   * never writes, SPEC §4.1); these are the literal tags, one per `Original*` stamped
-   * into the file.
+   * Every tag either field writes, as the file held it — the literal values, one per
+   * `Original*` stamped into the file. Separate from the four above, which are what the
+   * *app* derived (a capture time can come from a tag GeoTagger never writes, SPEC §4.1).
    */
   tags: OriginalTagValues;
 }
@@ -34,220 +38,226 @@ export interface OriginalSnapshot {
 /** The value written for a tag the file did not have, so absence is recorded as such. */
 export const ORIGINAL_ABSENT = 'n/a';
 
-/** A tag GeoTagger writes, paired with the `geotagger` tag its prior value is kept in. */
+/** A tag GeoTagger writes, with the `geotagger` tag preserving it and its display field. */
 export interface PreservedTag {
   /** Group-prefixed, exactly as handed to ExifTool. */
   tag: string;
   /** The bare name inside the `geotagger` namespace (SPEC §9.3). */
   original: string;
+  /** Which of the review list's three rows this tag belongs under (SPEC §9.1). */
+  field: PersistField;
 }
 
 /**
- * The time half's tags (SPEC §9.2), each with the `Original*` that preserves it.
+ * Every tag GeoTagger writes for a file of this kind, each with the `Original*` that
+ * preserves it.
  *
- * A video's `CreateDate` and a photo's share one `OriginalCreateDate`: a file is one
- * kind or the other, so the two can never collide in the same file.
+ * A video's `CreateDate` and a photo's share one `OriginalCreateDate`: a file is one kind
+ * or the other, so the two can never collide in the same file. A video has no offset tags
+ * at all — `QuickTime:CreateDate` is UTC by definition (SPEC §4.2).
  */
-export function timeTagsFor(kind: MediaKind): PreservedTag[] {
-  return kind === 'video'
-    ? [{ tag: 'QuickTime:CreateDate', original: 'OriginalCreateDate' }]
-    : [
-        { tag: 'EXIF:DateTimeOriginal', original: 'OriginalDateTimeOriginal' },
-        { tag: 'EXIF:CreateDate', original: 'OriginalCreateDate' },
-        { tag: 'EXIF:OffsetTimeOriginal', original: 'OriginalOffsetTimeOriginal' },
-        { tag: 'EXIF:OffsetTimeDigitized', original: 'OriginalOffsetTimeDigitized' },
-      ];
-}
-
-/** The position half's tags (SPEC §9.2), each with the `Original*` that preserves it. */
-export function positionTagsFor(kind: MediaKind): PreservedTag[] {
-  const xmp: PreservedTag[] = [
-    { tag: 'XMP:GPSLatitude', original: 'OriginalXMPGPSLatitude' },
-    { tag: 'XMP:GPSLongitude', original: 'OriginalXMPGPSLongitude' },
-  ];
-  return kind === 'video'
-    ? [{ tag: 'QuickTime:GPSCoordinates', original: 'OriginalGPSCoordinates' }, ...xmp]
-    : [
-        { tag: 'EXIF:GPSLatitude', original: 'OriginalGPSLatitude' },
-        { tag: 'EXIF:GPSLatitudeRef', original: 'OriginalGPSLatitudeRef' },
-        { tag: 'EXIF:GPSLongitude', original: 'OriginalGPSLongitude' },
-        { tag: 'EXIF:GPSLongitudeRef', original: 'OriginalGPSLongitudeRef' },
-        ...xmp,
-      ];
-}
-
-/** Both halves at once, for the one read that captures a file's originals. */
 export function preservedTagsFor(kind: MediaKind): PreservedTag[] {
-  return [...timeTagsFor(kind), ...positionTagsFor(kind)];
+  return kind === 'video'
+    ? [
+        { tag: 'QuickTime:CreateDate', original: 'OriginalCreateDate', field: 'timestamp' },
+        { tag: 'QuickTime:GPSCoordinates', original: 'OriginalGPSCoordinates', field: 'position' },
+        { tag: 'XMP:GPSLatitude', original: 'OriginalXMPGPSLatitude', field: 'position' },
+        { tag: 'XMP:GPSLongitude', original: 'OriginalXMPGPSLongitude', field: 'position' },
+      ]
+    : [
+        { tag: 'EXIF:DateTimeOriginal', original: 'OriginalDateTimeOriginal', field: 'timestamp' },
+        { tag: 'EXIF:CreateDate', original: 'OriginalCreateDate', field: 'timestamp' },
+        { tag: 'EXIF:OffsetTimeOriginal', original: 'OriginalOffsetTimeOriginal', field: 'utcOffset' },
+        { tag: 'EXIF:OffsetTimeDigitized', original: 'OriginalOffsetTimeDigitized', field: 'utcOffset' },
+        { tag: 'EXIF:GPSLatitude', original: 'OriginalGPSLatitude', field: 'position' },
+        { tag: 'EXIF:GPSLatitudeRef', original: 'OriginalGPSLatitudeRef', field: 'position' },
+        { tag: 'EXIF:GPSLongitude', original: 'OriginalGPSLongitude', field: 'position' },
+        { tag: 'EXIF:GPSLongitudeRef', original: 'OriginalGPSLongitudeRef', field: 'position' },
+        { tag: 'XMP:GPSLatitude', original: 'OriginalXMPGPSLatitude', field: 'position' },
+        { tag: 'XMP:GPSLongitude', original: 'OriginalXMPGPSLongitude', field: 'position' },
+      ];
 }
 
-/** What GeoTagger last wrote, so a second persist knows whether anything changed. */
-export interface AppliedState {
-  localIso: string | null;
-  utcOffsetMinutes: number | null;
-  timeShiftSeconds: number;
-  lat: number | null;
-  lon: number | null;
-  positionSource: PositionSourceTag | null;
-  positionUncertaintyM: number | null;
-}
-
-export interface TimePayload {
+/** The instant and offset a file should end up saying, as the plan resolved them. */
+export interface TimeIntent {
   /** The corrected instant, epoch ms. */
   effectiveMs: number;
+  /** The offset the app placed the file at — always known, since the instant needs it. */
   utcOffsetMinutes: number;
-  /** The correction relative to what the file says, in seconds. */
-  timeShiftSeconds: number;
+  /**
+   * Whether that offset may be *written*. A video has no offset tags at all, and an
+   * offset nothing established is a guess §4.2 will not stamp into a file — but either
+   * way it is still what converts the instant back into a wall clock.
+   */
+  writeOffset: boolean;
 }
 
-/** How a confirmed position was arrived at, written as `geotagger:PositionSource` (SPEC §9.2). */
-export type PositionSourceTag = 'manual' | 'interpolated-confirmed';
-
-export interface PositionPayload {
+/** The position a file should end up saying — only ever a confirmed one (SPEC §5.5). */
+export interface PositionIntent {
   lat: number;
   lon: number;
-  source: PositionSourceTag;
-  uncertaintyM: number | null;
 }
 
 /**
- * The wall clock that goes into the file.
+ * The value every tag should hold, for the fields the plan has an opinion about.
  *
- * A photo's date tags are naive local time, so the instant is converted into the
- * file's own offset. A video's `QuickTime:CreateDate` is UTC by definition, so it gets
- * the instant itself — this is the conversion that puts both on one timeline in the
- * first place (SPEC §4.2), run backwards.
+ * A field left out (no confirmed position, a video's offset) yields no entries at all,
+ * which is what keeps those tags out of the diff — GeoTagger never removes a tag, so
+ * "no opinion" and "should be absent" never have to be told apart.
  */
-export function localIsoForFile(kind: MediaKind, payload: TimePayload): string {
+export function desiredTagValues(
+  kind: MediaKind,
+  time: TimeIntent | null,
+  position: PositionIntent | null,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+
+  if (time !== null) {
+    const localIso = localIsoForFile(kind, time);
+    const exifDate = toExifDate(localIso);
+    if (kind === 'video') {
+      // QuickTime stores UTC (SPEC §4.1, §9.2).
+      out['QuickTime:CreateDate'] = exifDate;
+    } else {
+      out['EXIF:DateTimeOriginal'] = exifDate;
+      out['EXIF:CreateDate'] = exifDate;
+      if (time.writeOffset) {
+        const offset = formatUtcOffset(time.utcOffsetMinutes);
+        out['EXIF:OffsetTimeOriginal'] = offset;
+        out['EXIF:OffsetTimeDigitized'] = offset;
+      }
+    }
+  }
+
+  if (position !== null) {
+    if (kind === 'video') {
+      out['QuickTime:GPSCoordinates'] = iso6709(position.lat, position.lon);
+    } else {
+      out['EXIF:GPSLatitude'] = formatCoord(Math.abs(position.lat));
+      out['EXIF:GPSLatitudeRef'] = position.lat >= 0 ? 'N' : 'S';
+      out['EXIF:GPSLongitude'] = formatCoord(Math.abs(position.lon));
+      out['EXIF:GPSLongitudeRef'] = position.lon >= 0 ? 'E' : 'W';
+    }
+    out['XMP:GPSLatitude'] = formatCoord(position.lat);
+    out['XMP:GPSLongitude'] = formatCoord(position.lon);
+  }
+
+  return out;
+}
+
+/**
+ * The wall clock that goes into a file.
+ *
+ * A photo's date tags are naive local time, so the instant is converted into the file's
+ * own offset. A video's `QuickTime:CreateDate` is UTC by definition, so it gets the
+ * instant itself — this is the conversion that puts both on one timeline in the first
+ * place (SPEC §4.2), run backwards. An offset the plan withholds still has to be *used*
+ * here, or the wall clock written would be a different instant than the one intended.
+ */
+export function localIsoForFile(kind: MediaKind, time: Pick<TimeIntent, 'effectiveMs' | 'utcOffsetMinutes'>): string {
   return kind === 'video'
-    ? msToNaive(payload.effectiveMs)
-    : msToNaive(payload.effectiveMs + payload.utcOffsetMinutes * 60_000);
+    ? msToNaive(time.effectiveMs)
+    : msToNaive(time.effectiveMs + time.utcOffsetMinutes * 60_000);
 }
 
 /**
  * UTC offset tags are EXIF, so only an image can carry them.
  *
- * A video needs none: its `CreateDate` is UTC already, which is unambiguous without
- * an offset — the ambiguity §4.2 is about only exists for a naive local reading.
+ * A video needs none: its `CreateDate` is UTC already, which is unambiguous without an
+ * offset — the ambiguity §4.2 is about only exists for a naive local reading.
  */
 export function writesUtcOffsetTag(kind: MediaKind): boolean {
   return kind === 'image';
 }
 
-export interface BuiltWrite {
-  tags: Record<string, string | number>;
-  /** The wall clock written, for verification afterwards. */
-  writtenLocalIso: string;
-  wroteTime: boolean;
-  wroteUtcOffset: boolean;
-}
+/** How a confirmed position was arrived at, written as `geotagger:PositionSource` (SPEC §9.2). */
+export type PositionSourceTag = 'manual' | 'interpolated-confirmed';
 
-export interface ResolvedTimeWrite {
-  /** The wall clock to write, naive ISO — already resolved by the persist plan. */
-  localIso: string;
-  utcOffsetMinutes: number;
-  /**
-   * Whether the offset may be written at all — the plan's decision, not this module's.
-   * An offset nothing established is a guess, and §4.2 has the app ask for it rather
-   * than stamp UTC onto a photo as though it were known; a date correction to such a
-   * file must leave its local time as ambiguous as it found it.
-   */
-  writesUtcOffset: boolean;
+export interface Provenance {
+  /** The correction relative to what the file said, in seconds. */
   timeShiftSeconds: number;
+  positionSource: PositionSourceTag | null;
+  positionUncertaintyM: number | null;
+  appVersion: string;
 }
 
 /**
- * Builds the time half of an ExifTool write.
+ * The whole ExifTool write for one file (SPEC §9.1): every changed tag, the
+ * `geotagger:Original*` for each tag being written for the first time, the provenance of
+ * the fields touched, and the shared `ModifiedAt`/`AppVersion` stamp.
  *
- * The caller merges this with `buildPositionWrite`'s tags into one write per file
- * (SPEC §9.1), and adds the shared `ModifiedAt`/`AppVersion` stamp once — they belong
- * to neither half (SPEC §9.3).
- *
- * `stampOriginal` is passed only on this half's first-ever write: the value GeoTagger
- * preserves must be the one that predates it, never the one it put there last time.
+ * `original` is the file's own pre-GeoTagger values, read a moment earlier; a tag whose
+ * `Original*` is already in the file is not in `changes` with `stampsOriginal` set, so
+ * the preserved value can never be overwritten by one GeoTagger itself wrote (SPEC §9.3).
  */
-export function buildTimeWrite(
+export function buildWrite(
   file: Pick<FileRecord, 'kind'>,
-  resolved: ResolvedTimeWrite,
-  stampOriginal: OriginalTagValues | null,
-): BuiltWrite {
-  const exifDate = toExifDate(resolved.localIso);
-  const tags: Record<string, string | number> = {};
+  changes: readonly PersistTagChange[],
+  original: OriginalTagValues,
+  provenance: Provenance,
+): Record<string, string> {
+  const tags: Record<string, string> = {};
+  const byTag = new Map(preservedTagsFor(file.kind).map((p) => [p.tag, p]));
+  const fields = new Set<PersistField>();
 
-  if (file.kind === 'video') {
-    // QuickTime stores UTC (SPEC §4.1, §9.2).
-    tags['QuickTime:CreateDate'] = exifDate;
-  } else {
-    tags['EXIF:DateTimeOriginal'] = exifDate;
-    tags['EXIF:CreateDate'] = exifDate;
+  for (const change of changes) {
+    tags[change.tag] = change.next;
+    const preserved = byTag.get(change.tag);
+    if (preserved === undefined) continue;
+    fields.add(preserved.field);
+    if (change.stampsOriginal) {
+      tags[`${GEOTAGGER_GROUP}:${preserved.original}`] = original[change.tag] ?? ORIGINAL_ABSENT;
+    }
   }
 
-  const wroteUtcOffset = resolved.writesUtcOffset && writesUtcOffsetTag(file.kind);
-  if (wroteUtcOffset) {
-    const offset = formatUtcOffset(resolved.utcOffsetMinutes);
-    tags['EXIF:OffsetTimeOriginal'] = offset;
-    tags['EXIF:OffsetTimeDigitized'] = offset;
+  // Provenance describes this edit, not the original, so it is rewritten every time the
+  // field it belongs to is touched — and left alone on a field this write did not change.
+  if (fields.has('timestamp') || fields.has('utcOffset')) {
+    tags[`${GEOTAGGER_GROUP}:TimeShiftSeconds`] = String(Math.round(provenance.timeShiftSeconds));
+  }
+  if (fields.has('position') && provenance.positionSource !== null) {
+    tags[`${GEOTAGGER_GROUP}:PositionSource`] = provenance.positionSource;
+    if (provenance.positionUncertaintyM !== null) {
+      tags[`${GEOTAGGER_GROUP}:PositionUncertaintyMeters`] = String(Math.round(provenance.positionUncertaintyM));
+    }
   }
 
-  if (stampOriginal) Object.assign(tags, stampsFor(timeTagsFor(file.kind), stampOriginal));
-  tags[`${GEOTAGGER_GROUP}:TimeShiftSeconds`] = String(Math.round(resolved.timeShiftSeconds));
+  tags[`${GEOTAGGER_GROUP}:ModifiedAt`] = toExifDate(msToNaive(Date.now()));
+  tags[`${GEOTAGGER_GROUP}:AppVersion`] = provenance.appVersion;
 
-  return { tags, writtenLocalIso: resolved.localIso, wroteTime: true, wroteUtcOffset };
-}
-
-export interface BuiltPositionWrite {
-  tags: Record<string, string | number>;
-  writtenLat: number;
-  writtenLon: number;
-}
-
-/**
- * Builds the position half of an ExifTool write (SPEC §9.2). `stampOriginal` is passed
- * only on this half's first-ever write, same rule as `buildTimeWrite`'s.
- *
- * `PositionSource`/`PositionUncertaintyMeters` are written on every position write,
- * not just the first — they describe the current edit's provenance, not the original.
- */
-export function buildPositionWrite(
-  file: Pick<FileRecord, 'kind'>,
-  payload: PositionPayload,
-  stampOriginal: OriginalTagValues | null,
-): BuiltPositionWrite {
-  const tags: Record<string, string | number> = {};
-
-  if (file.kind === 'video') {
-    tags['QuickTime:GPSCoordinates'] = iso6709(payload.lat, payload.lon);
-  } else {
-    tags['EXIF:GPSLatitude'] = Math.abs(payload.lat);
-    tags['EXIF:GPSLatitudeRef'] = payload.lat >= 0 ? 'N' : 'S';
-    tags['EXIF:GPSLongitude'] = Math.abs(payload.lon);
-    tags['EXIF:GPSLongitudeRef'] = payload.lon >= 0 ? 'E' : 'W';
-  }
-  tags['XMP:GPSLatitude'] = payload.lat;
-  tags['XMP:GPSLongitude'] = payload.lon;
-
-  if (stampOriginal) Object.assign(tags, stampsFor(positionTagsFor(file.kind), stampOriginal));
-  tags[`${GEOTAGGER_GROUP}:PositionSource`] = payload.source;
-  if (payload.uncertaintyM !== null) {
-    tags[`${GEOTAGGER_GROUP}:PositionUncertaintyMeters`] = String(Math.round(payload.uncertaintyM));
-  }
-
-  return { tags, writtenLat: payload.lat, writtenLon: payload.lon };
+  return tags;
 }
 
 /**
- * One `geotagger:Original*` per tag the half writes, holding what the file had there.
+ * The per-tag record for a file persisted before GeoTagger kept one (SPEC §9.3).
  *
- * A tag the file did not have is preserved as the literal `n/a` rather than left out:
- * the two must be distinguishable later, since one means "remove this tag again" and
- * the other means "GeoTagger has never written this half".
+ * Such a row holds only the logical values of the last write plus which of the two halves
+ * it covered, so the tags of those halves are reconstructed from them. Getting this right
+ * matters more than it looks: a tag missing from the record reads as one GeoTagger has
+ * never written, and its `Original*` would be stamped a second time — overwriting the
+ * file's preserved original with a value GeoTagger itself wrote.
  */
-function stampsFor(preserved: PreservedTag[], original: OriginalTagValues): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const { tag, original: name } of preserved) {
-    out[`${GEOTAGGER_GROUP}:${name}`] = original[tag] ?? ORIGINAL_ABSENT;
-  }
-  return out;
+export function legacyWrittenTags(
+  kind: MediaKind,
+  applied: { localIso: string | null; utcOffsetMinutes: number | null; lat: number | null; lon: number | null },
+  halves: { wroteTime: boolean; wroteGps: boolean },
+): OriginalTagValues {
+  const time =
+    halves.wroteTime && applied.localIso !== null
+      ? { effectiveMs: instantOfNaive(kind, applied.localIso, applied.utcOffsetMinutes ?? 0), utcOffsetMinutes: applied.utcOffsetMinutes ?? 0, writeOffset: applied.utcOffsetMinutes !== null }
+      : null;
+  const position = halves.wroteGps && applied.lat !== null && applied.lon !== null ? { lat: applied.lat, lon: applied.lon } : null;
+  return desiredTagValues(kind, time, position);
+}
+
+/**
+ * A naive wall clock back to the instant `desiredTagValues` starts from — the inverse of
+ * `localIsoForFile`, for the two places that have a reading rather than an instant: a
+ * legacy record of what was written, and the scan's own reading of a file.
+ */
+export function instantOfNaive(kind: MediaKind, localIso: string, utcOffsetMinutes: number): number {
+  const ms = Date.parse(`${localIso}Z`);
+  return kind === 'video' ? ms : ms - utcOffsetMinutes * 60_000;
 }
 
 /** ISO 6709 for `QuickTime:GPSCoordinates` (SPEC §9.2), e.g. `+47.1234+011.3456/`. */
@@ -256,12 +266,36 @@ function iso6709(lat: number, lon: number): string {
   return `${sign(lat)}${lat.toFixed(4)}${sign(lon)}${lon.toFixed(4)}/`;
 }
 
-/** The shared stamp neither half owns, present as long as either half is (SPEC §9.3). */
-export function buildModifiedStamp(appVersion: string): Record<string, string> {
-  return {
-    [`${GEOTAGGER_GROUP}:ModifiedAt`]: toExifDate(msToNaive(Date.now())),
-    [`${GEOTAGGER_GROUP}:AppVersion`]: appVersion,
-  };
+/**
+ * A coordinate as the characters written into the tag.
+ *
+ * Fixed at seven decimals — about a centimetre — so that the same position always
+ * produces the same string. The plan compares strings, and a value that formatted
+ * differently on two runs would look like a change that needs writing on every Persist.
+ */
+export function formatCoord(value: number): string {
+  return String(Number(value.toFixed(7)));
+}
+
+/** The signed coordinates a file's tags say, for the review list's human-readable rows. */
+export function coordsFromTags(
+  kind: MediaKind,
+  values: OriginalTagValues,
+): { lat: number; lon: number } | null {
+  if (kind === 'video') {
+    const raw = values['QuickTime:GPSCoordinates'];
+    const m = raw == null ? null : /^([+-]?\d+(?:\.\d+)?)\s*([+-]\d+(?:\.\d+)?)/.exec(raw.trim());
+    if (m) return { lat: Number(m[1]), lon: Number(m[2]) };
+    const lat = values['XMP:GPSLatitude'];
+    const lon = values['XMP:GPSLongitude'];
+    return lat == null || lon == null ? null : { lat: Number(lat), lon: Number(lon) };
+  }
+  const lat = values['EXIF:GPSLatitude'];
+  const lon = values['EXIF:GPSLongitude'];
+  if (lat == null || lon == null) return null;
+  const south = values['EXIF:GPSLatitudeRef'] === 'S';
+  const west = values['EXIF:GPSLongitudeRef'] === 'W';
+  return { lat: Math.abs(Number(lat)) * (south ? -1 : 1), lon: Math.abs(Number(lon)) * (west ? -1 : 1) };
 }
 
 /** `2024-07-12T14:32:10` to the `2024:07:12 14:32:10` ExifTool writes. */

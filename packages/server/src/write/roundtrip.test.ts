@@ -145,8 +145,7 @@ describe('persist against a real JPEG', () => {
 
     const plan = planFor(context());
     const entry = plan.entries.find((e) => e.fileId === id);
-    expect(entry?.timeKind).toBe('write');
-    expect(entry?.positionKind).toBe('write');
+    expect(entry?.fields.map((f) => f.field)).toEqual(['timestamp', 'utcOffset', 'position']);
 
     const progress = await runPersist(context(), { fileIds: [id] }, () => undefined);
     expect(progress.failed).toBe(0);
@@ -167,19 +166,19 @@ describe('persist against a real JPEG', () => {
 
   }, 60_000);
 
-  it('preserves the originals when the only change is the UTC offset, and stops there', async () => {
-    // The file's wall clock is already right, so §4.2's offset is the whole write. It is
-    // still the time half's first write: without the preserved originals the offset could
-    // never be taken back off again.
+  it('preserves only the tags it writes, and preserves the rest when they are written later', async () => {
+    // The file's wall clock is already right, so §4.2's offset is the whole write — and
+    // the whole of what gets preserved. The date tags are untouched, so claiming an
+    // original for them would be claiming to have overwritten something.
     await makeJpeg('IMG_0004.JPG', '2024:07:12 14:32:10');
     const id = await index('IMG_0004.JPG');
     store.folderUtcOffsetMinutes = 120;
     service.regroup('device');
 
     const entry = planFor(context()).entries.find((e) => e.fileId === id);
-    expect(entry?.timeKind).toBe('none');
-    expect(entry?.writesUtcOffset).toBe(true);
-    expect(entry?.stampsOriginalTime).toBe(true);
+    // Only the offset moves, and both its tags are being written for the first time.
+    expect(entry?.fields).toEqual([{ field: 'utcOffset', oldMinutes: null, newMinutes: 120 }]);
+    expect(entry?.changes.every((c) => c.stampsOriginal)).toBe(true);
 
     const progress = await runPersist(context(), { fileIds: [id] }, () => undefined);
     expect(progress.failed).toBe(0);
@@ -187,12 +186,25 @@ describe('persist against a real JPEG', () => {
     const abs = path.join(folder, 'IMG_0004.JPG');
     expect((await readRawTags(abs, 'image'))['EXIF:OffsetTimeOriginal']).toBe('+02:00');
     const preserved = await exiftool().readRaw(abs, ['-G1', `-${GEOTAGGER_GROUP}:all`]);
-    expect(rawValueOf(preserved[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 14:32:10');
     expect(preserved[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBe('n/a');
+    expect(preserved[`${GEOTAGGER_GROUP}:OriginalOffsetTimeDigitized`]).toBe('n/a');
+    expect(preserved[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`]).toBeUndefined();
 
-    // Persisting again must not read "the time already equals the original" as a reset
-    // and take the offset back off.
+    // Persisting again writes nothing: every tag already says what it should.
     expect(planFor(context()).entries.filter((e) => e.fileId === id)).toEqual([]);
+
+    // Correcting the clock later is the date tags' first write, so *their* originals are
+    // preserved now — still the pre-GeoTagger values, since nothing has touched them.
+    const stripId = (service.strips().strips.find((s) => s.fileCount > 0) as { id: number }).id;
+    service.setOffset(stripId, 3600);
+    expect((await runPersist(context(), { fileIds: [id] }, () => undefined)).failed).toBe(0);
+
+    const later = await exiftool().readRaw(abs, ['-G1', `-${GEOTAGGER_GROUP}:all`]);
+    expect(rawValueOf(later[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 14:32:10');
+    expect(rawValueOf(later[`${GEOTAGGER_GROUP}:OriginalCreateDate`])).toBe('n/a');
+    // And the offset's original is untouched by that second write.
+    expect(later[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBe('n/a');
+    expect((await readRawTags(abs, 'image'))['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 15:32:10/);
   }, 60_000);
 
   it('corrects the time of a folder with no known offset without inventing one (SPEC §4.2)', async () => {
@@ -208,8 +220,8 @@ describe('persist against a real JPEG', () => {
     service.setOffset(stripId, 3600);
 
     const entry = planFor(context()).entries.find((e) => e.fileId === id);
-    expect(entry?.timeKind).toBe('write');
-    expect(entry?.writesUtcOffset).toBe(false);
+    expect(entry?.fields.map((f) => f.field)).toEqual(['timestamp']);
+    expect(entry?.changes.map((c) => c.tag)).toEqual(['EXIF:DateTimeOriginal', 'EXIF:CreateDate']);
 
     const progress = await runPersist(context(), { fileIds: [id] }, () => undefined);
     expect(progress.failed).toBe(0);
@@ -218,10 +230,46 @@ describe('persist against a real JPEG', () => {
     expect(after['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 15:00:00/);
     expect(after['EXIF:OffsetTimeOriginal']).toBeUndefined();
     expect(after['EXIF:OffsetTimeDigitized']).toBeUndefined();
-    // The originals are still stamped: it is the time half's first write either way.
+    // The date tags are the write, so they are what gets preserved — no offset original,
+    // because no offset tag was touched.
     const preserved = await exiftool().readRaw(path.join(folder, 'IMG_0006.JPG'), ['-G1', `-${GEOTAGGER_GROUP}:all`]);
     expect(rawValueOf(preserved[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 14:00:00');
-    expect(preserved[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBe('n/a');
+    expect(preserved[`${GEOTAGGER_GROUP}:OriginalOffsetTimeOriginal`]).toBeUndefined();
+  }, 60_000);
+
+  it('goes quiet after writing one field of a file that had both written (SPEC §9.1)', async () => {
+    // The bug this replaces: the record of a write covered the whole file, so writing the
+    // timestamp forgot the position that was already on disk, the next plan proposed it
+    // again, that write forgot the timestamp, and Persist never went quiet — it alternated
+    // between two phantom changes for ever, rewriting the file each time.
+    await makeJpeg('IMG_0007.JPG', '2024:07:12 14:00:00');
+    const id = await index('IMG_0007.JPG');
+    store.folderUtcOffsetMinutes = 120;
+    service.regroup('device');
+    const stripId = (service.strips().strips.find((s) => s.fileCount > 0) as { id: number }).id;
+    service.setOffset(stripId, 3600);
+    store.confirmPosition(id, 47.5, 11.5, null, true);
+    expect((await runPersist(context(), { fileIds: [id] }, () => undefined)).failed).toBe(0);
+
+    // One further edit, to the clock alone.
+    service.setOffset(stripId, 7200);
+    const entry = planFor(context()).entries.find((e) => e.fileId === id);
+    expect(entry?.fields.map((f) => f.field)).toEqual(['timestamp']);
+    expect((await runPersist(context(), { fileIds: [id] }, () => undefined)).failed).toBe(0);
+
+    // Nothing left to do, however many times it is asked.
+    expect(planFor(context()).entries.filter((e) => e.fileId === id)).toEqual([]);
+    expect(planFor(context()).entries.filter((e) => e.fileId === id)).toEqual([]);
+
+    const abs = path.join(folder, 'IMG_0007.JPG');
+    const f = await readRawTags(abs, 'image');
+    expect(f['EXIF:DateTimeOriginal']).toMatch(/^2024:07:12 16:00:00/);
+    expect(f['Composite:GPSLatitude']).toBeCloseTo(47.5, 4);
+    // Each field's original is still the pre-GeoTagger one, stamped by its own first write.
+    const preserved = await exiftool().readRaw(abs, ['-G1', `-${GEOTAGGER_GROUP}:all`]);
+    expect(rawValueOf(preserved[`${GEOTAGGER_GROUP}:OriginalDateTimeOriginal`])).toBe('2024:07:12 14:00:00');
+    expect(preserved[`${GEOTAGGER_GROUP}:OriginalGPSLatitude`]).toBe('n/a');
+    expect(preserved[`${GEOTAGGER_GROUP}:TimeShiftSeconds`]).toBe(7200);
   }, 60_000);
 
   it('does not clobber a file that changed on disk since it was scanned (SPEC §8.3)', async () => {

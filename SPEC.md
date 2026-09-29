@@ -770,6 +770,13 @@ Nothing is written until the user runs **Persist changes**. This keeps metadata 
 minimum on slow storage, allows free experimentation, and makes the whole edit set reviewable
 before it becomes permanent.
 
+**What gets written is a per-tag difference.** For every tag GeoTagger writes (§9.2), the plan
+compares what the file says with what it should say, and a tag that differs is written. "What the
+file says" is the value GeoTagger last wrote to that tag, or — for a tag it has never written —
+what the scan read. So a second Persist with nothing changed in between writes nothing at all,
+and a Persist after one further nudge writes only the tags that moved. The tag is the unit
+because the preserved original of §9.3 belongs to a tag rather than to a group of them.
+
 The dialog is one scrollable, per-file review list — there is no separate summary-counts screen
 and no separate post-write report; the same list becomes the report once writing starts.
 
@@ -797,12 +804,14 @@ Persist changes                                   [ ] thumbnails   [ ] raw EXIF 
 - **Thumbnails toggle**, off by default: adds each file's thumbnail beside its filename, using
   the thumbnail pipeline (§10.1) that already ran at scan time — opening the dialog triggers no
   extra work.
-- **Raw EXIF values toggle**, off by default: switches old/new from the human-readable
-  formatting used elsewhere in the app (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to the
-  literal tag values ExifTool will write (separate `GPSLatitude`/`GPSLatitudeRef`,
-  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and so on).
-- A file with both a timestamp and a position change is still written **once**, both payloads in
-  a single ExifTool command — the per-field sub-rows are a display grouping, not separate writes.
+- **Raw EXIF values toggle**, off by default: switches the list from one row per changed *field*
+  in the app's own units (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to **one row per
+  changed tag** — the plan as it really is: `EXIF:GPSLatitude` and `GPSLatitudeRef` separately,
+  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and the `geotagger:Original*` this
+  write preserves (§9.3) appended, each showing the value it will hold.
+- The three fields — position, timestamp, UTC offset — are a **display grouping over the tags**,
+  not a unit of writing: a file changing all three is still written **once**, every tag in a
+  single ExifTool command.
 - Once **Write** is pressed the list stops being editable and each file's row fills in a status
   (✓ written and verified, or ✗ failed with a reason) as ExifTool finishes it, turning the same
   rows just reviewed into the report — progress is this filling-in, not a separate bar.
@@ -862,23 +871,27 @@ geotagger:AppVersion
 ```
 
 A tag the file **did not have** is preserved as the literal `n/a`, never left out: an absent
-`Original*` would be indistinguishable from GeoTagger never having written that half, whereas `n/a`
+`Original*` would be indistinguishable from GeoTagger never having written that tag, whereas `n/a`
 says plainly that there was nothing there. The values are read from the file itself immediately
 before its first write, so they are the characters the file actually held.
 
-**The `Original*` tags are written exactly once per half and never touched again.** They are
-stamped on that half's first persist; every later persist writes the ordinary tags and leaves the
-preserved originals alone, so what they hold always predates GeoTagger no matter how many times a
-file is re-persisted. The same snapshot is stored in the edit store, so the record survives whether
-the app database or the file is the surviving copy. Nothing in the app reads it back yet — it is
-written for the deferred revert of §9.4, and for anyone inspecting the file with `exiftool`.
+**Each `Original*` is written exactly once and never touched again.** It is stamped by the first
+write of *its own tag* — not of some group the tag belongs to — so a write only ever claims to have
+overwritten what it actually overwrote. Adding the UTC offset of §4.2 on its own preserves the two
+offset tags and nothing else; correcting the clock later preserves the two date tags then, with the
+values still in the file because nothing had touched them. Every later write of a tag leaves its
+`Original*` alone, so what the block holds always predates GeoTagger however many times a file is
+re-persisted.
 
-The block has two halves: the `GPS`/`XMPGPS` originals, `PositionSource` and
-`PositionUncertaintyMeters` are the **position half**; the date and offset originals and
-`TimeShiftSeconds` are the **time half**. Each is stamped on its own half's first write and never
-disturbs the other's tags — adding the UTC offset of §4.2 on its own is a first write of the time
-half like any other. `ModifiedAt` and `AppVersion` belong to neither and are refreshed by any
-write.
+The rest of the block is **provenance**, not preservation: `TimeShiftSeconds` describes the current
+correction, `PositionSource` and `PositionUncertaintyMeters` the current placement, and they are
+rewritten whenever the field they describe is written. `ModifiedAt` and `AppVersion` are refreshed
+by any write at all. None of them has an `Original*` — they are GeoTagger's own output, and there
+was nothing there before.
+
+The same snapshot is stored in the edit store, so the record survives whether the app database or
+the file is the surviving copy. Nothing in the app reads it back yet — it is written for the
+deferred revert of §9.4, and for anyone inspecting the file with `exiftool`.
 
 ### 9.4 Revert
 
@@ -906,9 +919,9 @@ an explicit offset override swallowed while a reset stood). A different design w
 before it is built again.
 
 What remains, and what a future implementation is meant to build on, is the record itself: the
-`Original*` block of §9.3 and the same snapshot in the edit store. Both are written on a half's
-first persist and never touched again, so the information a revert needs keeps accumulating while
-the feature is absent.
+`Original*` block of §9.3 and the same snapshot in the edit store. Each tag's original is written
+by that tag's first persist and never touched again, so the information a revert needs keeps
+accumulating while the feature is absent.
 
 ### 9.5 RAW (deferred)
 

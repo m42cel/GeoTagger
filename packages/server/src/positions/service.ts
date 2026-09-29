@@ -2,7 +2,8 @@ import type { ComputedPosition, FileRecord, KnownPosition, PositionInput } from 
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
-import type { AppliedState } from '../write/tags.js';
+import { coordsFromTags, formatCoord } from '../write/tags.js';
+import { writtenTagsOf } from '../write/persist.js';
 
 /**
  * Turns a folder's files into map positions (SPEC §5).
@@ -48,20 +49,23 @@ export class PositionService {
    * persisted at all, or persisted with different coordinates than the current edit.
    * Camera GPS, a pending drag and an unconfirmed estimate are never persisted, so
    * they are never "unpersisted" either — only a settled, `confirmed` position is.
+   *
+   * Compared through the same coordinate formatting the writer uses, so a position that
+   * differs only past the digit a tag can hold does not read as unpersisted for ever.
    */
   unpersistedFileIds(positions: readonly ComputedPosition[]): number[] {
     const persisted = this.store.listPersisted();
+    const kindById = new Map(this.store.listFiles().map((f) => [f.id, f.kind]));
     return positions
       .filter((p) => p.source === 'confirmed')
       .filter((p) => {
         const row = persisted.get(p.fileId);
-        if (!row || !row.wroteGps || row.appliedJson === null) return true;
-        try {
-          const applied = JSON.parse(row.appliedJson) as AppliedState;
-          return applied.lat !== p.lat || applied.lon !== p.lon;
-        } catch {
-          return true;
-        }
+        const kind = kindById.get(p.fileId);
+        if (!row || kind === undefined) return true;
+        const written = writtenTagsOf(row, kind);
+        const onDisk = written === null ? null : coordsFromTags(kind, written);
+        if (onDisk === null || p.lat === null || p.lon === null) return true;
+        return formatCoord(onDisk.lat) !== formatCoord(p.lat) || formatCoord(onDisk.lon) !== formatCoord(p.lon);
       })
       .map((p) => p.fileId);
   }

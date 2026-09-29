@@ -825,43 +825,33 @@ export class FolderStore {
   recordPersisted(row: {
     fileId: number;
     persistedAt: number;
-    wroteGps: boolean;
-    wroteTime: boolean;
     originalSnapshotJson: string | null;
-    appliedJson: string | null;
+    /** Every tag GeoTagger has written to this file, this run's included (SPEC §9.1). */
+    writtenTagsJson: string | null;
     exiftoolResult: string | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO persisted (file_id, persisted_at, wrote_gps, wrote_time,
-                                original_snapshot_json, applied_json, exiftool_result)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO persisted (file_id, persisted_at, original_snapshot_json,
+                                written_tags_json, exiftool_result)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(file_id) DO UPDATE SET
            persisted_at = excluded.persisted_at,
-           wrote_gps = persisted.wrote_gps | excluded.wrote_gps,
-           wrote_time = persisted.wrote_time | excluded.wrote_time,
-           -- The first snapshot is the one that predates GeoTagger, so it is what
-           -- revert has to restore; a later write must not overwrite it with values
+           -- The first snapshot is the one that predates GeoTagger, so it is the record a
+           -- revert would work from; a later write must not overwrite it with values
            -- GeoTagger itself put there.
            original_snapshot_json = COALESCE(persisted.original_snapshot_json, excluded.original_snapshot_json),
-           applied_json = excluded.applied_json,
+           written_tags_json = excluded.written_tags_json,
            exiftool_result = excluded.exiftool_result`,
       )
-      .run(
-        row.fileId,
-        row.persistedAt,
-        row.wroteGps ? 1 : 0,
-        row.wroteTime ? 1 : 0,
-        row.originalSnapshotJson,
-        row.appliedJson,
-        row.exiftoolResult,
-      );
+      .run(row.fileId, row.persistedAt, row.originalSnapshotJson, row.writtenTagsJson, row.exiftoolResult);
   }
 
   getPersisted(fileId: number): PersistedRow | null {
     const row = this.db
       .prepare<[number], RawPersistedRow>(
-        'SELECT persisted_at, wrote_gps, wrote_time, original_snapshot_json, applied_json FROM persisted WHERE file_id = ?',
+        `SELECT persisted_at, wrote_gps, wrote_time, original_snapshot_json, applied_json,
+                written_tags_json FROM persisted WHERE file_id = ?`,
       )
       .get(fileId);
     return row ? toPersistedRow(row) : null;
@@ -947,11 +937,16 @@ function parseNaive(iso: string | null): number | null {
 /** A `persisted` row as the writer uses it (SPEC §9.3). */
 export interface PersistedRow {
   persistedAt: number;
+  /** What the file said before GeoTagger first wrote to it; the record a revert works from. */
+  originalSnapshotJson: string | null;
+  /** The value GeoTagger last wrote to each tag it has written, keyed by tag name. */
+  writtenTagsJson: string | null;
+  /**
+   * The two half flags and the logical values of the last write, as rows written before
+   * the per-tag record kept them. Read only to reconstruct that record (SPEC §9.3).
+   */
   wroteGps: boolean;
   wroteTime: boolean;
-  /** What the file said before GeoTagger first wrote to it; the basis for revert. */
-  originalSnapshotJson: string | null;
-  /** What GeoTagger last wrote to it. */
   appliedJson: string | null;
 }
 
@@ -961,14 +956,16 @@ interface RawPersistedRow {
   wrote_time: number;
   original_snapshot_json: string | null;
   applied_json: string | null;
+  written_tags_json: string | null;
 }
 
 function toPersistedRow(r: RawPersistedRow): PersistedRow {
   return {
     persistedAt: r.persisted_at,
+    originalSnapshotJson: r.original_snapshot_json,
+    writtenTagsJson: r.written_tags_json,
     wroteGps: r.wrote_gps !== 0,
     wroteTime: r.wrote_time !== 0,
-    originalSnapshotJson: r.original_snapshot_json,
     appliedJson: r.applied_json,
   };
 }

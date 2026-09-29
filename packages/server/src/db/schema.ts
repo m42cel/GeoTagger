@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS persisted (
   wrote_time             INTEGER NOT NULL DEFAULT 0,
   original_snapshot_json TEXT,
   applied_json           TEXT,
+  written_tags_json      TEXT,
   exiftool_result        TEXT
 );
 
@@ -150,6 +151,7 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
+  addColumnIfMissing(db, 'persisted', 'written_tags_json', 'TEXT');
   collapseOffsetRamp(db);
 }
 

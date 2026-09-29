@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { PersistFileResult, PersistPlan, PersistPlanEntry, PersistProgress, StalePolicy } from '@geotagger/shared';
+import type {
+  PersistFieldChange,
+  PersistFileResult,
+  PersistPlan,
+  PersistPlanEntry,
+  PersistProgress,
+  StalePolicy,
+} from '@geotagger/shared';
 import { formatUtcOffset, kindForExtension } from '@geotagger/shared';
 import { api, runPersist } from './api.js';
 import { errorText } from './App.js';
@@ -164,65 +171,63 @@ export function PersistDialog({ onClose }: { onClose: (wrote: boolean) => void }
   );
 }
 
+/**
+ * One row of a file's changes. The two modes produce disjoint sets of rows, so `label` is
+ * whatever that mode names the row by: the tag in raw mode, the field in the readable one.
+ */
 interface Field {
   key: string;
   label: string;
-  rawLabel: string;
   old: string;
   next: string;
 }
 
 /**
- * One row per field a file actually changes (SPEC §9.1) — position, timestamp, UTC
- * offset. In raw-EXIF mode, latitude and longitude split into their own rows (they're
- * separate tags for a photo), and the `geotagger:Original*` preservation tags this
- * write would stamp or clear (SPEC §9.3) are appended too — both are specific to raw
- * mode, since neither means anything in the human-readable view.
+ * The rows for one file (SPEC §9.1).
+ *
+ * The two modes are two views of the same plan entry, not two computations: the
+ * human-readable one shows the entry's per-field changes in the app's own units, the raw
+ * one shows every tag the write touches, which is what the entry's `changes` already are.
+ * The `geotagger:Original*` a first write preserves are raw-mode only — they mean nothing
+ * in a view that talks about positions and timestamps.
  */
 function fieldsFor(entry: PersistPlanEntry, rawExif: boolean): Field[] {
-  const kind = kindForExtension(entry.relPath.split('.').pop() ?? '') ?? 'image';
-  const fields: Field[] = [];
+  if (!rawExif) return entry.fields.map(readableField);
 
-  if (entry.positionKind !== 'none') {
-    if (rawExif && kind === 'image') {
-      fields.push(
-        { key: 'position-lat', label: 'position', rawLabel: 'EXIF:GPSLatitude', old: rawLat(entry.oldLat), next: rawLat(entry.newLat) },
-        { key: 'position-lon', label: 'position', rawLabel: 'EXIF:GPSLongitude', old: rawLon(entry.oldLon), next: rawLon(entry.newLon) },
-      );
-    } else {
-      fields.push({
-        key: 'position',
-        label: 'position',
-        rawLabel: kind === 'video' ? 'QuickTime:GPSCoordinates' : 'EXIF:GPSLatitude/GPSLongitude',
-        old: formatPosition(entry.oldLat, entry.oldLon),
-        next: formatPosition(entry.newLat, entry.newLon),
-      });
-    }
-  }
+  const rows = entry.changes.map((change) => ({
+    key: `tag-${change.tag}`,
+    label: change.tag,
+    old: change.old ?? NA,
+    next: change.next,
+  }));
 
-  if (entry.timeKind !== 'none') {
-    fields.push({
+  return [...rows, ...originalRows(entry)];
+}
+
+/** One field's change as the app talks about it, rather than as its tags hold it. */
+function readableField(change: PersistFieldChange): Field {
+  if (change.field === 'timestamp') {
+    return {
       key: 'timestamp',
       label: 'timestamp',
-      rawLabel: kind === 'video' ? 'QuickTime:CreateDate' : 'EXIF:DateTimeOriginal',
-      old: rawExif ? rawExifDate(entry.oldLocalIso) : formatLocalIso(entry.oldLocalIso),
-      next: rawExif ? rawExifDate(entry.newLocalIso) : formatLocalIso(entry.newLocalIso),
-    });
+      old: formatLocalIso(change.oldLocalIso),
+      next: formatLocalIso(change.newLocalIso),
+    };
   }
-
-  if (entry.writesUtcOffset) {
-    fields.push({
+  if (change.field === 'utcOffset') {
+    return {
       key: 'utc-offset',
       label: 'UTC offset',
-      rawLabel: 'EXIF:OffsetTimeOriginal',
-      old: formatOffsetValue(entry.oldUtcOffsetMinutes),
-      next: formatOffsetValue(entry.utcOffsetMinutes),
-    });
+      old: formatOffsetValue(change.oldMinutes),
+      next: formatOffsetValue(change.newMinutes),
+    };
   }
-
-  if (rawExif) fields.push(...geotaggerFieldsFor(entry));
-
-  return fields;
+  return {
+    key: 'position',
+    label: 'position',
+    old: formatPosition(change.oldLat, change.oldLon),
+    next: formatPosition(change.newLat, change.newLon),
+  };
 }
 
 /** No such tag, on either side of a row: nothing there before, or nothing left after. */
@@ -231,44 +236,30 @@ const NA = '—';
 const ABSENT = 'n/a';
 
 /**
- * The `geotagger:Original*` preservation tags (SPEC §9.3): stamped once, the first time
- * a half is ever written, with what the file currently says. A later write touches none
- * of them — the preserved original doesn't change just because the edit did.
+ * The `geotagger:Original*` tags this write preserves (SPEC §9.3).
  *
- * Only the tags whose prior value the plan itself knows are listed. The write stamps one
- * `Original*` per tag it touches, including `EXIF:CreateDate` and the `XMP:GPS*` pair,
- * whose prior values are read from the file at write time.
+ * One per tag being written for the first time, holding what that tag says now — or `n/a`
+ * when it says nothing at all. A tag GeoTagger has written before is absent from these
+ * rows, because its original was preserved once and is never touched again.
  */
-function geotaggerFieldsFor(entry: PersistPlanEntry): Field[] {
-  const fields: Field[] = [];
+function originalRows(entry: PersistPlanEntry): Field[] {
+  return entry.changes
+    .filter((change) => change.stampsOriginal)
+    .map((change) => ({
+      key: `original-${change.tag}`,
+      label: `geotagger:Original${originalNameFor(change.tag)}`,
+      old: NA,
+      next: change.old ?? ABSENT,
+    }));
+}
 
-  if (entry.stampsOriginalTime) {
-    fields.push(
-      {
-        key: 'g-date',
-        label: 'original date',
-        rawLabel: 'geotagger:OriginalDateTimeOriginal',
-        old: NA,
-        next: entry.oldLocalIso === null ? ABSENT : rawExifDate(entry.oldLocalIso),
-      },
-      {
-        key: 'g-offset',
-        label: 'original offset',
-        rawLabel: 'geotagger:OriginalOffsetTimeOriginal',
-        old: NA,
-        next: entry.oldUtcOffsetMinutes === null ? ABSENT : formatUtcOffset(entry.oldUtcOffsetMinutes),
-      },
-    );
-  }
-
-  if (entry.stampsOriginalPosition) {
-    fields.push(
-      { key: 'g-gpslat', label: 'original latitude', rawLabel: 'geotagger:OriginalGPSLatitude', old: NA, next: entry.oldLat === null ? ABSENT : String(entry.oldLat) },
-      { key: 'g-gpslon', label: 'original longitude', rawLabel: 'geotagger:OriginalGPSLongitude', old: NA, next: entry.oldLon === null ? ABSENT : String(entry.oldLon) },
-    );
-  }
-
-  return fields;
+/**
+ * The `Original*` name for a tag, mirroring the writer's own table: the bare tag name,
+ * except that an `XMP:GPS*` tag keeps its group to stay distinct from the EXIF pair.
+ */
+function originalNameFor(tag: string): string {
+  const [group, name] = tag.split(':');
+  return group === 'XMP' ? `XMP${name}` : (name as string);
 }
 
 /**
@@ -312,7 +303,7 @@ function EntryRows({
               </span>
             </td>
           )}
-          <td className="persist-label">{rawExif ? field.rawLabel : field.label}</td>
+          <td className="persist-label">{field.label}</td>
           <td className="persist-value">{field.old}</td>
           <td className="persist-value persist-value-new">{field.next}</td>
           {i === 0 && (
@@ -344,20 +335,4 @@ function formatLocalIso(iso: string | null): string {
 
 function formatOffsetValue(minutes: number | null): string {
   return minutes === null ? '—' : formatUtcOffset(minutes);
-}
-
-/** `EXIF:GPSLatitude`/`GPSLongitude` are unsigned, with the sign carried by a separate ref tag. */
-function rawLat(lat: number | null): string {
-  return lat === null ? '—' : `${Math.abs(lat)} ${lat >= 0 ? 'N' : 'S'}`;
-}
-
-function rawLon(lon: number | null): string {
-  return lon === null ? '—' : `${Math.abs(lon)} ${lon >= 0 ? 'E' : 'W'}`;
-}
-
-/** `2024-07-12T14:32:10` to the `2024:07:12 14:32:10` ExifTool writes. */
-function rawExifDate(iso: string | null): string {
-  if (iso === null) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
-  return m ? `${m[1]}:${m[2]}:${m[3]} ${m[4]}:${m[5]}:${m[6]}` : iso;
 }
