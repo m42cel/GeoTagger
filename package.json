@@ -17,7 +17,7 @@
     "dev": "npm run dev -w @geotagger/server",
     "dev:web": "npm run dev -w @geotagger/web",
     "test": "vitest run",
-    "typecheck": "tsc -b --force && tsc -p packages/server/tsconfig.test.json"
+    "typecheck": "tsc -b --force && tsc -p packages/server/tsconfig.test.json && npm run typecheck -w @geotagger/web"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
