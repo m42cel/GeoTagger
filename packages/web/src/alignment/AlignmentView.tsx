@@ -41,6 +41,7 @@ import {
   type TimeScale,
   type ZoomLevel,
 } from './scale.js';
+import { nextWheelAxis, normaliseWheelDelta, wheelZoomFactor, type WheelGestureState } from './wheel-gesture.js';
 
 /**
  * The alignment view (SPEC §4.3, §6.2).
@@ -137,6 +138,8 @@ export function AlignmentView({
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const widthObserverRef = useRef<ResizeObserver | null>(null);
   const fittedRef = useRef(false);
+  /** Which axis the current trackpad/wheel gesture is locked to; see wheel-gesture.ts. */
+  const wheelGestureRef = useRef<WheelGestureState | null>(null);
 
   useEffect(() => {
     Promise.all([api.timeline(), api.files()])
@@ -165,11 +168,20 @@ export function AlignmentView({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     e.preventDefault();
-    // A sideways gesture — shift-wheel, or a trackpad swipe — pans; only a
-    // plain vertical wheel changes the zoom.
-    if (e.shiftKey) setScale((s) => panBy(s, e.deltaY));
-    else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) setScale((s) => panBy(s, e.deltaX));
-    else setScale((s) => zoomAbout(s, e.clientX - rect.left, e.deltaY > 0 ? 1.15 : 1 / 1.15));
+    // Shift-wheel always pans. Otherwise a gesture locks onto whichever axis it
+    // started on — horizontal pans, vertical zooms — and holds that until the wheel
+    // events pause, so a trackpad swipe that isn't perfectly straight doesn't flicker
+    // into a zoom partway through (wheel-gesture.ts).
+    if (e.shiftKey) {
+      setScale((s) => panBy(s, normaliseWheelDelta(e.deltaY, e.deltaMode)));
+      return;
+    }
+    const deltaX = normaliseWheelDelta(e.deltaX, e.deltaMode);
+    const deltaY = normaliseWheelDelta(e.deltaY, e.deltaMode);
+    const gesture = nextWheelAxis(wheelGestureRef.current, deltaX, deltaY, e.timeStamp);
+    wheelGestureRef.current = gesture;
+    if (gesture.axis === 'horizontal') setScale((s) => panBy(s, deltaX));
+    else setScale((s) => zoomAbout(s, e.clientX - rect.left, wheelZoomFactor(deltaY)));
   }, []);
 
   /**
