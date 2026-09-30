@@ -721,6 +721,7 @@ files(id, rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
       capture_time_raw, capture_time_source, capture_utc_offset_minutes,
       orig_gps_present, orig_lat, orig_lon,
       first_seen_at, last_scanned_at, missing)
+      -- id: UUIDv7 TEXT, unique across every folder GeoTagger opens, not just this one
 
 devices(id, make, model, serial, label, group_id)
 device_groups(id, label)
@@ -958,6 +959,9 @@ containers that ExifTool can only partially support. Everything else stays in pl
 Concurrency is bounded and configurable; default 2 workers, appropriate for a low-power ARM CPU.
 
 ### 10.2 API (outline)
+
+`:id` is a file UUID on every `/api/files/...` and `/api/edits/...` route; on every
+`/api/strips/...` route it is a strip's integer id.
 
 ```
 GET    /api/folders?path=              folder browser

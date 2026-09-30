@@ -1,5 +1,6 @@
 import type {
   DeviceRecord,
+  FileId,
   FileRecord,
   GroupingMode,
   StripRecord,
@@ -108,7 +109,7 @@ export class StripService {
    * Rebuilds every strip from a grouping mode, discarding cuts, offsets and locks.
    * The UI warns first; this is also what "reset all" runs.
    */
-  regroup(mode: GroupingMode, options: { fileIds?: readonly number[]; label?: string } = {}): void {
+  regroup(mode: GroupingMode, options: { fileIds?: readonly FileId[]; label?: string } = {}): void {
     this.pushUndo();
     this.rebuild(mode, options);
   }
@@ -122,7 +123,7 @@ export class StripService {
     this.rebuild(mode);
   }
 
-  private rebuild(mode: GroupingMode, options: { fileIds?: readonly number[]; label?: string } = {}): void {
+  private rebuild(mode: GroupingMode, options: { fileIds?: readonly FileId[]; label?: string } = {}): void {
     if (mode === 'manual') {
       this.makeManualStrip(options.fileIds ?? [], options.label);
       return;
@@ -138,7 +139,7 @@ export class StripService {
    * no device can be assembled by hand; strips left empty are removed, and the lanes
    * are settled again around the new one.
    */
-  private makeManualStrip(fileIds: readonly number[], label?: string): void {
+  private makeManualStrip(fileIds: readonly FileId[], label?: string): void {
     this.store.groupingMode = 'manual';
     if (fileIds.length === 0) return;
     this.store.transact(() => {
@@ -344,7 +345,7 @@ export class StripService {
    * shot. `trueLocalIso` is a wall clock in the display offset, which is the one the
    * axis is labelled in and therefore the one the user just read.
    */
-  pinTrueTime(fileId: number, trueLocalIso: string, displayUtcOffsetMinutes: number): void {
+  pinTrueTime(fileId: FileId, trueLocalIso: string, displayUtcOffsetMinutes: number): void {
     const timeline = this.timeline();
     const file = timeline.byId.get(fileId);
     if (!file || file.effectiveMs === null) {

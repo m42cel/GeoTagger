@@ -119,7 +119,7 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
   /** Set true time (SPEC §4.3): shifts the file's whole strip so it lands there. */
   app.post<{ Body: PinTrueTimeRequest }>('/api/strips/pin-true-time', async (req, reply) => {
     const { fileId, trueLocalIso } = req.body ?? {};
-    if (typeof fileId !== 'number' || typeof trueLocalIso !== 'string') {
+    if (typeof fileId !== 'string' || typeof trueLocalIso !== 'string') {
       return badRequest(reply, 'A file and a true time are needed.');
     }
     const session = sessions.require();

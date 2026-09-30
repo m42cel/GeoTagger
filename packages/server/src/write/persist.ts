@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import type {
+  FileId,
   FileRecord,
   PersistFileResult,
   PersistTagChange,
@@ -54,13 +55,13 @@ export function planFor(ctx: PersistContext): PersistPlan {
 }
 
 function planContext(ctx: PersistContext): PlanContext {
-  const written = new Map<number, OriginalTagValues>();
+  const written = new Map<FileId, OriginalTagValues>();
   for (const [fileId, row] of ctx.store.listPersisted()) {
     const values = writtenTagsOf(row);
     if (values !== null) written.set(fileId, values);
   }
 
-  const confirmedPositions = new Map<number, ConfirmedPositionEdit>();
+  const confirmedPositions = new Map<FileId, ConfirmedPositionEdit>();
   for (const [fileId, edit] of ctx.store.listConfirmedPositionEdits()) confirmedPositions.set(fileId, edit);
 
   return {

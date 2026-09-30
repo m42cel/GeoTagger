@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ComputedPosition, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
+import type { ComputedPosition, FileId, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
 import { formatInstant, formatUtcOffset } from '@geotagger/shared';
 
 /**
@@ -38,7 +38,7 @@ export function DetailPanel({
   onReset: () => void;
   busy: boolean;
   multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
-  onSelectOne: (fileId: number) => void;
+  onSelectOne: (fileId: FileId) => void;
 }) {
   if (multiSelectedItems.length > 0) {
     return (

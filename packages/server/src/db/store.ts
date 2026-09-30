@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import type {
   CaptureTimeSource,
   DeviceRecord,
+  FileId,
   FileRecord,
   GroupingMode,
   MediaKind,
@@ -14,6 +15,8 @@ import type {
   UtcOffsetRule,
 } from '@geotagger/shared';
 import { applySchema, SCHEMA_VERSION } from './schema.js';
+import { generateFileId } from './uuid.js';
+import { pruneAllThumbTiers } from '../thumbs/generator.js';
 import type { DraftUtcOffsetRule } from '../time/utc-offset.js';
 
 export const GEOTAGGER_DIR = '.geotagger';
@@ -50,7 +53,7 @@ export interface FileMetadata {
 export type FileChange = 'added' | 'changed' | 'unchanged';
 
 interface FileRow {
-  id: number;
+  id: FileId;
   rel_path: string;
   filename: string;
   ext: string;
@@ -157,9 +160,13 @@ export class FolderStore {
     const stateDir = path.join(folderPath, GEOTAGGER_DIR);
     fs.mkdirSync(path.join(stateDir, THUMBS_DIRNAME), { recursive: true });
     const db = new Database(path.join(stateDir, DB_FILENAME));
-    applySchema(db);
+    const migratedFileIds = applySchema(db);
     const store = new FolderStore(db, folderPath, stateDir);
     store.initMeta();
+    // Old thumbnails are named by the retired integer ids and can never be looked up
+    // again once every file has a UUID; `thumb_state` was already reset to 'pending'
+    // as part of the schema rebuild, so this just clears the stale files themselves.
+    if (migratedFileIds) pruneAllThumbTiers(store.thumbsDir);
     return store;
   }
 
@@ -259,23 +266,24 @@ export class FolderStore {
    * file regardless, since `size`/`mtime` alone can't prove its tags are unchanged
    * (SPEC §10.1).
    */
-  upsertScanned(f: ScannedFile, now: number): { id: number; change: FileChange } {
+  upsertScanned(f: ScannedFile, now: number): { id: FileId; change: FileChange } {
     const sig = contentSig(f.sizeBytes, f.mtime);
     const existing = this.db
-      .prepare<[string], { id: number; content_sig: string; missing: number }>(
+      .prepare<[string], { id: FileId; content_sig: string; missing: number }>(
         'SELECT id, content_sig, missing FROM files WHERE rel_path = ?',
       )
       .get(f.relPath);
 
     if (!existing) {
-      const info = this.db
+      const id = generateFileId();
+      this.db
         .prepare(
-          `INSERT INTO files (rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
+          `INSERT INTO files (id, rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
                               first_seen_at, last_scanned_at, missing, thumb_state)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending')`,
         )
-        .run(f.relPath, f.filename, f.ext, f.kind, f.sizeBytes, f.mtime, sig, now, now);
-      return { id: Number(info.lastInsertRowid), change: 'added' };
+        .run(id, f.relPath, f.filename, f.ext, f.kind, f.sizeBytes, f.mtime, sig, now, now);
+      return { id, change: 'added' };
     }
 
     const changed = existing.content_sig !== sig;
@@ -296,7 +304,7 @@ export class FolderStore {
    * key: writing the metadata of a newly seen camera before the camera itself would
    * fail, and doing it in two calls leaves that ordering to every caller to remember.
    */
-  applyScanResult(fileId: number, m: FileMetadata, device: DeviceRecord | null): void {
+  applyScanResult(fileId: FileId, m: FileMetadata, device: DeviceRecord | null): void {
     const tx = this.db.transaction(() => {
       if (device) this.upsertDevice(device);
       this.applyMetadata(fileId, m, this.hasPersisted(fileId));
@@ -312,7 +320,7 @@ export class FolderStore {
    * refreshes everything, including the capture time and position the rest of the app
    * treats as the pre-GeoTagger original.
    */
-  applyMetadata(fileId: number, m: FileMetadata, alreadyPersisted: boolean): void {
+  applyMetadata(fileId: FileId, m: FileMetadata, alreadyPersisted: boolean): void {
     if (alreadyPersisted) {
       this.db
         .prepare(
@@ -348,22 +356,22 @@ export class FolderStore {
   }
 
   /** Flags files that were in the index but not seen by this scan. */
-  markMissingExcept(seenIds: Iterable<number>): number {
+  markMissingExcept(seenIds: Iterable<FileId>): number {
     const keep = new Set(seenIds);
-    const rows = this.db.prepare<[], { id: number }>('SELECT id FROM files WHERE missing = 0').all();
+    const rows = this.db.prepare<[], { id: FileId }>('SELECT id FROM files WHERE missing = 0').all();
     const gone = rows.filter((r) => !keep.has(r.id)).map((r) => r.id);
     const stmt = this.db.prepare('UPDATE files SET missing = 1 WHERE id = ?');
-    const tx = this.db.transaction((ids: number[]) => ids.forEach((id) => stmt.run(id)));
+    const tx = this.db.transaction((ids: FileId[]) => ids.forEach((id) => stmt.run(id)));
     tx(gone);
     return gone.length;
   }
 
-  setThumbState(fileId: number, state: ThumbState): void {
+  setThumbState(fileId: FileId, state: ThumbState): void {
     this.db.prepare('UPDATE files SET thumb_state = ? WHERE id = ?').run(state, fileId);
   }
 
-  getFile(id: number): FileRecord | null {
-    const row = this.db.prepare<[number], FileRow>('SELECT * FROM files WHERE id = ?').get(id);
+  getFile(id: FileId): FileRecord | null {
+    const row = this.db.prepare<[FileId], FileRow>('SELECT * FROM files WHERE id = ?').get(id);
     return row ? rowToFile(row) : null;
   }
 
@@ -383,9 +391,9 @@ export class FolderStore {
     return row?.n ?? 0;
   }
 
-  pendingThumbIds(): number[] {
+  pendingThumbIds(): FileId[] {
     return this.db
-      .prepare<[], { id: number }>(
+      .prepare<[], { id: FileId }>(
         "SELECT id FROM files WHERE missing = 0 AND thumb_state = 'pending' ORDER BY id",
       )
       .all()
@@ -417,7 +425,7 @@ export class FolderStore {
   /** Replaces every strip with a freshly built set. Switching grouping mode rebuilds from scratch (SPEC §4.4). */
   replaceStrips(
     mode: GroupingMode,
-    built: { label: string; lane: number; ordinal: number; fileIds: number[] }[],
+    built: { label: string; lane: number; ordinal: number; fileIds: FileId[] }[],
   ): void {
     const now = Date.now();
     const tx = this.db.transaction(() => {
@@ -485,9 +493,9 @@ export class FolderStore {
   }
 
   /** The files of one strip, in capture order. */
-  stripMemberIds(stripId: number): number[] {
+  stripMemberIds(stripId: number): FileId[] {
     return this.db
-      .prepare<[number], { file_id: number }>(
+      .prepare<[number], { file_id: FileId }>(
         `SELECT sf.file_id FROM strip_files sf
          JOIN files f ON f.id = sf.file_id
          WHERE sf.strip_id = ?
@@ -497,19 +505,19 @@ export class FolderStore {
       .map((r) => r.file_id);
   }
 
-  stripAssignments(): Record<number, number> {
+  stripAssignments(): Record<FileId, number> {
     const rows = this.db
-      .prepare<[], { file_id: number; strip_id: number }>('SELECT file_id, strip_id FROM strip_files')
+      .prepare<[], { file_id: FileId; strip_id: number }>('SELECT file_id, strip_id FROM strip_files')
       .all();
-    const out: Record<number, number> = {};
+    const out: Record<FileId, number> = {};
     for (const r of rows) out[r.file_id] = r.strip_id;
     return out;
   }
 
   /** Files with no strip — everything scanned after the last grouping run. */
-  unassignedFileIds(): number[] {
+  unassignedFileIds(): FileId[] {
     return this.db
-      .prepare<[], { id: number }>(
+      .prepare<[], { id: FileId }>(
         `SELECT f.id FROM files f
          LEFT JOIN strip_files sf ON sf.file_id = f.id
          WHERE f.missing = 0 AND sf.file_id IS NULL`,
@@ -565,7 +573,7 @@ export class FolderStore {
       locked?: boolean;
       utcOffsetOverrideMinutes?: number | null;
     },
-    fileIds: readonly number[],
+    fileIds: readonly FileId[],
   ): number {
     const info = this.db
       .prepare(
@@ -590,7 +598,7 @@ export class FolderStore {
     return id;
   }
 
-  assignFilesToStrip(stripId: number, fileIds: readonly number[]): void {
+  assignFilesToStrip(stripId: number, fileIds: readonly FileId[]): void {
     const stmt = this.db.prepare(
       'INSERT INTO strip_files (strip_id, file_id) VALUES (?, ?) ON CONFLICT(file_id) DO UPDATE SET strip_id = excluded.strip_id',
     );
@@ -639,7 +647,7 @@ export class FolderStore {
     const parsed = JSON.parse(snapshot) as {
       groupingMode: GroupingMode;
       strips: Record<string, unknown>[];
-      members: { strip_id: number; file_id: number }[];
+      members: { strip_id: number; file_id: FileId }[];
     };
     const tx = this.db.transaction(() => {
       this.db.exec('DELETE FROM strip_files');
@@ -698,9 +706,9 @@ export class FolderStore {
   }
 
   /** Per-file UTC offset overrides, from the edit store. */
-  fileUtcOffsetOverrides(): Map<number, number> {
+  fileUtcOffsetOverrides(): Map<FileId, number> {
     const rows = this.db
-      .prepare<[], { file_id: number; utc_offset_override_minutes: number }>(
+      .prepare<[], { file_id: FileId; utc_offset_override_minutes: number }>(
         'SELECT file_id, utc_offset_override_minutes FROM edits WHERE utc_offset_override_minutes IS NOT NULL',
       )
       .all();
@@ -715,9 +723,9 @@ export class FolderStore {
    * appears here regardless of whether it is overriding one of these; see
    * `listPendingPositions`.
    */
-  listConfirmedPositions(): Map<number, { lat: number; lon: number }> {
+  listConfirmedPositions(): Map<FileId, { lat: number; lon: number }> {
     const rows = this.db
-      .prepare<[], { file_id: number; lat: number; lon: number }>(
+      .prepare<[], { file_id: FileId; lat: number; lon: number }>(
         'SELECT file_id, lat, lon FROM edits WHERE confirmed_at IS NOT NULL',
       )
       .all();
@@ -730,12 +738,12 @@ export class FolderStore {
    * `PositionUncertaintyMeters` tags (SPEC §9.2).
    */
   listConfirmedPositionEdits(): Map<
-    number,
+    FileId,
     { lat: number; lon: number; positionSource: string | null; uncertaintyM: number | null }
   > {
     const rows = this.db
       .prepare<[], {
-        file_id: number; lat: number; lon: number;
+        file_id: FileId; lat: number; lon: number;
         position_source: string | null; uncertainty_m: number | null;
       }>(
         'SELECT file_id, lat, lon, position_source, uncertainty_m FROM edits WHERE confirmed_at IS NOT NULL',
@@ -755,9 +763,9 @@ export class FolderStore {
    * underneath, if any, keeps anchoring everyone else until this is confirmed or
    * reverted, and the map shows it as a ghost in the meantime (SPEC §5.6).
    */
-  listPendingPositions(): Map<number, { lat: number; lon: number }> {
+  listPendingPositions(): Map<FileId, { lat: number; lon: number }> {
     const rows = this.db
-      .prepare<[], { file_id: number; pending_lat: number; pending_lon: number }>(
+      .prepare<[], { file_id: FileId; pending_lat: number; pending_lon: number }>(
         'SELECT file_id, pending_lat, pending_lon FROM edits WHERE pending_lat IS NOT NULL AND pending_lon IS NOT NULL',
       )
       .all();
@@ -770,7 +778,7 @@ export class FolderStore {
    * placing everyone else, and the map show it as a ghost, until this drag is
    * confirmed or reverted (SPEC §5.5, §5.6).
    */
-  setDraggedPosition(fileId: number, lat: number, lon: number): void {
+  setDraggedPosition(fileId: FileId, lat: number, lon: number): void {
     this.db
       .prepare(
         `INSERT INTO edits (file_id, pending_lat, pending_lon, placed_at)
@@ -789,7 +797,7 @@ export class FolderStore {
    * computed estimate — provenance kept for the detail panel, not fed back into the
    * interpolator.
    */
-  confirmPosition(fileId: number, lat: number, lon: number, uncertaintyM: number | null, fromDrag: boolean): void {
+  confirmPosition(fileId: FileId, lat: number, lon: number, uncertaintyM: number | null, fromDrag: boolean): void {
     this.db
       .prepare(
         `INSERT INTO edits (file_id, lat, lon, position_source, uncertainty_m, confirmed_at, pending_lat, pending_lon)
@@ -808,7 +816,7 @@ export class FolderStore {
    * never affected it in the first place (SPEC §5.5) — so the file's marker simply
    * falls back to showing that anchor, and the ghost disappears.
    */
-  revertPendingPosition(fileId: number): void {
+  revertPendingPosition(fileId: FileId): void {
     this.db
       .prepare('UPDATE edits SET pending_lat = NULL, pending_lon = NULL, placed_at = NULL WHERE file_id = ?')
       .run(fileId);
@@ -820,7 +828,7 @@ export class FolderStore {
    * at all if the camera never recorded one. Leaves any UTC offset override in the
    * same row untouched; that is a separate, phase 1 concern.
    */
-  resetPosition(fileId: number): void {
+  resetPosition(fileId: FileId): void {
     this.db
       .prepare(
         `UPDATE edits SET lat = NULL, lon = NULL, position_source = NULL,
@@ -831,7 +839,7 @@ export class FolderStore {
       .run(fileId);
   }
 
-  setFileUtcOffsetOverride(fileId: number, minutes: number | null): void {
+  setFileUtcOffsetOverride(fileId: FileId, minutes: number | null): void {
     this.db
       .prepare(
         `INSERT INTO edits (file_id, utc_offset_override_minutes) VALUES (?, ?)
@@ -843,7 +851,7 @@ export class FolderStore {
   // ---- persist bookkeeping (SPEC §9) -------------------------------------
 
   recordPersisted(row: {
-    fileId: number;
+    fileId: FileId;
     persistedAt: number;
     originalSnapshotJson: string | null;
     /** Every tag GeoTagger has written to this file, this run's included (SPEC §9.1). */
@@ -867,9 +875,9 @@ export class FolderStore {
       .run(row.fileId, row.persistedAt, row.originalSnapshotJson, row.writtenTagsJson, row.exiftoolResult);
   }
 
-  getPersisted(fileId: number): PersistedRow | null {
+  getPersisted(fileId: FileId): PersistedRow | null {
     const row = this.db
-      .prepare<[number], RawPersistedRow>(
+      .prepare<[FileId], RawPersistedRow>(
         'SELECT persisted_at, original_snapshot_json, written_tags_json FROM persisted WHERE file_id = ?',
       )
       .get(fileId);
@@ -877,14 +885,14 @@ export class FolderStore {
   }
 
   /** Whether GeoTagger has ever written to this file — cheaper than `getPersisted` when the row itself is not needed. */
-  hasPersisted(fileId: number): boolean {
+  hasPersisted(fileId: FileId): boolean {
     return this.db.prepare('SELECT 1 FROM persisted WHERE file_id = ?').get(fileId) !== undefined;
   }
 
   /** What GeoTagger last wrote to each file, so the next plan writes only the difference. */
-  listPersisted(): Map<number, PersistedRow> {
+  listPersisted(): Map<FileId, PersistedRow> {
     const rows = this.db
-      .prepare<[], RawPersistedRow & { file_id: number }>('SELECT * FROM persisted')
+      .prepare<[], RawPersistedRow & { file_id: FileId }>('SELECT * FROM persisted')
       .all();
     return new Map(rows.map((r) => [r.file_id, toPersistedRow(r)]));
   }
@@ -896,22 +904,22 @@ export class FolderStore {
    * somebody else, re-read the corrected time as if it were the original, and apply
    * the correction a second time.
    */
-  updateFileSignature(fileId: number, sizeBytes: number, mtime: number): void {
+  updateFileSignature(fileId: FileId, sizeBytes: number, mtime: number): void {
     this.db
       .prepare('UPDATE files SET size_bytes = ?, mtime = ?, content_sig = ? WHERE id = ?')
       .run(sizeBytes, mtime, contentSig(sizeBytes, mtime), fileId);
   }
 
-  persistedFileIds(): Set<number> {
+  persistedFileIds(): Set<FileId> {
     return new Set(
-      this.db.prepare<[], { file_id: number }>('SELECT file_id FROM persisted').all().map((r) => r.file_id),
+      this.db.prepare<[], { file_id: FileId }>('SELECT file_id FROM persisted').all().map((r) => r.file_id),
     );
   }
 
   // ---- operation log (SPEC §10.3) ----------------------------------------
 
   appendOplog(entry: {
-    fileId: number | null;
+    fileId: FileId | null;
     action: string;
     before?: unknown;
     after?: unknown;
@@ -934,7 +942,7 @@ export class FolderStore {
   listOplog(limit = 500): OplogEntry[] {
     return this.db
       .prepare<[number], {
-        id: number; ts: number; file_id: number | null; action: string;
+        id: number; ts: number; file_id: FileId | null; action: string;
         before_json: string | null; after_json: string | null; ok: number; error: string | null;
       }>('SELECT * FROM oplog ORDER BY id DESC LIMIT ?')
       .all(limit)

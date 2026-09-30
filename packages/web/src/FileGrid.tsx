@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CaptureTimeSource, FileRecord } from '@geotagger/shared';
+import type { CaptureTimeSource, FileId, FileRecord } from '@geotagger/shared';
 
 /**
  * The scanned files, with the capture time and — per SPEC §4.1 — the source it came
@@ -12,7 +12,7 @@ export function FileGrid({
   assignments,
 }: {
   files: FileRecord[];
-  assignments: Record<number, number>;
+  assignments: Record<FileId, number>;
 }) {
   const [selected, setSelected] = useState<FileRecord | null>(null);
 

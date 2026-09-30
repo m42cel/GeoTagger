@@ -15,7 +15,7 @@ function members(offsetSeconds: number): { strip: { offsetSeconds: number }; lis
   ];
   return {
     strip: { offsetSeconds },
-    list: raws.map((raw, i) => ({ fileId: i + 1, effectiveMs: raw + offsetSeconds * 1000 })),
+    list: raws.map((raw, i) => ({ fileId: `f${i + 1}`, effectiveMs: raw + offsetSeconds * 1000 })),
   };
 }
 
@@ -25,8 +25,8 @@ describe('planCut', () => {
     const cut = planCut(strip, list, at('2024-07-12T13:30:00'));
     expect(cut).not.toBeNull();
     // The strip is an hour fast, so its files sit at 11:00 through 15:00 on the axis.
-    expect(cut?.left.fileIds).toEqual([1, 2, 3]);
-    expect(cut?.right.fileIds).toEqual([4, 5]);
+    expect(cut?.left.fileIds).toEqual(['f1', 'f2', 'f3']);
+    expect(cut?.right.fileIds).toEqual(['f4', 'f5']);
   });
 
   it('gives both halves the offset unchanged, so nothing jumps', () => {
@@ -44,16 +44,16 @@ describe('planCut', () => {
 
   it('keeps an undated file with the earlier segment rather than dropping it', () => {
     const { strip, list } = members(0);
-    const withUndated = [...list, { fileId: 99, effectiveMs: null }];
+    const withUndated = [...list, { fileId: 'f99', effectiveMs: null }];
     const cut = planCut(strip, withUndated, at('2024-07-12T12:30:00'));
-    expect(cut?.left.fileIds).toContain(99);
+    expect(cut?.left.fileIds).toContain('f99');
   });
 });
 
 describe('planMerge', () => {
   it('takes the left segment’s offset for the whole result', () => {
-    const merged = planMerge({ fileIds: [1, 2, 3], offsetSeconds: 100 }, { fileIds: [4, 5] });
-    expect(merged.fileIds).toEqual([1, 2, 3, 4, 5]);
+    const merged = planMerge({ fileIds: ['f1', 'f2', 'f3'], offsetSeconds: 100 }, { fileIds: ['f4', 'f5'] });
+    expect(merged.fileIds).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
     expect(merged.offsetSeconds).toBe(100);
   });
 
@@ -61,7 +61,7 @@ describe('planMerge', () => {
     const { strip, list } = members(3600);
     const cut = planCut(strip, list, at('2024-07-12T12:30:00')) as NonNullable<ReturnType<typeof planCut>>;
     const merged = planMerge(cut.left, cut.right);
-    expect(merged.fileIds).toEqual([1, 2, 3, 4, 5]);
+    expect(merged.fileIds).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
     expect(merged.offsetSeconds).toBe(3600);
   });
 });

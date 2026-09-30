@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ScanStatus, ScanSummary } from '@geotagger/shared';
+import type { FileId, ScanStatus, ScanSummary } from '@geotagger/shared';
 import type { Config } from '../config.js';
 import type { FolderStore } from '../db/store.js';
 import { metadataFromTags, readRawTags } from '../metadata/reader.js';
@@ -101,8 +101,8 @@ export class Scanner {
 
     const now = Date.now();
     const summary: ScanSummary = { known: 0, added: 0, changed: 0, missing: 0 };
-    const seenIds: number[] = [];
-    const needMetadata: { id: number; relPath: string }[] = [];
+    const seenIds: FileId[] = [];
+    const needMetadata: { id: FileId; relPath: string }[] = [];
 
     for (const scanned of walkMedia(this.folderPath)) {
       if (this.cancelled) return this.finish(summary);

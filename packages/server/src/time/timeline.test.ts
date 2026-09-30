@@ -10,7 +10,7 @@ const DENVER = { lat: 39.7392, lon: -104.9903 };
 
 function file(over: Partial<FileRecord>): FileRecord {
   return {
-    id: 1,
+    id: 'f1',
     relPath: 'IMG_0001.JPG',
     filename: 'IMG_0001.JPG',
     ext: 'jpg',
@@ -65,13 +65,13 @@ describe('buildTimeline', () => {
     // the same place moments later (QuickTime, UTC by convention, with its own GPS)
     // used to alternate between -06:00 and +00:00 in resolution order.
     const photo = file({
-      id: 1,
+      id: 'f1',
       captureTimeRaw: '2024-08-22T18:08:56',
       captureTimeSource: 'exif:DateTimeOriginal',
       captureUtcOffsetMinutes: -360,
     });
     const video = file({
-      id: 2,
+      id: 'f2',
       kind: 'video',
       captureTimeRaw: '2024-08-23T00:37:40',
       captureTimeSource: 'quicktime:CreateDate',
@@ -85,7 +85,7 @@ describe('buildTimeline', () => {
     const timeline = buildTimeline({
       files: [photo, video],
       strips: [s],
-      assignments: { 1: 1, 2: 1 },
+      assignments: { f1: 1, f2: 1 },
       rules: [],
       folderUtcOffsetMinutes: null,
       fileOverrides: new Map(),

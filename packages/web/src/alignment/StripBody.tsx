@@ -1,4 +1,4 @@
-import type { FileRecord, TimelineFile } from '@geotagger/shared';
+import type { FileId, FileRecord, TimelineFile } from '@geotagger/shared';
 import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
 
 /**
@@ -72,10 +72,10 @@ export function StripBody({
 }: {
   stripFiles: StripFiles | undefined;
   scale: TimeScale;
-  fileById: Map<number, FileRecord>;
-  selectedFileIds: ReadonlySet<number>;
-  onSelectFile: (fileId: number, additive: boolean) => void;
-  onPinFile: (fileId: number) => void;
+  fileById: Map<FileId, FileRecord>;
+  selectedFileIds: ReadonlySet<FileId>;
+  onSelectFile: (fileId: FileId, additive: boolean) => void;
+  onPinFile: (fileId: FileId) => void;
 }) {
   if (!stripFiles || stripFiles.instants.length === 0) {
     return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
@@ -123,12 +123,12 @@ function Thumbnails({
   from: number;
   to: number;
   scale: TimeScale;
-  fileById: Map<number, FileRecord>;
-  selectedFileIds: ReadonlySet<number>;
-  onSelectFile: (fileId: number, additive: boolean) => void;
-  onPinFile: (fileId: number) => void;
+  fileById: Map<FileId, FileRecord>;
+  selectedFileIds: ReadonlySet<FileId>;
+  onSelectFile: (fileId: FileId, additive: boolean) => void;
+  onPinFile: (fileId: FileId) => void;
 }) {
-  const clusters: { fileId: number; x: number; count: number; selected: boolean }[] = [];
+  const clusters: { fileId: FileId; x: number; count: number; selected: boolean }[] = [];
   for (let i = from; i < to; i += 1) {
     const x = xOf(scale, positions[i] as number);
     const file = files[i] as TimelineFile;

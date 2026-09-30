@@ -1,4 +1,4 @@
-import type { ComputedPosition, FileRecord, KnownPosition, PositionInput } from '@geotagger/shared';
+import type { ComputedPosition, FileId, FileRecord, KnownPosition, PositionInput } from '@geotagger/shared';
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
@@ -59,7 +59,7 @@ export class PositionService {
    * coordinate formatting, so a difference past the digit a tag can hold is not a
    * difference either.
    */
-  unpersistedFileIds(positions: readonly ComputedPosition[]): number[] {
+  unpersistedFileIds(positions: readonly ComputedPosition[]): FileId[] {
     const persisted = this.store.listPersisted();
     const fileById = new Map(this.store.listFiles().map((f) => [f.id, f]));
     return positions

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
+import type { FileId } from '@geotagger/shared';
 import { naiveToMs } from '@geotagger/shared';
 import { FolderStore, signatureOf } from '../db/store.js';
 import { configureExiftool, exiftool, readRawTags, shutdownExiftool } from '../metadata/reader.js';
@@ -40,7 +41,7 @@ async function makeJpeg(relPath: string, dateTimeOriginal: string): Promise<void
 }
 
 /** Indexes a file the way a scan would, so the store matches what is on disk. */
-async function index(relPath: string): Promise<number> {
+async function index(relPath: string): Promise<FileId> {
   const abs = path.join(folder, relPath);
   const { sizeBytes, mtime } = signatureOf(fs.statSync(abs));
   const { id } = store.upsertScanned(
@@ -312,7 +313,7 @@ describe('persist against a real JPEG', () => {
     const entry = planFor(context()).entries.find((e) => e.relPath === 'IMG_0002.JPG');
     expect(entry?.stale).toBe(true);
 
-    const progress = await runPersist(context(), { fileIds: [entry?.fileId as number], stalePolicy: 'skip' }, () => undefined);
+    const progress = await runPersist(context(), { fileIds: [entry?.fileId as FileId], stalePolicy: 'skip' }, () => undefined);
     expect(progress.skipped).toBe(1);
     expect(progress.written).toBe(0);
     const untouched = await readRawTags(path.join(folder, 'IMG_0002.JPG'), 'image');

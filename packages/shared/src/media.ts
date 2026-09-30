@@ -55,6 +55,9 @@ export interface CaptureTime {
   source: CaptureTimeSource;
 }
 
+/** A file's id: a UUIDv7, unique across every folder GeoTagger opens (SPEC §8.2). */
+export type FileId = string;
+
 export interface DeviceRecord {
   id: string;
   make: string | null;
@@ -64,7 +67,7 @@ export interface DeviceRecord {
 }
 
 export interface FileRecord {
-  id: number;
+  id: FileId;
   relPath: string;
   filename: string;
   ext: string;

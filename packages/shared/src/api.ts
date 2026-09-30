@@ -1,4 +1,4 @@
-import type { FileRecord, DeviceRecord } from './media.js';
+import type { FileRecord, DeviceRecord, FileId } from './media.js';
 import type { GroupingMode, StripRecord, TimelineFile, UtcOffsetRule } from './strips.js';
 import type { ComputedPosition } from './positions.js';
 
@@ -89,14 +89,14 @@ export interface FilesResponse {
    * (SPEC §6.3's "unpersisted" filter) — never persisted at all, or persisted with a
    * different value than the current edit.
    */
-  unpersistedFileIds: number[];
+  unpersistedFileIds: FileId[];
 }
 
 export interface StripsResponse {
   groupingMode: GroupingMode;
   strips: StripRecord[];
   /** file id -> strip id, for every file in the folder. */
-  assignments: Record<number, number>;
+  assignments: Record<FileId, number>;
   /** True while there is a strip change to undo (SPEC §4.3, §4.4). */
   canUndo: boolean;
 }
@@ -124,7 +124,7 @@ export interface TimelineResponse extends StripsResponse {
 export interface RegroupRequest {
   mode: GroupingMode;
   /** For `manual`: the files to make one strip from. */
-  fileIds?: number[];
+  fileIds?: FileId[];
   label?: string;
 }
 
@@ -151,7 +151,7 @@ export interface LockRequest {
 }
 
 export interface PinTrueTimeRequest {
-  fileId: number;
+  fileId: FileId;
   /** The real wall clock of that one file, naive ISO, in the display offset. */
   trueLocalIso: string;
 }
@@ -173,7 +173,7 @@ export interface DragPositionRequest {
 
 /** Multi-select confirm (SPEC §6.5, §10.2): confirms each file's current position at once. */
 export interface BulkConfirmRequest {
-  fileIds: number[];
+  fileIds: FileId[];
 }
 
 export interface ApiError {

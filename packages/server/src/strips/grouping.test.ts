@@ -5,7 +5,7 @@ import { buildStrips, ROOT_FOLDER_LABEL, UNKNOWN_DEVICE_LABEL } from './grouping
 let nextId = 1;
 function file(partial: Partial<FileRecord> & { relPath: string }): FileRecord {
   return {
-    id: nextId++,
+    id: `f${nextId++}`,
     filename: partial.relPath.split('/').pop() as string,
     ext: 'jpg',
     kind: 'image',

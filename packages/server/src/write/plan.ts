@@ -1,4 +1,5 @@
 import type {
+  FileId,
   FileRecord,
   PersistFieldChange,
   PersistPlan,
@@ -51,9 +52,9 @@ export interface PlanContext {
    * What GeoTagger last wrote to each file, tag by tag, keyed by file id. A tag present
    * here is one it has written before, which is also §9.3's "already preserved" test.
    */
-  written: ReadonlyMap<number, OriginalTagValues>;
+  written: ReadonlyMap<FileId, OriginalTagValues>;
   /** Confirmed positions, keyed by file id (SPEC §5.5) — the only positions ever persisted. */
-  confirmedPositions: ReadonlyMap<number, ConfirmedPositionEdit>;
+  confirmedPositions: ReadonlyMap<FileId, ConfirmedPositionEdit>;
   /** Current size and mtime on disk, or null when the file has gone. */
   currentSig: (file: FileRecord) => string | null;
   /** The signature recorded at scan time. */
