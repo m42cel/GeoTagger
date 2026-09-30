@@ -1,9 +1,6 @@
 services:
   geotagger:
-    image: geotagger:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/m42cel/geotagger:latest
     ports: ["8080:8080"]
     environment:
       PHOTO_ROOT: /photos
