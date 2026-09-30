@@ -640,6 +640,8 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   white-space: nowrap;
 }
 .tick.major { color: var(--fg); font-weight: 600; }
+/* Where the labels change offset, so a repeated or skipped hour reads as intended. */
+.axis-seam { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--muted); }
 
 /*
  * The time scrollbar sits under the canvas only — it scrolls the axis, not the lane

@@ -126,3 +126,41 @@ export function bandTitle(band: ZoneBand): string {
 function cityOf(zone: string): string {
   return (zone.split('/').pop() ?? zone).replace(/_/g, ' ');
 }
+
+/** A stretch of the view the axis labels in one offset. */
+export interface OffsetSegment {
+  fromMs: number;
+  toMs: number;
+  offsetMinutes: number;
+}
+
+/**
+ * The offset the axis reads in at each point of the view, as consecutive segments.
+ *
+ * A crossing is split at its midpoint: that is roughly where its files stop taking the
+ * earlier period and start taking the later one, so labels and thumbnails agree on
+ * either side of it. Without any bands the whole view reads in `fallbackMinutes`.
+ */
+export function offsetSegments(bands: readonly ZoneBand[], fallbackMinutes: number): OffsetSegment[] {
+  const out: OffsetSegment[] = [];
+  const push = (fromMs: number, toMs: number, offsetMinutes: number): void => {
+    const prev = out[out.length - 1];
+    if (prev && prev.offsetMinutes === offsetMinutes) prev.toMs = toMs;
+    else out.push({ fromMs, toMs, offsetMinutes });
+  };
+
+  for (const band of bands) {
+    if (band.crossing) {
+      const mid = (band.fromMs + band.toMs) / 2;
+      push(band.fromMs, mid, band.crossing.fromMinutes);
+      push(mid, band.toMs, band.crossing.toMinutes);
+    } else {
+      push(band.fromMs, band.toMs, band.offsetMinutes ?? fallbackMinutes);
+    }
+  }
+  if (out.length === 0) out.push({ fromMs: -Infinity, toMs: Infinity, offsetMinutes: fallbackMinutes });
+  // Nearest-rule-wins holds past the view too, so the outer segments never end.
+  (out[0] as OffsetSegment).fromMs = -Infinity;
+  (out[out.length - 1] as OffsetSegment).toMs = Infinity;
+  return out;
+}

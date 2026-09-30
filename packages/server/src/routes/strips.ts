@@ -123,7 +123,7 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
       return badRequest(reply, 'A file and a true time are needed.');
     }
     const session = sessions.require();
-    session.strips.pinTrueTime(fileId, trueLocalIso, session.strips.timeline().displayUtcOffsetMinutes);
+    session.strips.pinTrueTime(fileId, trueLocalIso);
     return timeline();
   });
 

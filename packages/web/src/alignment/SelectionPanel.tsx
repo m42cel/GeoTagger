@@ -28,7 +28,6 @@ export function SelectionPanel({
   fileCountLabel,
   mergeTargetId,
   cutAtMs,
-  displayUtcOffsetMinutes,
   utcSummary,
   selectedFile,
   selectedLine,
@@ -44,7 +43,6 @@ export function SelectionPanel({
   mergeTargetId: number | null;
   /** Where a cut would land: the last place the pointer was over the canvas. */
   cutAtMs: number | null;
-  displayUtcOffsetMinutes: number;
   utcSummary: StripUtcSummary | null;
   selectedFile: FileRecord | null;
   selectedLine: TimelineFile | null;
@@ -143,7 +141,7 @@ export function SelectionPanel({
                 <dd>
                   {selectedLine.effectiveMs === null
                     ? '—'
-                    : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
+                    : formatInstant(selectedLine.effectiveMs, selectedLine.utcOffsetMinutes, { seconds: true, date: true })}{' '}
                   <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
                 </dd>
               </>
