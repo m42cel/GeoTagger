@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { APP_VERSION, type SessionState } from '@geotagger/shared';
+import type { SessionState } from '@geotagger/shared';
 import { api } from './api.js';
 import { FolderPicker } from './FolderPicker.js';
 import { FolderView } from './FolderView.js';
@@ -81,7 +81,7 @@ export function App() {
 
       <footer className="app-footer">
         <ThemeToggle />
-        <span>GeoTagger {APP_VERSION}</span>
+        <span>GeoTagger {__APP_VERSION__}</span>
         <a href={REPO_URL} target="_blank" rel="noreferrer" aria-label="GeoTagger on GitHub" title="GeoTagger on GitHub">
           <GitHubMark />
         </a>
