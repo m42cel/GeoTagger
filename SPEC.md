@@ -936,9 +936,17 @@ containers that ExifTool can only partially support. Everything else stays in pl
 ### 10.1 Scanning pipeline
 
 1. Walk the folder recursively, filtering by extension.
-2. Diff against the stored index by path, size and mtime; queue new and changed files.
+2. Diff against the stored index by path, size and mtime, for the added/changed/missing
+   summary. Two scan depths: a **quick** scan (opening a folder) trusts that diff and
+   only reads a changed file's metadata; a **deep** scan (the explicit rescan) reads
+   every file's metadata regardless, since size and mtime cannot prove a file's tags are
+   unchanged — and GeoTagger's own writes pin mtime on purpose (§9.2), so its writes are
+   exactly the kind of change that diff alone would miss.
 3. Batch-read metadata through the persistent ExifTool process.
-4. Resolve capture time (§4.1), device identity, dimensions, duration, original GPS.
+4. Resolve capture time (§4.1), device identity, dimensions, duration, original GPS. A
+   file GeoTagger has already persisted to keeps these as first established — a deep
+   scan's read would otherwise see GeoTagger's own corrected values and mistake them for
+   the camera's (§9.3).
 5. Generate thumbnails in the background, lowest-cost path first:
    - extract an embedded preview (`-b -PreviewImage` / `-ThumbnailImage`) when present;
    - otherwise decode and downscale with `sharp`;

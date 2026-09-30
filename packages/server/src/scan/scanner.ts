@@ -24,11 +24,17 @@ export function idleScanStatus(): ScanStatus {
 }
 
 /**
- * The scanning pipeline of SPEC §10.1: walk, diff against the index, read metadata
- * for what changed, then generate thumbnails in the background.
+ * The scanning pipeline of SPEC §10.1: walk, diff against the index, read metadata,
+ * then generate thumbnails in the background.
  *
- * The scan is incremental — an unchanged file costs a `stat` and nothing more — and
- * reports progress throughout, because the UI blocks on it until it settles (SPEC §2
+ * `size` + `mtime` decide the added/changed/missing summary either way, but only a
+ * *quick* scan (opening a folder) uses that diff to decide which files get their
+ * metadata read. A *deep* scan (the explicit rescan) reads every file regardless,
+ * because size and mtime alone can't prove a file's tags are unchanged: an edit that
+ * lands on both unchanged, including GeoTagger's own writes, which pin mtime on purpose
+ * (SPEC §9.2), would otherwise never be noticed. Thumbnail generation always stays keyed
+ * off what already exists, since pixel content doesn't change with tags either way.
+ * Progress is reported throughout, because the UI blocks on it until it settles (SPEC §2
  * "Target scale") and the user needs to see it moving.
  */
 export class Scanner {
@@ -59,11 +65,15 @@ export class Scanner {
     for (const l of this.listeners) l(snapshot);
   }
 
-  /** Starts a scan, or returns the one already in flight. */
-  start(): Promise<void> {
+  /**
+   * Starts a scan, or returns the one already in flight — which keeps its own mode if
+   * one was already requested, since a quick open racing a deep rescan should not
+   * downgrade it.
+   */
+  start(deep = false): Promise<void> {
     if (this.running) return this.running;
     this.cancelled = false;
-    this.running = this.run()
+    this.running = this.run(deep)
       .catch((err: unknown) => {
         this.log('scan failed', err);
         this.emit({
@@ -82,7 +92,7 @@ export class Scanner {
     this.cancelled = true;
   }
 
-  private async run(): Promise<void> {
+  private async run(deep: boolean): Promise<void> {
     this.emit({
       ...idleScanStatus(),
       phase: 'walking',
@@ -101,7 +111,7 @@ export class Scanner {
       if (change === 'added') summary.added += 1;
       else if (change === 'changed') summary.changed += 1;
       else summary.known += 1;
-      if (change !== 'unchanged') needMetadata.push({ id, relPath: scanned.relPath });
+      if (deep || change !== 'unchanged') needMetadata.push({ id, relPath: scanned.relPath });
       this.emit({ discovered: seenIds.length, currentPath: scanned.relPath });
     }
 

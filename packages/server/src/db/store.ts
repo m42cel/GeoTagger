@@ -253,8 +253,11 @@ export class FolderStore {
   // ---- files -------------------------------------------------------------
 
   /**
-   * Inserts or refreshes a file's index row and reports whether it is new, changed
-   * or untouched since the last scan. Only changed files need their metadata re-read.
+   * Inserts or refreshes a file's index row and reports whether it is new, changed or
+   * untouched since the last scan — always for the scan summary shown to the user, and
+   * also for which files a *quick* scan reads metadata for. A *deep* scan reads every
+   * file regardless, since `size`/`mtime` alone can't prove its tags are unchanged
+   * (SPEC §10.1).
    */
   upsertScanned(f: ScannedFile, now: number): { id: number; change: FileChange } {
     const sig = contentSig(f.sizeBytes, f.mtime);
@@ -296,12 +299,29 @@ export class FolderStore {
   applyScanResult(fileId: number, m: FileMetadata, device: DeviceRecord | null): void {
     const tx = this.db.transaction(() => {
       if (device) this.upsertDevice(device);
-      this.applyMetadata(fileId, m);
+      this.applyMetadata(fileId, m, this.hasPersisted(fileId));
     });
     tx();
   }
 
-  applyMetadata(fileId: number, m: FileMetadata): void {
+  /**
+   * Once GeoTagger has persisted a write to a file, a rescan's read no longer sees the
+   * camera's own values for the fields SPEC §9.3 treats as "original" — it sees
+   * GeoTagger's own last write. So a persisted file refreshes only what a write can't
+   * have changed (device, dimensions, orientation); a file GeoTagger has never touched
+   * refreshes everything, including the capture time and position the rest of the app
+   * treats as the pre-GeoTagger original.
+   */
+  applyMetadata(fileId: number, m: FileMetadata, alreadyPersisted: boolean): void {
+    if (alreadyPersisted) {
+      this.db
+        .prepare(
+          `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?
+           WHERE id = ?`,
+        )
+        .run(m.deviceId, m.width, m.height, m.durationMs, m.orientation, fileId);
+      return;
+    }
     this.db
       .prepare(
         `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?,
@@ -854,6 +874,11 @@ export class FolderStore {
       )
       .get(fileId);
     return row ? toPersistedRow(row) : null;
+  }
+
+  /** Whether GeoTagger has ever written to this file — cheaper than `getPersisted` when the row itself is not needed. */
+  hasPersisted(fileId: number): boolean {
+    return this.db.prepare('SELECT 1 FROM persisted WHERE file_id = ?').get(fileId) !== undefined;
   }
 
   /** What GeoTagger last wrote to each file, so the next plan writes only the difference. */
