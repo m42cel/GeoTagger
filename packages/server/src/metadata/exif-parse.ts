@@ -134,7 +134,7 @@ export function collectGps(tags: RawTags): RawGps | null {
 }
 
 export interface RawDimensions {
-  /** Display width — swapped against the stored one when orientation is 5–8. */
+  /** Display width — swapped against the stored one when orientation is 5–8 or a video is rotated 90 or 270. */
   width: number | null;
   height: number | null;
   durationMs: number | null;
@@ -174,22 +174,40 @@ export function swapsAxes(orientation: number | null): boolean {
   return orientation !== null && orientation >= 5 && orientation <= 8;
 }
 
+/**
+ * A video's display rotation in degrees, normalised to 0, 90, 180 or 270, or null.
+ *
+ * Composite rather than `QuickTime:Rotation`: that one is a HEIC still's `irot`
+ * property (0–3, not degrees), while the composite is computed from the video
+ * track's matrix and only exists for video.
+ */
+export function collectVideoRotation(tags: RawTags): number | null {
+  const raw = num(tags, 'Composite:Rotation');
+  if (raw === null || !Number.isInteger(raw) || raw % 90 !== 0) return null;
+  return ((raw % 360) + 360) % 360;
+}
+
 export function collectDimensions(tags: RawTags): RawDimensions {
   const width =
     num(tags, 'File:ImageWidth') ??
+    num(tags, 'PNG:ImageWidth') ??
     num(tags, 'EXIF:ExifImageWidth') ??
     num(tags, 'QuickTime:ImageWidth');
   const height =
     num(tags, 'File:ImageHeight') ??
+    num(tags, 'PNG:ImageHeight') ??
     num(tags, 'EXIF:ExifImageHeight') ??
     num(tags, 'QuickTime:ImageHeight');
   const durationSeconds = parseDuration(tags['QuickTime:Duration'] ?? tags['Composite:Duration']);
   const orientation = collectOrientation(tags);
+  const rotation = collectVideoRotation(tags);
 
   // Report the dimensions as the image displays, not as it is stored: a portrait
   // photo from a phone is stored landscape with Orientation 6, and showing the
-  // user "4032 x 3024" for an obviously portrait picture is simply wrong.
-  const swap = swapsAxes(orientation);
+  // user "4032 x 3024" for an obviously portrait picture is simply wrong. A video
+  // filmed upright is the same story, told by its rotation instead. That rotation
+  // stays out of `orientation`: ffmpeg already applies it to video thumbnails.
+  const swap = swapsAxes(orientation) || rotation === 90 || rotation === 270;
   return {
     width: (swap ? height : width) ?? null,
     height: (swap ? width : height) ?? null,

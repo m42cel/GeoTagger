@@ -74,6 +74,7 @@ const TAG_ARGS = [
   '-QuickTime:ImageWidth',
   '-QuickTime:ImageHeight',
   '-QuickTime:Duration',
+  '-Composite:Rotation#',
   '-XMP:DateCreated',
   '-XMP:CreateDate',
   '-XMP:Make',
@@ -87,6 +88,8 @@ const TAG_ARGS = [
   '-File:FileModifyDate',
   '-File:ImageWidth',
   '-File:ImageHeight',
+  '-PNG:ImageWidth',
+  '-PNG:ImageHeight',
   '-MakerNotes:SerialNumber',
 ];
 

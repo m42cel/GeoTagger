@@ -1004,6 +1004,11 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border: 3px solid;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
+/* Leaflet's own `.leaflet-container .leaflet-marker-pane img { width: auto }` outranks
+   the rules above, which leaves the image at its own aspect ratio instead of filling
+   the icon box `markerSize` (SPEC §6.3) shaped for it. Same for cluster icons. */
+.leaflet-container .leaflet-marker-pane .map-thumb-icon img,
+.leaflet-container .leaflet-marker-pane .map-cluster-icon img { width: 100%; }
 .map-thumb-icon.known img { border-color: var(--known); }
 .map-thumb-icon.unconfirmed img { border-color: var(--unconfirmed); }
 /* Selection highlight (SPEC §6.3): a ring outside the border, not a replacement for

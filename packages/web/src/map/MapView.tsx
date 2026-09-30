@@ -10,6 +10,7 @@ import type { ComputedPosition, FileId, FileRecord, FilesResponse, TimelineFile,
 import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
+import { markerSize } from './marker-size.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
@@ -459,9 +460,11 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
 
     for (const item of visibleOnMap) {
       const borderClass = borderClassFor(item.position.source);
+      const size = markerSize(item.file.width, item.file.height, THUMB_SIZE_PX);
       const marker = L.marker([item.position.lat as number, item.position.lon as number], {
         icon: thumbIcon(
           item.file.id,
+          size,
           borderClass,
           item.file.id === selectedIdRef.current,
           multiSelectedRef.current.has(item.file.id),
@@ -472,6 +475,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
       const markerWithFile = marker as MarkerWithFile;
       markerWithFile.geotaggerFileId = item.file.id;
       markerWithFile.geotaggerBorderClass = borderClass;
+      markerWithFile.geotaggerSize = size;
       markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
       marker.bindTooltip(item.file.filename);
       // Shift-click toggles multi-select (SPEC §6.5) without touching the detail
@@ -638,8 +642,9 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
     for (const marker of markersRef.current) {
       const fileId = marker.geotaggerFileId;
       const borderClass = marker.geotaggerBorderClass;
-      if (fileId === undefined || borderClass === undefined) continue;
-      marker.setIcon(thumbIcon(fileId, borderClass, fileId === selectedId, multiSelected.has(fileId)));
+      const size = marker.geotaggerSize;
+      if (fileId === undefined || borderClass === undefined || size === undefined) continue;
+      marker.setIcon(thumbIcon(fileId, size, borderClass, fileId === selectedId, multiSelected.has(fileId)));
     }
     cluster.refreshClusters();
   }, [selectedId, multiSelected]);
@@ -767,6 +772,8 @@ function Tray({
 type MarkerWithFile = L.Marker & {
   geotaggerFileId?: FileId;
   geotaggerBorderClass?: 'known' | 'unconfirmed';
+  /** The marker's `[width, height]` in pixels, from `markerSize` (SPEC §6.3). */
+  geotaggerSize?: [number, number];
   geotaggerUncertaintyM?: number | null;
 };
 
@@ -791,9 +798,13 @@ function createGhost(
   return { line, dot };
 }
 
-/** Selection highlight (SPEC §6.3) is a ring layered on top of the border colour, not a replacement for it. */
+/**
+ * Selection highlight (SPEC §6.3) is a ring layered on top of the border colour, not a replacement for it.
+ * Leaflet centres the icon on its point from `iconSize` alone, so a non-square `size` needs no anchor of its own.
+ */
 function thumbIcon(
   fileId: FileId,
+  size: [number, number],
   borderClass: 'known' | 'unconfirmed',
   selected: boolean,
   multiSelected: boolean,
@@ -804,15 +815,16 @@ function thumbIcon(
   return L.divIcon({
     className: classes.join(' '),
     html: `<img src="/api/files/${fileId}/thumb" loading="lazy" />`,
-    iconSize: [THUMB_SIZE_PX, THUMB_SIZE_PX],
+    iconSize: size,
   });
 }
 
 /**
- * SPEC §6.3: "a badge showing the count over a representative thumbnail". The
- * border takes the worst of the cluster's members — green only if every one of them
- * is a known position, red if even one is an unconfirmed estimate — so collapsing a
- * mixed group never hides that some of it still needs confirming.
+ * SPEC §6.3: "a badge showing the count over a representative thumbnail" — the
+ * first member's, shaped the same as that member's own marker. The border takes
+ * the worst of the cluster's members — green only if every one of them is a known
+ * position, red if even one is an unconfirmed estimate — so collapsing a mixed
+ * group never hides that some of it still needs confirming.
  *
  * Selection highlights (§6.3, §6.5) carry through the same way: a stack that
  * contains the detail panel's selection, or any multi-selected file, shows that
@@ -832,6 +844,6 @@ function clusterIcon(markers: L.Marker[], selectedId: FileId | null, multiSelect
   return L.divIcon({
     className: classes.join(' '),
     html: `<img src="/api/files/${fileId}/thumb" loading="lazy" /><span class="cluster-count">${markers.length}</span>`,
-    iconSize: [THUMB_SIZE_PX, THUMB_SIZE_PX],
+    iconSize: first?.geotaggerSize ?? [THUMB_SIZE_PX, THUMB_SIZE_PX],
   });
 }

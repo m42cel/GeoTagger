@@ -6,6 +6,7 @@ import {
   collectDevice,
   collectDimensions,
   collectGps,
+  collectVideoRotation,
   deviceLabel,
   parseDuration,
   parseExifDate,
@@ -175,6 +176,37 @@ describe('collectDimensions', () => {
     ).toEqual({ width: 1920, height: 1080, durationMs: 6000, orientation: null });
   });
 
+  it('reads a PNG, which has no File:ImageWidth', () => {
+    expect(collectDimensions({ 'PNG:ImageWidth': 3000, 'PNG:ImageHeight': 900 })).toMatchObject({
+      width: 3000,
+      height: 900,
+    });
+  });
+
+  it('swaps the axes of a video filmed upright, without making it an orientation', () => {
+    const video = { 'QuickTime:ImageWidth': 1920, 'QuickTime:ImageHeight': 1080 };
+    for (const rotation of [90, 270, -90, 450]) {
+      expect(collectDimensions({ ...video, 'Composite:Rotation': rotation })).toEqual({
+        width: 1080,
+        height: 1920,
+        durationMs: null,
+        orientation: null,
+      });
+    }
+    for (const rotation of [0, 180, 360]) {
+      expect(collectDimensions({ ...video, 'Composite:Rotation': rotation })).toMatchObject({
+        width: 1920,
+        height: 1080,
+      });
+    }
+  });
+
+  it('ignores a HEIC still’s irot, which ExifTool reports as QuickTime:Rotation', () => {
+    expect(
+      collectDimensions({ 'File:ImageWidth': 4032, 'File:ImageHeight': 3024, 'QuickTime:Rotation': 3 }),
+    ).toMatchObject({ width: 4032, height: 3024 });
+  });
+
   it('returns nulls rather than guesses when nothing is there', () => {
     expect(collectDimensions({})).toEqual({
       width: null,
@@ -202,6 +234,16 @@ describe('collectOrientation', () => {
     expect(collectOrientation({ 'EXIF:Orientation': 0 })).toBeNull();
     expect(collectOrientation({ 'EXIF:Orientation': 9 })).toBeNull();
     expect(collectOrientation({ 'EXIF:Orientation': 'sideways-ish' })).toBeNull();
+  });
+});
+
+describe('collectVideoRotation', () => {
+  it('normalises to 0–270 and rejects anything off the quarter turns', () => {
+    expect(collectVideoRotation({ 'Composite:Rotation': -90 })).toBe(270);
+    expect(collectVideoRotation({ 'Composite:Rotation': 450 })).toBe(90);
+    expect(collectVideoRotation({ 'Composite:Rotation': '180' })).toBe(180);
+    expect(collectVideoRotation({ 'Composite:Rotation': 45 })).toBeNull();
+    expect(collectVideoRotation({})).toBeNull();
   });
 });
 
