@@ -515,7 +515,7 @@ export function AlignmentView({
   const pin = (fileId: FileId): void => {
     const line = timeline?.files.find((f) => f.id === fileId);
     if (!line || line.effectiveMs === null || timeline === null) return;
-    const current = msToNaive(line.effectiveMs + timeline.displayUtcOffsetMinutes * MINUTE_MS).replace('T', ' ');
+    const current = msToNaive(line.effectiveMs + line.utcOffsetMinutes * MINUTE_MS).replace('T', ' ');
     const answer = window.prompt(
       `What time was ${fileById.get(fileId)?.filename ?? 'this file'} really taken?\nIts whole strip will shift so it lands there.`,
       current,
@@ -739,7 +739,12 @@ export function AlignmentView({
               rules={timeline.utcOffsetRules}
               folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
             />
-            <TimeAxis scale={scale} displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes} />
+            <TimeAxis
+              scale={scale}
+              rules={timeline.utcOffsetRules}
+              folderUtcOffsetMinutes={timeline.folderUtcOffsetMinutes}
+              displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
+            />
           </div>
 
           <TimeScrollbar
@@ -767,7 +772,6 @@ export function AlignmentView({
         fileCountLabel={`${selectedStrip?.fileCount.toLocaleString() ?? 0} files`}
         mergeTargetId={mergeTargetId}
         cutAtMs={markMs}
-        displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
         selectedFile={selectedFileId === null ? null : fileById.get(selectedFileId) ?? null}
         selectedLine={selectedLine}
         onSetOffset={(seconds) => selectedStrip && run(api.setOffset(selectedStrip.id, seconds))}

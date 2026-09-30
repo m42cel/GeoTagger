@@ -105,24 +105,43 @@ const TICK_STEPS = [
   DAY_MS, 7 * DAY_MS, 30 * DAY_MS, 365 * DAY_MS,
 ];
 
+/** A stretch of time the axis labels in one UTC offset. */
+export interface AxisSegment {
+  fromMs: number;
+  toMs: number;
+  offsetMinutes: number;
+}
+
 /**
- * Ticks for the current view, labelled in the folder's display offset.
+ * Ticks for the current view, each labelled in the offset of the segment it falls in.
  *
  * The labels read as the local time the trip is remembered in even though the axis
- * itself is absolute UTC, which is the whole reason §4.2 exists.
+ * itself is absolute UTC, which is the whole reason §4.2 exists. Where the offset
+ * changes the labels jump — an hour repeats going west, one is skipped going east —
+ * because a photo taken after the change has to sit over its own clock time.
  */
-export function axisTicks(scale: TimeScale, displayUtcOffsetMinutes: number, targetSpacingPx = 90): AxisTick[] {
+export function axisTicks(scale: TimeScale, segments: readonly AxisSegment[], targetSpacingPx = 90): AxisTick[] {
   const wanted = scale.msPerPx * targetSpacingPx;
   const step = TICK_STEPS.find((s) => s >= wanted) ?? TICK_STEPS[TICK_STEPS.length - 1] as number;
-  const shift = displayUtcOffsetMinutes * MINUTE_MS;
-
-  // Ticks are placed on round *local* times, so a day boundary falls at local
-  // midnight rather than at whatever hour UTC midnight happens to be there.
-  const first = Math.ceil((scale.startMs + shift) / step) * step - shift;
+  const viewTo = endMs(scale);
   const out: AxisTick[] = [];
-  for (let ms = first; ms <= endMs(scale); ms += step) {
-    out.push({ ms, label: tickLabel(ms + shift, step), major: isMajor(ms + shift, step) });
-    if (out.length > 200) break;
+
+  for (const segment of segments) {
+    const from = Math.max(segment.fromMs, scale.startMs);
+    const to = Math.min(segment.toMs, viewTo);
+    if (from > to) continue;
+    const shift = segment.offsetMinutes * MINUTE_MS;
+
+    // Ticks are placed on round *local* times, so a day boundary falls at local
+    // midnight rather than at whatever hour UTC midnight happens to be there.
+    const first = Math.ceil((from + shift) / step) * step - shift;
+    for (let ms = first; ms < to || (ms === to && to === viewTo); ms += step) {
+      // Either side of a jump, two ticks can land closer than their labels are wide.
+      const prev = out[out.length - 1];
+      if (prev && ms - prev.ms < step / 2) continue;
+      out.push({ ms, label: tickLabel(ms + shift, step), major: isMajor(ms + shift, step) });
+      if (out.length > 200) return out;
+    }
   }
   return out;
 }

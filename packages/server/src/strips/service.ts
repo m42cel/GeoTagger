@@ -342,10 +342,10 @@ export class StripService {
 
   /**
    * Shifts a file's whole strip so that file lands on a time read off a clock in the
-   * shot. `trueLocalIso` is a wall clock in the display offset, which is the one the
-   * axis is labelled in and therefore the one the user just read.
+   * shot. `trueLocalIso` is a wall clock in the file's own offset, since that is the
+   * zone the clock in the shot was showing.
    */
-  pinTrueTime(fileId: FileId, trueLocalIso: string, displayUtcOffsetMinutes: number): void {
+  pinTrueTime(fileId: FileId, trueLocalIso: string): void {
     const timeline = this.timeline();
     const file = timeline.byId.get(fileId);
     if (!file || file.effectiveMs === null) {
@@ -359,7 +359,7 @@ export class StripService {
       throw new StripOperationError('bad_time', `Could not read "${trueLocalIso}" as a time.`, 400);
     }
     const strip = this.requireUnlocked(file.stripId);
-    const pinned = planPin(strip, file.effectiveMs, target - displayUtcOffsetMinutes * MINUTE_MS);
+    const pinned = planPin(strip, file.effectiveMs, target - file.utcOffsetMinutes * MINUTE_MS);
 
     this.pushUndo();
     this.store.setStripOffset(strip.id, pinned);

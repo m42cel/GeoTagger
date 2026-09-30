@@ -139,7 +139,7 @@ describe('offsets and locking (SPEC §4.3)', () => {
     expect(() => service.cut(sony.id, at('2024-07-12T09:30:00'))).toThrow(/locked/i);
     expect(() => service.moveToLane(sony.id, 3)).toThrow(/locked/i);
     expect(() => service.setUtcOffsetOverride(sony.id, 60)).toThrow(/locked/i);
-    expect(() => service.pinTrueTime(phoneFile, '2024-07-12T09:00:00', 0)).not.toThrow();
+    expect(() => service.pinTrueTime(phoneFile, '2024-07-12T09:00:00')).not.toThrow();
   });
 
   it('leaves a locked strip fully readable, so it stays a snap target', () => {
@@ -258,18 +258,29 @@ describe('pin true time (SPEC §4.3)', () => {
     store.folderUtcOffsetMinutes = 0;
     service.regroup('device');
 
-    service.pinTrueTime(first, '2024-07-12T09:15:00', 0);
+    service.pinTrueTime(first, '2024-07-12T09:15:00');
     const timeline = service.timeline();
     expect(timeline.byId.get(first)?.effectiveMs).toBe(at('2024-07-12T09:15:00'));
     // Everything else in the strip moved with it, including the files after it.
     expect(timeline.files[1]?.effectiveMs).toBe(at('2024-07-12T13:15:00'));
   });
 
+  it("reads the time given in the pinned file's own offset, not the trip's dominant one", () => {
+    addFile('phone/IMG_1.JPG', '2024-07-12T09:00:00', { device: 'phone', utcOffsetMinutes: -360 });
+    addFile('phone/IMG_2.JPG', '2024-07-12T10:00:00', { device: 'phone', utcOffsetMinutes: -360 });
+    const late = addFile('sony/DSC_1.JPG', '2024-07-12T15:00:00', { device: 'sony', utcOffsetMinutes: -420 });
+    service.regroup('device');
+    expect(service.timeline().displayUtcOffsetMinutes).toBe(-360);
+
+    service.pinTrueTime(late, '2024-07-12T16:00:00');
+    expect(service.timeline().byId.get(late)?.effectiveMs).toBe(at('2024-07-12T23:00:00'));
+  });
+
   it('refuses to pin a file in a locked strip', () => {
     const first = addFile('sony/DSC_1.JPG', '2024-07-12T08:00:00');
     service.regroup('device');
     service.setLocked(stripFor('sony').id, true);
-    expect(() => service.pinTrueTime(first, '2024-07-12T09:15:00', 0)).toThrow(/locked/i);
+    expect(() => service.pinTrueTime(first, '2024-07-12T09:15:00')).toThrow(/locked/i);
   });
 });
 

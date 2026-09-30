@@ -231,11 +231,8 @@ export function ruleForNaiveReading(
 }
 
 /**
- * The offset the axis labels are drawn in: the one most of the folder is in.
- *
- * A trip that crossed a border still reads most naturally in the zone it mostly
- * happened in, and a single display offset keeps the axis monotonic, which one that
- * jumped at the border would not be.
+ * The offset the folder is mostly in: what the axis reads in wherever no period
+ * applies, since the axis otherwise labels each instant in its own period's offset.
  */
 export function dominantOffsetMinutes(offsets: readonly number[], fallback = 0): number {
   if (offsets.length === 0) return fallback;
