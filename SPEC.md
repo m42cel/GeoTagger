@@ -579,8 +579,11 @@ not stop it. The view recentres on the now-shared instant, keeping the current z
 └────────────────────────────────────────┘└──────────────┘
 ```
 
-**Thumbnails on the map** are fixed-size squares (48 px default, 32–96 px configurable) that do
-not scale with zoom, keeping drag targets predictable. Selecting one shows a large preview in the
+**Thumbnails on the map** are fixed-size (long side 48 px default, 32–96 px configurable) and do
+not scale with zoom, keeping drag targets predictable. Each takes its image's displayed aspect
+ratio, clamped to 4:3 … 3:4: square, 4:3 and 3:4 images show whole, anything wider or taller
+shows its centred 4:3 or 3:4 section. An image with unknown dimensions shows square. A cluster's
+representative thumbnail follows the same rule. Selecting one shows a large preview in the
 side panel.
 
 **Border colours:**
