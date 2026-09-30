@@ -147,11 +147,14 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
-  // Schema 5 recorded a whole write as one `applied_json` object; 6 records a value per
-  // tag instead (SPEC §9.1). The old column is left where it is — nothing reads it, and
-  // the values it holds are of a file's last write, not of anything that predates
-  // GeoTagger, so there is nothing in it worth carrying across.
   addColumnIfMissing(db, 'persisted', 'written_tags_json', 'TEXT');
+  // Schema 5 recorded a whole write as `wrote_gps`/`wrote_time`/`applied_json`; 6 records
+  // a value per tag in `written_tags_json` instead (SPEC §9.1). The retired columns held
+  // values of a file's last write, not anything that predates GeoTagger, so there is
+  // nothing in them worth carrying across.
+  dropColumnIfExists(db, 'persisted', 'wrote_gps');
+  dropColumnIfExists(db, 'persisted', 'wrote_time');
+  dropColumnIfExists(db, 'persisted', 'applied_json');
   collapseOffsetRamp(db);
 }
 
@@ -186,4 +189,10 @@ function addColumnIfMissing(
   const columns = db.pragma(`table_info(${table})`) as { name: string }[];
   if (columns.some((c) => c.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+function dropColumnIfExists(db: Database.Database, table: string, column: string): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (!columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
 }
