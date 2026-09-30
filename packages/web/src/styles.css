@@ -760,16 +760,86 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   max-height: 80vh;
   overflow: auto;
 }
-.modal h2 { text-transform: none; letter-spacing: 0; font-size: 16px; color: inherit; }
+.modal h2 { text-transform: none; letter-spacing: 0; font-size: 16px; color: inherit; margin: 0; }
 .modal progress { width: 100%; height: 8px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
-.persist-summary { list-style: none; margin: 0; padding: 0; font-size: 15px; }
-.persist-summary li { padding: 3px 0; }
-.persist-summary b { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.modal.persist-modal { width: min(1200px, 100%); }
 
-.persist-failures { list-style: none; margin: 10px 0 0; padding: 0; font-size: 12px; max-height: 220px; overflow: auto; }
-.persist-failures em { font-style: normal; color: var(--muted); }
+.persist-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.persist-toggles { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+.persist-toggles label { display: inline-flex; gap: 5px; align-items: center; }
+
+.persist-count { margin-right: auto; font-size: 13px; }
+
+.persist-table-scroll {
+  max-height: 55vh;
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+/* Fixed column widths (via the <colgroup>), so switching to raw EXIF values — whose
+   tag names and value strings run much longer than the human labels — changes row
+   heights, never column widths. Without this the browser's automatic table layout
+   resizes every column to fit whatever the longest cell currently needs, squeezing
+   the filename column down to near nothing. */
+.persist-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.persist-col-file { width: 30%; }
+.persist-col-tag { width: 27%; }
+.persist-col-value { width: 19%; }
+.persist-col-status { width: 4%; }
+.persist-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+.persist-table tr:not(:last-child) td { border-bottom: 1px solid var(--line); }
+.persist-table tr.stale { background: color-mix(in srgb, var(--weak) 8%, transparent); }
+.persist-table td { padding: 6px 10px; vertical-align: top; overflow-wrap: anywhere; }
+
+/* The `<td>` itself keeps its default `display: table-cell` — a `display` override
+   on a cell that's the target of another row's `rowSpan` breaks its participation in
+   the table's row/column grid, which is what sent a second field's row sliding under
+   the filename column before. The flex layout lives on this inner span instead. */
+.persist-table td.persist-file { font-weight: 600; vertical-align: middle; }
+.persist-file-inner { display: flex; align-items: center; gap: 10px; }
+.persist-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; flex: none; }
+
+.persist-label { color: var(--muted); }
+.persist-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.persist-value-new { font-weight: 600; }
+
+/* `td.persist-status`, not `.persist-status`: the table's own `td` rule sets
+   `vertical-align: top` and would otherwise win on specificity — the same reason
+   `td.persist-file` is written that way. */
+.persist-table td.persist-status { text-align: right; white-space: nowrap; vertical-align: middle; }
+.persist-ok { color: var(--known); font-weight: 700; }
+
+/* The file being written. Sized to the checkmark it stands in for, because the status
+   column is `nowrap`: anything wider widens the table mid-run, which is enough to put a
+   horizontal scrollbar under the list and shift every row sideways. */
+.persist-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border-top-color: var(--fg);
+  border-radius: 50%;
+  animation: persist-spin 0.7s linear infinite;
+}
+
+@keyframes persist-spin {
+  to { transform: rotate(360deg); }
+}
 
 .banner.warn { color: var(--weak); display: grid; gap: 4px; }
 .banner.warn label { display: inline-flex; gap: 6px; align-items: center; color: var(--fg); }
@@ -830,6 +900,12 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
+  /* Leaflet's own panes (tiles, markers, popups) use z-index values up to 700+,
+     and the rubber-band select box above goes to 1000 — all local to the map.
+     Without this, none of that has a stacking context of its own to be contained
+     in, so it compares its z-index directly against unrelated fixed-position UI
+     like the persist dialog's backdrop and wins despite the backdrop's z-index. */
+  isolation: isolate;
 }
 
 .tray-panel {

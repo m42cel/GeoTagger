@@ -7,11 +7,11 @@ import { formatInstant, formatUtcOffset } from '@geotagger/shared';
  * preview, the corrected timestamp, where the file currently sits, and — for a
  * single selection — the confirm/revert/reset controls of SPEC §6.5.
  *
- * Revert and reset are different depths of undo: revert cancels only a drag in
- * progress, falling back to whatever anchor (confirmed or camera GPS) was
- * underneath it; reset discards that anchor too, all the way back to a derived
- * estimate or no position at all (SPEC §5.6). A plain interpolated estimate that has
- * never been dragged or confirmed has nothing to revert to, only to reset.
+ * Revert and reset are two different depths of undo: revert cancels only a drag in
+ * progress, falling back to whatever anchor (confirmed or camera GPS) was underneath
+ * it; reset discards that anchor too, all the way back to a derived estimate or no
+ * position at all (SPEC §5.6). A plain interpolated estimate that has never been
+ * dragged or confirmed has nothing to revert to, only to reset.
  *
  * While the map's multi-selection (SPEC §6.5) is non-empty, this panel shows a grid
  * of small thumbnails instead — the single-file view doesn't make sense for several

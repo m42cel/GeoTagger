@@ -7,6 +7,8 @@ import { StripService } from '../strips/service.js';
 import { PositionService } from './service.js';
 
 const ROME = { lat: 41.9028, lon: 12.4964 };
+/** West of Greenwich: the hemisphere a position's `GPSLongitudeRef` carries. */
+const JASPER = { lat: 52.8123374, lon: -118.3296204 };
 const MILAN = { lat: 45.4642, lon: 9.19 };
 
 let folder: string;
@@ -172,5 +174,62 @@ describe('PositionService.compute', () => {
     expect(midPos.source).toBe('estimate');
     expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
     expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
+  });
+});
+
+describe('PositionService.unpersistedFileIds (SPEC §6.3)', () => {
+  /** What the writer would have recorded for a file it wrote this position to. */
+  function recordWritten(fileId: number, lat: number, lon: number): void {
+    store.recordPersisted({
+      fileId,
+      persistedAt: 2,
+      originalSnapshotJson: null,
+      writtenTagsJson: JSON.stringify({
+        'EXIF:GPSLatitude': String(Math.abs(lat)),
+        'EXIF:GPSLongitude': String(Math.abs(lon)),
+        'XMP:GPSLatitude': String(lat),
+        'XMP:GPSLongitude': String(lon),
+      }),
+      exiftoolResult: null,
+    });
+  }
+
+  it('lists a confirmed position that has never been written', () => {
+    const a = addFile('a.jpg', '2024-07-12T09:00:00');
+    settlePosition(a, ROME.lat, ROME.lon, true);
+    expect(positions.unpersistedFileIds(positions.compute(store.listFiles()))).toEqual([a]);
+  });
+
+  it('leaves out one already written to the file', () => {
+    const a = addFile('a.jpg', '2024-07-12T09:00:00');
+    settlePosition(a, ROME.lat, ROME.lon, true);
+    recordWritten(a, ROME.lat, ROME.lon);
+    expect(positions.unpersistedFileIds(positions.compute(store.listFiles()))).toEqual([]);
+  });
+
+  it('leaves out a western-hemisphere one, whose ref tag the write need not have touched', () => {
+    // The camera put the file west of Greenwich, so `GPSLongitudeRef` was already `W` and
+    // a write of the coordinates alone never touches it. Reading the sign from the written
+    // tags alone would flip it and leave the file unpersisted for ever.
+    const a = addFile('a.jpg', '2024-07-12T09:00:00', { gps: { lat: 52.8, lon: -118.3 } });
+    settlePosition(a, JASPER.lat, JASPER.lon, true);
+    recordWritten(a, JASPER.lat, JASPER.lon);
+    expect(positions.unpersistedFileIds(positions.compute(store.listFiles()))).toEqual([]);
+  });
+
+  it('lists one whose confirmed position has moved since it was written', () => {
+    const a = addFile('a.jpg', '2024-07-12T09:00:00');
+    settlePosition(a, ROME.lat, ROME.lon, true);
+    recordWritten(a, ROME.lat, ROME.lon);
+    settlePosition(a, MILAN.lat, MILAN.lon, true);
+    expect(positions.unpersistedFileIds(positions.compute(store.listFiles()))).toEqual([a]);
+  });
+
+  it('never lists camera GPS or an unconfirmed drag — neither is ever persisted', () => {
+    const cam = addFile('cam.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const dragged = addFile('dragged.jpg', '2024-07-12T09:30:00');
+    settlePosition(dragged, MILAN.lat, MILAN.lon, false);
+    expect(positions.unpersistedFileIds(positions.compute(store.listFiles()))).toEqual([]);
+    expect(store.listFiles().map((f) => f.id)).toContain(cam);
   });
 });

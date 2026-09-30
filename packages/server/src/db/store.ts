@@ -253,8 +253,11 @@ export class FolderStore {
   // ---- files -------------------------------------------------------------
 
   /**
-   * Inserts or refreshes a file's index row and reports whether it is new, changed
-   * or untouched since the last scan. Only changed files need their metadata re-read.
+   * Inserts or refreshes a file's index row and reports whether it is new, changed or
+   * untouched since the last scan — always for the scan summary shown to the user, and
+   * also for which files a *quick* scan reads metadata for. A *deep* scan reads every
+   * file regardless, since `size`/`mtime` alone can't prove its tags are unchanged
+   * (SPEC §10.1).
    */
   upsertScanned(f: ScannedFile, now: number): { id: number; change: FileChange } {
     const sig = contentSig(f.sizeBytes, f.mtime);
@@ -296,12 +299,29 @@ export class FolderStore {
   applyScanResult(fileId: number, m: FileMetadata, device: DeviceRecord | null): void {
     const tx = this.db.transaction(() => {
       if (device) this.upsertDevice(device);
-      this.applyMetadata(fileId, m);
+      this.applyMetadata(fileId, m, this.hasPersisted(fileId));
     });
     tx();
   }
 
-  applyMetadata(fileId: number, m: FileMetadata): void {
+  /**
+   * Once GeoTagger has persisted a write to a file, a rescan's read no longer sees the
+   * camera's own values for the fields SPEC §9.3 treats as "original" — it sees
+   * GeoTagger's own last write. So a persisted file refreshes only what a write can't
+   * have changed (device, dimensions, orientation); a file GeoTagger has never touched
+   * refreshes everything, including the capture time and position the rest of the app
+   * treats as the pre-GeoTagger original.
+   */
+  applyMetadata(fileId: number, m: FileMetadata, alreadyPersisted: boolean): void {
+    if (alreadyPersisted) {
+      this.db
+        .prepare(
+          `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?
+           WHERE id = ?`,
+        )
+        .run(m.deviceId, m.width, m.height, m.durationMs, m.orientation, fileId);
+      return;
+    }
     this.db
       .prepare(
         `UPDATE files SET device_id = ?, width = ?, height = ?, duration_ms = ?, orientation = ?,
@@ -705,6 +725,31 @@ export class FolderStore {
   }
 
   /**
+   * What the persist plan needs about a confirmed position that `listConfirmedPositions`
+   * doesn't carry: its provenance and uncertainty for the `geotagger:PositionSource`/
+   * `PositionUncertaintyMeters` tags (SPEC §9.2).
+   */
+  listConfirmedPositionEdits(): Map<
+    number,
+    { lat: number; lon: number; positionSource: string | null; uncertaintyM: number | null }
+  > {
+    const rows = this.db
+      .prepare<[], {
+        file_id: number; lat: number; lon: number;
+        position_source: string | null; uncertainty_m: number | null;
+      }>(
+        'SELECT file_id, lat, lon, position_source, uncertainty_m FROM edits WHERE confirmed_at IS NOT NULL',
+      )
+      .all();
+    return new Map(
+      rows.map((r) => [
+        r.file_id,
+        { lat: r.lat, lon: r.lon, positionSource: r.position_source, uncertaintyM: r.uncertainty_m },
+      ]),
+    );
+  }
+
+  /**
    * Drags in progress, keyed by file id. Overrides a file's own displayed position
    * without anchoring anything (SPEC §5.5) — a confirmed position or camera GPS
    * underneath, if any, keeps anchoring everyone else until this is confirmed or
@@ -800,46 +845,40 @@ export class FolderStore {
   recordPersisted(row: {
     fileId: number;
     persistedAt: number;
-    wroteGps: boolean;
-    wroteTime: boolean;
     originalSnapshotJson: string | null;
-    appliedJson: string | null;
+    /** Every tag GeoTagger has written to this file, this run's included (SPEC §9.1). */
+    writtenTagsJson: string | null;
     exiftoolResult: string | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO persisted (file_id, persisted_at, wrote_gps, wrote_time,
-                                original_snapshot_json, applied_json, exiftool_result)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO persisted (file_id, persisted_at, original_snapshot_json,
+                                written_tags_json, exiftool_result)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(file_id) DO UPDATE SET
            persisted_at = excluded.persisted_at,
-           wrote_gps = persisted.wrote_gps | excluded.wrote_gps,
-           wrote_time = persisted.wrote_time | excluded.wrote_time,
-           -- The first snapshot is the one that predates GeoTagger, so it is what
-           -- revert has to restore; a later write must not overwrite it with values
+           -- The first snapshot is the one that predates GeoTagger, so it is the record a
+           -- revert would work from; a later write must not overwrite it with values
            -- GeoTagger itself put there.
            original_snapshot_json = COALESCE(persisted.original_snapshot_json, excluded.original_snapshot_json),
-           applied_json = excluded.applied_json,
+           written_tags_json = excluded.written_tags_json,
            exiftool_result = excluded.exiftool_result`,
       )
-      .run(
-        row.fileId,
-        row.persistedAt,
-        row.wroteGps ? 1 : 0,
-        row.wroteTime ? 1 : 0,
-        row.originalSnapshotJson,
-        row.appliedJson,
-        row.exiftoolResult,
-      );
+      .run(row.fileId, row.persistedAt, row.originalSnapshotJson, row.writtenTagsJson, row.exiftoolResult);
   }
 
   getPersisted(fileId: number): PersistedRow | null {
     const row = this.db
       .prepare<[number], RawPersistedRow>(
-        'SELECT persisted_at, wrote_gps, wrote_time, original_snapshot_json, applied_json FROM persisted WHERE file_id = ?',
+        'SELECT persisted_at, original_snapshot_json, written_tags_json FROM persisted WHERE file_id = ?',
       )
       .get(fileId);
     return row ? toPersistedRow(row) : null;
+  }
+
+  /** Whether GeoTagger has ever written to this file — cheaper than `getPersisted` when the row itself is not needed. */
+  hasPersisted(fileId: number): boolean {
+    return this.db.prepare('SELECT 1 FROM persisted WHERE file_id = ?').get(fileId) !== undefined;
   }
 
   /** What GeoTagger last wrote to each file, so the next plan writes only the difference. */
@@ -867,10 +906,6 @@ export class FolderStore {
     return new Set(
       this.db.prepare<[], { file_id: number }>('SELECT file_id FROM persisted').all().map((r) => r.file_id),
     );
-  }
-
-  clearPersisted(fileId: number): void {
-    this.db.prepare('DELETE FROM persisted WHERE file_id = ?').run(fileId);
   }
 
   // ---- operation log (SPEC §10.3) ----------------------------------------
@@ -926,28 +961,22 @@ function parseNaive(iso: string | null): number | null {
 /** A `persisted` row as the writer uses it (SPEC §9.3). */
 export interface PersistedRow {
   persistedAt: number;
-  wroteGps: boolean;
-  wroteTime: boolean;
-  /** What the file said before GeoTagger first wrote to it; the basis for revert. */
+  /** What the file said before GeoTagger first wrote to it; the record a revert works from. */
   originalSnapshotJson: string | null;
-  /** What GeoTagger last wrote to it. */
-  appliedJson: string | null;
+  /** The value GeoTagger last wrote to each tag it has written, keyed by tag name. */
+  writtenTagsJson: string | null;
 }
 
 interface RawPersistedRow {
   persisted_at: number;
-  wrote_gps: number;
-  wrote_time: number;
   original_snapshot_json: string | null;
-  applied_json: string | null;
+  written_tags_json: string | null;
 }
 
 function toPersistedRow(r: RawPersistedRow): PersistedRow {
   return {
     persistedAt: r.persisted_at,
-    wroteGps: r.wrote_gps !== 0,
-    wroteTime: r.wrote_time !== 0,
     originalSnapshotJson: r.original_snapshot_json,
-    appliedJson: r.applied_json,
+    writtenTagsJson: r.written_tags_json,
   };
 }

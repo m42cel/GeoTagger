@@ -13,19 +13,24 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionMan
   });
 
   /**
-   * Opens a folder and starts its scan. Returns as soon as the scan has started, not
-   * when it finishes — progress streams over `scan-stream` and the UI blocks on it
-   * until it settles (SPEC §6.1 step 2).
+   * Opens a folder and starts a quick scan — one that trusts `size`/`mtime` to say
+   * whether a known file needs its metadata re-read. Returns as soon as the scan has
+   * started, not when it finishes — progress streams over `scan-stream` and the UI
+   * blocks on it until it settles (SPEC §6.1 step 2).
    */
   app.post<{ Body: OpenSessionRequest }>('/api/session/open', async (req): Promise<SessionState> => {
     const session = sessions.open(req.body?.relPath ?? '');
-    startScan(sessions, session, app);
+    startScan(sessions, session, app, false);
     return session.state();
   });
 
+  /**
+   * The explicit rescan: deep, reading every file's metadata regardless of `size`/
+   * `mtime`, since those alone can't prove a file's tags are unchanged (SPEC §10.1).
+   */
   app.post('/api/session/rescan', async (): Promise<SessionState> => {
     const session = sessions.require();
-    startScan(sessions, session, app);
+    startScan(sessions, session, app, true);
     return session.state();
   });
 
@@ -111,8 +116,8 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionMan
  * The regroup is skipped if the user opened another folder meanwhile — that session's
  * store is closed by then, and rebuilding strips in it would only raise.
  */
-function startScan(sessions: SessionManager, session: Session, app: FastifyInstance): void {
-  void session.scanner.start().then(() => {
+function startScan(sessions: SessionManager, session: Session, app: FastifyInstance, deep: boolean): void {
+  void session.scanner.start(deep).then(() => {
     if (!sessions.isCurrent(session)) return;
     try {
       session.regroupIfNeeded();

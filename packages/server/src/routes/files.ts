@@ -8,10 +8,12 @@ export function registerFileRoutes(app: FastifyInstance, sessions: SessionManage
   app.get('/api/files', async (): Promise<FilesResponse> => {
     const session = sessions.require();
     const files = session.store.listFiles();
+    const positions = session.positions.compute(files);
     return {
       files,
       devices: session.store.listDevices(),
-      positions: session.positions.compute(files),
+      positions,
+      unpersistedFileIds: session.positions.unpersistedFileIds(positions),
     };
   });
 

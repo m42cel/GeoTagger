@@ -15,13 +15,27 @@ export const GEOTAGGER_NAMESPACE = 'http://ns.geotagger.local/1.0/';
 export const GEOTAGGER_GROUP = 'XMP-geotagger';
 export const CONFIG_FILENAME = 'geotagger.exiftool.config';
 
-/** The tags of SPEC §9.3, in the order they are declared to ExifTool. */
+/**
+ * The tags of SPEC §9.3, in the order they are declared to ExifTool.
+ *
+ * One `Original*` per tag GeoTagger writes, so a restore puts back exactly what was
+ * there rather than deriving one tag from another's original. A tag the file did not
+ * have is preserved as the literal `n/a`, which is what tells a later restore to
+ * remove it — an absent `Original*` would be indistinguishable from never having been
+ * written at all.
+ */
 export const GEOTAGGER_TAGS = [
-  'OriginalGPSPresent',
-  'OriginalGPSLatitude',
-  'OriginalGPSLongitude',
   'OriginalDateTimeOriginal',
+  'OriginalCreateDate',
   'OriginalOffsetTimeOriginal',
+  'OriginalOffsetTimeDigitized',
+  'OriginalGPSLatitude',
+  'OriginalGPSLatitudeRef',
+  'OriginalGPSLongitude',
+  'OriginalGPSLongitudeRef',
+  'OriginalGPSCoordinates',
+  'OriginalXMPGPSLatitude',
+  'OriginalXMPGPSLongitude',
   'PositionSource',
   'PositionUncertaintyMeters',
   'TimeShiftSeconds',

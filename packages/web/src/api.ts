@@ -79,8 +79,6 @@ export const api = {
   // ---- writing (SPEC §9) -------------------------------------------------
 
   persistPlan: () => request<PersistPlan>('/api/persist/plan'),
-  revertTime: (fileId: number) =>
-    request<{ ok: boolean; reason: string | null }>(`/api/files/${fileId}/revert-time`, { method: 'POST' }),
   oplog: () => request<OplogEntry[]>('/api/oplog'),
 
   // ---- map view editing (SPEC §5.6, §6.5) --------------------------------

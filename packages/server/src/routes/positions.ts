@@ -27,10 +27,12 @@ import type { Session, SessionManager } from '../session.js';
 export function registerPositionRoutes(app: FastifyInstance, sessions: SessionManager): void {
   const filesResponse = (session: Session): FilesResponse => {
     const files = session.store.listFiles();
+    const positions = session.positions.compute(files);
     return {
       files,
       devices: session.store.listDevices(),
-      positions: session.positions.compute(files),
+      positions,
+      unpersistedFileIds: session.positions.unpersistedFileIds(positions),
     };
   };
 

@@ -56,16 +56,15 @@ const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution
   },
 };
 
-export function MapView({ onBack }: { onBack: () => void }) {
+export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenPersist: () => void }) {
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCircles, setShowCircles] = useState(true);
-  // SPEC §6.3 filters: visibility-only, on by default. "unpersisted" isn't here yet —
-  // nothing writes GPS to disk before phase 4, so it has no real distinction to filter
-  // on until then (see the spec's Filters note).
+  // SPEC §6.3 filters: visibility-only, on by default.
   const [showUnconfirmed, setShowUnconfirmed] = useState(true);
   const [showAppModified, setShowAppModified] = useState(true);
+  const [showUnpersisted, setShowUnpersisted] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
@@ -191,6 +190,8 @@ export function MapView({ onBack }: { onBack: () => void }) {
 
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
 
+  const unpersistedIds = useMemo(() => new Set(filesResp?.unpersistedFileIds ?? []), [filesResp]);
+
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
   // unaffected by what's currently hidden. This is what markers actually get drawn
@@ -200,9 +201,14 @@ export function MapView({ onBack }: { onBack: () => void }) {
       onMap.filter((i) => {
         const isUnconfirmed = i.position.source === 'manual' || i.position.source === 'estimate';
         const isAppModified = i.position.source !== 'camera-gps';
-        return (showUnconfirmed || !isUnconfirmed) && (showAppModified || !isAppModified);
+        const isUnpersisted = unpersistedIds.has(i.file.id);
+        return (
+          (showUnconfirmed || !isUnconfirmed) &&
+          (showAppModified || !isAppModified) &&
+          (showUnpersisted || !isUnpersisted)
+        );
       }),
-    [onMap, showUnconfirmed, showAppModified],
+    [onMap, showUnconfirmed, showAppModified, showUnpersisted, unpersistedIds],
   );
 
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
@@ -644,6 +650,9 @@ export function MapView({ onBack }: { onBack: () => void }) {
         <button type="button" className="ghost" onClick={onBack}>
           ← Back
         </button>
+        <button type="button" className="ghost" onClick={onOpenPersist}>
+          Persist changes…
+        </button>
         <div className="chip-group">
           {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((id) => (
             <button
@@ -667,6 +676,10 @@ export function MapView({ onBack }: { onBack: () => void }) {
         <label className="map-toggle">
           <input type="checkbox" checked={showAppModified} onChange={(e) => setShowAppModified(e.target.checked)} />
           App-modified
+        </label>
+        <label className="map-toggle">
+          <input type="checkbox" checked={showUnpersisted} onChange={(e) => setShowUnpersisted(e.target.checked)} />
+          Unpersisted
         </label>
         {multiSelected.size > 0 && (
           <div className="multi-select-bar">

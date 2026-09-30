@@ -158,6 +158,49 @@ describe('metadata and strips', () => {
     });
   });
 
+  it("keeps a persisted file's original fields frozen when a later scan reads it again (SPEC §9.3)", () => {
+    const { id } = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1);
+    const cameraRead = {
+      deviceId: null,
+      width: 4032,
+      height: 3024,
+      durationMs: null,
+      orientation: 6,
+      captureTimeRaw: '2024-07-12T14:32:10',
+      captureTimeSource: 'exif:DateTimeOriginal' as const,
+      captureUtcOffsetMinutes: 120,
+      gpsTimeUtc: null,
+      origGpsPresent: false,
+      origLat: null,
+      origLon: null,
+      origAlt: null,
+    };
+    store.applyScanResult(id, cameraRead, null);
+    store.recordPersisted({
+      fileId: id,
+      persistedAt: 1,
+      originalSnapshotJson: null,
+      writtenTagsJson: null,
+      exiftoolResult: null,
+    });
+
+    // A rescan after the write reads GeoTagger's own corrected values back from the
+    // file — size/mtime alone cannot prove otherwise (SPEC §10.1), so every file's
+    // metadata is re-read, but a persisted file must not let that overwrite what the
+    // rest of the app still treats as the pre-GeoTagger original.
+    store.applyScanResult(
+      id,
+      { ...cameraRead, width: 4000, captureTimeRaw: '2024-07-12T15:32:10', origGpsPresent: true, origLat: 47.5, origLon: 11.5 },
+      null,
+    );
+
+    const file = store.getFile(id);
+    expect(file?.width).toBe(4000);
+    expect(file?.captureTimeRaw).toBe('2024-07-12T14:32:10');
+    expect(file?.origGpsPresent).toBe(false);
+    expect(file?.origLat).toBeNull();
+  });
+
   it('assigns every file to exactly one strip and replaces the set on regroup', () => {
     const a = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
     const b = store.upsertScanned(scanned({ relPath: 'b.jpg' }), 1).id;

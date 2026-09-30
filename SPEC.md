@@ -197,6 +197,12 @@ circular for exactly the files that need it most. It comes from the device that 
 - Resolved offsets are written to files on persist as `OffsetTimeOriginal` and
   `OffsetTimeDigitized`, which turns an ambiguous local time into an unambiguous instant
   permanently.
+- An offset that was only **assumed** — nothing inherited it, nothing overrode it, the user has
+  not answered yet, so the file is placed on the timeline as if it were UTC — is **never
+  written**, not even alongside a clock correction to the same file. Writing it would turn the
+  guess into a fact: read back on the next scan it is indistinguishable from an offset the camera
+  recorded, and it silently answers the question the app is still asking. Such a file keeps the
+  ambiguous local time it already had, and its clock correction is written on its own.
 
 ### 4.3 Clock corrections — the alignment view
 
@@ -638,11 +644,12 @@ what makes it an anchor and places everything else (§5.5).
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
 both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.
 
-Revert and reset are two different depths of undo (§5.6), not the same action under two names: a
-file dragged away from a confirmed position, for instance, can be reverted back to that confirmed
-position (the drag is cancelled, the confirmation still stands) or reset past it entirely (the
-confirmation itself is discarded, falling back to camera GPS if the file has it, or to a derived
-estimate otherwise).
+Revert and reset are two different depths of undo (§5.6, §9.4), not the same action under
+different names: a file dragged away from a confirmed position can be reverted back to that
+confirmed position (the drag is cancelled, the confirmation still stands), or reset past it
+entirely (the confirmation itself is discarded, falling back to camera GPS if the file has it, or
+to a derived estimate otherwise). A third, deeper undo — back to what the file said before
+GeoTagger ever touched it — is deferred; see §9.4.
 
 ---
 
@@ -763,6 +770,13 @@ Nothing is written until the user runs **Persist changes**. This keeps metadata 
 minimum on slow storage, allows free experimentation, and makes the whole edit set reviewable
 before it becomes permanent.
 
+**What gets written is a per-tag difference.** For every tag GeoTagger writes (§9.2), the plan
+compares what the file says with what it should say, and a tag that differs is written. "What the
+file says" is the value GeoTagger last wrote to that tag, or — for a tag it has never written —
+what the scan read. So a second Persist with nothing changed in between writes nothing at all,
+and a Persist after one further nudge writes only the tags that moved. The tag is the unit
+because the preserved original of §9.3 belongs to a tag rather than to a group of them.
+
 The dialog is one scrollable, per-file review list — there is no separate summary-counts screen
 and no separate post-write report; the same list becomes the report once writing starts.
 
@@ -790,12 +804,14 @@ Persist changes                                   [ ] thumbnails   [ ] raw EXIF 
 - **Thumbnails toggle**, off by default: adds each file's thumbnail beside its filename, using
   the thumbnail pipeline (§10.1) that already ran at scan time — opening the dialog triggers no
   extra work.
-- **Raw EXIF values toggle**, off by default: switches old/new from the human-readable
-  formatting used elsewhere in the app (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to the
-  literal tag values ExifTool will write (separate `GPSLatitude`/`GPSLatitudeRef`,
-  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and so on).
-- A file with both a timestamp and a position change is still written **once**, both payloads in
-  a single ExifTool command — the per-field sub-rows are a display grouping, not separate writes.
+- **Raw EXIF values toggle**, off by default: switches the list from one row per changed *field*
+  in the app's own units (`47.1234, 11.3456`, `2024-07-12 15:14:20 +02:00`) to **one row per
+  changed tag** — the plan as it really is: `EXIF:GPSLatitude` and `GPSLatitudeRef` separately,
+  `DateTimeOriginal` in EXIF's own `YYYY:MM:DD HH:MM:SS` form, and the `geotagger:Original*` this
+  write preserves (§9.3) appended, each showing the value it will hold.
+- The three fields — position, timestamp, UTC offset — are a **display grouping over the tags**,
+  not a unit of writing: a file changing all three is still written **once**, every tag in a
+  single ExifTool command.
 - Once **Write** is pressed the list stops being editable and each file's row fills in a status
   (✓ written and verified, or ✗ failed with a reason) as ExifTool finishes it, turning the same
   rows just reviewed into the report — progress is this filling-in, not a separate bar.
@@ -831,32 +847,81 @@ Filesystem mtime is **not** modified (`exiftool -P`).
 ### 9.3 Preserving originals
 
 Original values are written into a custom XMP namespace registered through a shipped ExifTool
-config file (`geotagger`, `http://ns.geotagger.local/1.0/`):
+config file (`geotagger`, `http://ns.geotagger.local/1.0/`). There is **one `Original*` per tag
+GeoTagger writes** (§9.2), so each tag's own prior value is recorded rather than one being derived
+from another's:
 
 ```
-geotagger:OriginalGPSPresent        True | False
-geotagger:OriginalGPSLatitude
-geotagger:OriginalGPSLongitude
 geotagger:OriginalDateTimeOriginal
+geotagger:OriginalCreateDate            EXIF:CreateDate, or QuickTime:CreateDate for a video
 geotagger:OriginalOffsetTimeOriginal
-geotagger:PositionSource            manual | interpolated-confirmed
+geotagger:OriginalOffsetTimeDigitized
+geotagger:OriginalGPSLatitude
+geotagger:OriginalGPSLatitudeRef
+geotagger:OriginalGPSLongitude
+geotagger:OriginalGPSLongitudeRef
+geotagger:OriginalGPSCoordinates        video
+geotagger:OriginalXMPGPSLatitude
+geotagger:OriginalXMPGPSLongitude
+geotagger:PositionSource                manual | interpolated-confirmed
 geotagger:PositionUncertaintyMeters
 geotagger:TimeShiftSeconds
 geotagger:ModifiedAt
 geotagger:AppVersion
 ```
 
-The same snapshot is stored in the edit store, so revert works whether the app database or the
-file is the surviving copy.
+A tag the file **did not have** is preserved as the literal `n/a`, never left out: an absent
+`Original*` would be indistinguishable from GeoTagger never having written that tag, whereas `n/a`
+says plainly that there was nothing there. The values are read from the file itself immediately
+before its first write, so they are the characters the file actually held.
+
+**Each `Original*` is written exactly once and never touched again.** It is stamped by the first
+write of *its own tag* — not of some group the tag belongs to — so a write only ever claims to have
+overwritten what it actually overwrote. Adding the UTC offset of §4.2 on its own preserves the two
+offset tags and nothing else; correcting the clock later preserves the two date tags then, with the
+values still in the file because nothing had touched them. Every later write of a tag leaves its
+`Original*` alone, so what the block holds always predates GeoTagger however many times a file is
+re-persisted.
+
+The rest of the block is **provenance**, not preservation: `TimeShiftSeconds` describes the current
+correction, `PositionSource` and `PositionUncertaintyMeters` the current placement, and they are
+rewritten whenever the field they describe is written. `ModifiedAt` and `AppVersion` are refreshed
+by any write at all. None of them has an `Original*` — they are GeoTagger's own output, and there
+was nothing there before.
+
+The same snapshot is stored in the edit store, so the record survives whether the app database or
+the file is the surviving copy. Nothing in the app reads it back yet — it is written for the
+deferred revert of §9.4, and for anyone inspecting the file with `exiftool`.
 
 ### 9.4 Revert
 
-- **Per file** — restores the original position, or removes GPS tags entirely if the file never
-  had any, then clears the `geotagger` block.
-- **Timestamps revert independently of positions**; they are separate edits with separate
-  originals.
-- Available before persisting (discard the pending edit) and after (rewrite from the stored
-  original).
+Two depths of undo exist, shallowest to deepest (§6.5, §4.3):
+
+1. **Revert** — cancels a drag in progress, falling back to the anchor underneath it. Edit-store
+   only; never touches a file.
+2. **Reset** (a file's position) / a strip's own **Reset** (time) — discards the edit entirely:
+   a position falls back to whatever the app would derive next — camera GPS, or an interpolated
+   estimate; an offset falls back to zero. This is not guaranteed to match the file's original
+   value, only incidentally so when nothing else ever overrode it.
+
+Neither writes to disk immediately — nothing does outside Persist (§9.1). Both are edit-store
+operations, so the next Persist simply writes whatever the edit now says, exactly as it would for
+any other edit.
+
+**Reset to original — deferred.** A third, deepest undo belongs here: taking an already-written
+file back to what it said before GeoTagger touched it, guaranteed rather than incidentally, defined
+against the stored `Original*` snapshot rather than against whatever the app would derive next.
+It was implemented once, driven by a flag per strip (time) and per file (position) that the persist
+plan turned into a tag-by-tag restore. That implementation was **removed**: the flag's lifetime
+against a per-file persist history had too many states that were wrong in ways only visible after
+the fact (a spent flag re-applying itself, a restore immediately undone by the UTC offset of §4.2,
+an explicit offset override swallowed while a reset stood). A different design will be specified
+before it is built again.
+
+What remains, and what a future implementation is meant to build on, is the record itself: the
+`Original*` block of §9.3 and the same snapshot in the edit store. Each tag's original is written
+by that tag's first persist and never touched again, so the information a revert needs keeps
+accumulating while the feature is absent.
 
 ### 9.5 RAW (deferred)
 
@@ -871,9 +936,17 @@ containers that ExifTool can only partially support. Everything else stays in pl
 ### 10.1 Scanning pipeline
 
 1. Walk the folder recursively, filtering by extension.
-2. Diff against the stored index by path, size and mtime; queue new and changed files.
+2. Diff against the stored index by path, size and mtime, for the added/changed/missing
+   summary. Two scan depths: a **quick** scan (opening a folder) trusts that diff and
+   only reads a changed file's metadata; a **deep** scan (the explicit rescan) reads
+   every file's metadata regardless, since size and mtime cannot prove a file's tags are
+   unchanged — and GeoTagger's own writes pin mtime on purpose (§9.2), so its writes are
+   exactly the kind of change that diff alone would miss.
 3. Batch-read metadata through the persistent ExifTool process.
-4. Resolve capture time (§4.1), device identity, dimensions, duration, original GPS.
+4. Resolve capture time (§4.1), device identity, dimensions, duration, original GPS. A
+   file GeoTagger has already persisted to keeps these as first established — a deep
+   scan's read would otherwise see GeoTagger's own corrected values and mistake them for
+   the camera's (§9.3).
 5. Generate thumbnails in the background, lowest-cost path first:
    - extract an embedded preview (`-b -PreviewImage` / `-ThumbnailImage`) when present;
    - otherwise decode and downscale with `sharp`;
@@ -994,10 +1067,10 @@ Focused on the areas where a mistake is silent and expensive:
 - **Interpolation** — great-circle positions, the reachability bound including the documented
   worked example, extrapolation, one-anchor and zero-anchor cases, antimeridian crossing.
 - **Metadata round-trip** — write then re-read against sample JPEG, HEIC, PNG, MP4 and MOV
-  fixtures; revert restores byte-equivalent metadata; a file that never had GPS ends up with
-  none again.
+  fixtures; the `Original*` block records what each tag held before the first write, `n/a` where
+  the file had nothing, and is unchanged by every later write.
 - **Materialisation** — a confirmed position does not move when a neighbouring anchor is later
-  changed; an unconfirmed one does; revert returns a confirmed file to derived or to no position;
+  changed; an unconfirmed one does; reset returns a confirmed file to derived or to no position;
   confirmed values and their uncertainty survive a restart and a rescan.
 - **Staleness** — a file modified between edit and persist is detected and not clobbered.
 

@@ -2,6 +2,9 @@ import type { ComputedPosition, FileRecord, KnownPosition, PositionInput } from 
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
+import { coordsFromTags, formatCoord } from '../write/tags.js';
+import { writtenTagsOf } from '../write/persist.js';
+import { tagValuesOnDisk } from '../write/plan.js';
 
 /**
  * Turns a folder's files into map positions (SPEC §5).
@@ -40,5 +43,36 @@ export class PositionService {
     });
 
     return [...computePositions(inputs, DEFAULT_INTERPOLATION_PARAMS).values()];
+  }
+
+  /**
+   * A confirmed position whose on-disk state doesn't match it yet (SPEC §6.3): never
+   * persisted at all, or persisted with different coordinates than the current edit.
+   * Camera GPS, a pending drag and an unconfirmed estimate are never persisted, so
+   * they are never "unpersisted" either — only a settled, `confirmed` position is.
+   *
+   * Read through the same two steps the persist plan uses — the tags GeoTagger has
+   * written over what the scan read — so this answers with what is in the file rather than
+   * with what GeoTagger happens to have touched. Reassembling a position from the written
+   * tags alone would lose a hemisphere the camera's own ref tag carries, and every photo
+   * west of Greenwich would read as unpersisted for ever. Compared through the writer's own
+   * coordinate formatting, so a difference past the digit a tag can hold is not a
+   * difference either.
+   */
+  unpersistedFileIds(positions: readonly ComputedPosition[]): number[] {
+    const persisted = this.store.listPersisted();
+    const fileById = new Map(this.store.listFiles().map((f) => [f.id, f]));
+    return positions
+      .filter((p) => p.source === 'confirmed')
+      .filter((p) => {
+        const file = fileById.get(p.fileId);
+        if (file === undefined || p.lat === null || p.lon === null) return true;
+        const row = persisted.get(p.fileId);
+        const written = row === undefined ? null : writtenTagsOf(row);
+        const onDisk = coordsFromTags(file.kind, tagValuesOnDisk(file, written ?? {}));
+        if (onDisk === null) return true;
+        return formatCoord(onDisk.lat) !== formatCoord(p.lat) || formatCoord(onDisk.lon) !== formatCoord(p.lon);
+      })
+      .map((p) => p.fileId);
   }
 }

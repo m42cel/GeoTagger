@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -107,10 +107,8 @@ CREATE TABLE IF NOT EXISTS edits (
 CREATE TABLE IF NOT EXISTS persisted (
   file_id                INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   persisted_at           INTEGER NOT NULL,
-  wrote_gps              INTEGER NOT NULL DEFAULT 0,
-  wrote_time             INTEGER NOT NULL DEFAULT 0,
   original_snapshot_json TEXT,
-  applied_json           TEXT,
+  written_tags_json      TEXT,
   exiftool_result        TEXT
 );
 
@@ -146,10 +144,17 @@ function migrate(db: Database.Database): void {
   addColumnIfMissing(db, 'files', 'gps_time_utc', 'TEXT');
   addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
-  addColumnIfMissing(db, 'persisted', 'applied_json', 'TEXT');
   addColumnIfMissing(db, 'files', 'orig_alt', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
+  addColumnIfMissing(db, 'persisted', 'written_tags_json', 'TEXT');
+  // Schema 5 recorded a whole write as `wrote_gps`/`wrote_time`/`applied_json`; 6 records
+  // a value per tag in `written_tags_json` instead (SPEC §9.1). The retired columns held
+  // values of a file's last write, not anything that predates GeoTagger, so there is
+  // nothing in them worth carrying across.
+  dropColumnIfExists(db, 'persisted', 'wrote_gps');
+  dropColumnIfExists(db, 'persisted', 'wrote_time');
+  dropColumnIfExists(db, 'persisted', 'applied_json');
   collapseOffsetRamp(db);
 }
 
@@ -184,4 +189,10 @@ function addColumnIfMissing(
   const columns = db.pragma(`table_info(${table})`) as { name: string }[];
   if (columns.some((c) => c.name === column)) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+function dropColumnIfExists(db: Database.Database, table: string, column: string): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (!columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
 }
