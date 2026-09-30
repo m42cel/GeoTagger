@@ -20,6 +20,7 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
+import { alignBottomToTop, alignDisabledReason, alignTopToBottom, type AlignPreviewSlot } from './align-preview.js';
 import { PreviewPane } from './PreviewPane.js';
 import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
@@ -248,6 +249,57 @@ export function AlignmentView({
     );
     return [sorted[0]?.fileId ?? null, sorted[1]?.fileId ?? null];
   }, [recentStrips, laneByStripId]);
+
+  /**
+   * What the preview panes' "align" buttons need of each slot's strip: its current
+   * offset, whether it's locked, and where its photo actually sits — `null` for an
+   * empty pane or one whose photo has no effective time, which the align functions
+   * below treat as "can't align" (SPEC §6.2, issue #5).
+   */
+  const previewSlotFor = (fileId: FileId | null): AlignPreviewSlot | null => {
+    if (fileId === null || timeline === null) return null;
+    const line = timeline.files.find((f) => f.id === fileId);
+    if (!line || line.effectiveMs === null || line.stripId === null) return null;
+    const strip = timeline.strips.find((s) => s.id === line.stripId);
+    if (!strip) return null;
+    return { stripId: strip.id, effectiveMs: line.effectiveMs, offsetSeconds: strip.offsetSeconds, locked: strip.locked };
+  };
+  const topPreviewSlot = useMemo(() => previewSlotFor(previewSlots[0]), [previewSlots, timeline]);
+  const bottomPreviewSlot = useMemo(() => previewSlotFor(previewSlots[1]), [previewSlots, timeline]);
+  const alignTopAction = useMemo(
+    () => alignTopToBottom(topPreviewSlot, bottomPreviewSlot),
+    [topPreviewSlot, bottomPreviewSlot],
+  );
+  const alignBottomAction = useMemo(
+    () => alignBottomToTop(topPreviewSlot, bottomPreviewSlot),
+    [topPreviewSlot, bottomPreviewSlot],
+  );
+  const alignTopTitle =
+    alignTopAction !== null
+      ? 'Shift the top strip so this photo lines up with the bottom one'
+      : (alignDisabledReason(topPreviewSlot, bottomPreviewSlot, 'top') ?? '');
+  const alignBottomTitle =
+    alignBottomAction !== null
+      ? 'Shift the bottom strip so this photo lines up with the top one'
+      : (alignDisabledReason(topPreviewSlot, bottomPreviewSlot, 'bottom') ?? '');
+
+  /**
+   * Runs an align-buttons action: sets the moved strip's offset through the normal
+   * `setOffset` path (so undo covers it exactly like a drag or the offset field), then
+   * recentres the view on the instant the two preview photos now share, keeping the
+   * current zoom.
+   */
+  const applyAlign = (action: ReturnType<typeof alignTopToBottom>): void => {
+    if (action === null) return;
+    api
+      .setOffset(action.stripId, action.offsetSeconds)
+      .then((next) => {
+        setTimeline(next);
+        const span = scale.msPerPx * scale.widthPx;
+        setScale((s) => ({ ...s, startMs: action.alignedMs - span / 2 }));
+      })
+      .catch((err: unknown) => setError(errorText(err)));
+  };
 
   /** Instants of every file outside the dragged strip: what snapping pulls towards. */
   const snapTargets = useMemo(() => {
@@ -685,7 +737,17 @@ export function AlignmentView({
           />
         </div>
 
-        <PreviewPane topFileId={previewSlots[0]} bottomFileId={previewSlots[1]} fileById={fileById} />
+        <PreviewPane
+          topFileId={previewSlots[0]}
+          bottomFileId={previewSlots[1]}
+          fileById={fileById}
+          onAlignTopToBottom={() => applyAlign(alignTopAction)}
+          topAlignDisabled={alignTopAction === null}
+          topAlignTitle={alignTopTitle}
+          onAlignBottomToTop={() => applyAlign(alignBottomAction)}
+          bottomAlignDisabled={alignBottomAction === null}
+          bottomAlignTitle={alignBottomTitle}
+        />
       </div>
 
       <SelectionPanel

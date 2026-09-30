@@ -547,6 +547,19 @@ interpolation invisibly.
 Applying is implicit: strip offsets live in the edit store as soon as they change, exactly like
 positions, and reach the files only on persist.
 
+**Comparing two photos.** Clicking a photo holds it in one of two preview panes beside the
+lanes, stacked one above the other; clicking a photo in the other strip fills the second pane,
+so the two reference photos an alignment is being judged against sit still side by side instead
+of one click apart. Which strip is "upper" and which is "lower" follows the lanes, not click
+order.
+
+Between the panes, two buttons align the strips without the zoom-in, zoom-out, zoom-out-further
+dance that finding a distant reference pair by hand otherwise costs: **align top to bottom**
+shifts the upper strip so its pane's photo lands on the lower pane's photo's time, and **align
+bottom to top** does the reverse. Each is disabled unless both panes hold a photo with a known
+time, and again if the strip it would move is locked — the other pane's strip being locked does
+not stop it. The view recentres on the now-shared instant, keeping the current zoom.
+
 ### 6.3 Map view
 
 ```
