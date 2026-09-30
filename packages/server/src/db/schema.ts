@@ -174,14 +174,14 @@ function migrate(db: Database.Database): boolean {
  * another.
  *
  * SQLite has no `ALTER COLUMN`, so this follows the documented rebuild procedure:
- * new tables alongside the old ones, copied across through an id map built in
- * ascending old-id order (so the new ids, minted by the same monotonic generator
- * `upsertScanned` uses, sort the same way the old ones did), then the old tables are
- * dropped and the new ones renamed into place. `oplog.file_id` has no foreign key and
- * can be null; it maps through when set, and stays null otherwise. The JSON payload
- * columns (`before_json`, `after_json`, `original_snapshot_json`, `written_tags_json`,
- * `exiftool_result`) hold tag *values*, never a file id, so nothing in them needs
- * rewriting.
+ * new tables alongside the old ones, copied across through an id map from every old
+ * id to a freshly minted UUID, then the old tables are dropped and the new ones
+ * renamed into place. Nothing reads meaning into the order two file ids compare in,
+ * so the map is built in whatever order the old rows come back in. `oplog.file_id`
+ * has no foreign key and can be null; it maps through when set, and stays null
+ * otherwise. The JSON payload columns (`before_json`, `after_json`,
+ * `original_snapshot_json`, `written_tags_json`, `exiftool_result`) hold tag
+ * *values*, never a file id, so nothing in them needs rewriting.
  */
 function migrateFileIdsToUuid(db: Database.Database): boolean {
   const filesColumns = db.pragma('table_info(files)') as { name: string; type: string }[];
@@ -191,9 +191,7 @@ function migrateFileIdsToUuid(db: Database.Database): boolean {
   db.pragma('foreign_keys = OFF');
   try {
     const tx = db.transaction(() => {
-      const oldIds = (db.prepare('SELECT id FROM files ORDER BY id ASC').all() as { id: number }[]).map(
-        (r) => r.id,
-      );
+      const oldIds = (db.prepare('SELECT id FROM files').all() as { id: number }[]).map((r) => r.id);
       const idMap = new Map<number, string>(oldIds.map((id) => [id, generateFileId()]));
 
       db.exec(`

@@ -488,20 +488,17 @@ describe('schema 6 → 7 — file ids move from INTEGER to UUIDv7 TEXT', () => {
     return { store: FolderStore.open(dir), dir };
   }
 
-  it('carries every relation across to the new UUID ids, in the old order', () => {
+  it('carries every relation across to the new UUID ids', () => {
     const { store: migrated, dir } = open();
     try {
       const files = migrated.listFiles();
       expect(files.map((f) => f.relPath)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
 
-      // New ids are UUID-shaped strings...
+      // New ids are UUID-shaped strings, and unique.
       for (const f of files) {
         expect(f.id).toMatch(/^[0-9a-f-]{36}$/i);
       }
-      // ...and a UUIDv7's ids sort the same way the old integer ids did, since they
-      // were minted in ascending old-id order by the same monotonic generator.
-      const sorted = [...files].sort((a, b) => a.id.localeCompare(b.id));
-      expect(sorted.map((f) => f.relPath)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
+      expect(new Set(files.map((f) => f.id)).size).toBe(files.length);
 
       const a = files.find((f) => f.relPath === 'a.jpg') as (typeof files)[number];
       const b = files.find((f) => f.relPath === 'b.jpg') as (typeof files)[number];
