@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
+import { generateFileId } from './uuid.js';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS device_groups (
 );
 
 CREATE TABLE IF NOT EXISTS files (
-  id                         INTEGER PRIMARY KEY,
+  id                         TEXT PRIMARY KEY,
   rel_path                   TEXT NOT NULL UNIQUE,
   filename                   TEXT NOT NULL,
   ext                        TEXT NOT NULL,
@@ -76,7 +77,7 @@ CREATE TABLE IF NOT EXISTS strips (
 
 CREATE TABLE IF NOT EXISTS strip_files (
   strip_id INTEGER NOT NULL REFERENCES strips(id) ON DELETE CASCADE,
-  file_id  INTEGER NOT NULL REFERENCES files(id)  ON DELETE CASCADE,
+  file_id  TEXT    NOT NULL REFERENCES files(id)  ON DELETE CASCADE,
   PRIMARY KEY (file_id)
 );
 
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS utc_offset_rules (
 );
 
 CREATE TABLE IF NOT EXISTS edits (
-  file_id                    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  file_id                    TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   lat                        REAL,
   lon                        REAL,
   position_source            TEXT,
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS edits (
 );
 
 CREATE TABLE IF NOT EXISTS persisted (
-  file_id                INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  file_id                TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   persisted_at           INTEGER NOT NULL,
   original_snapshot_json TEXT,
   written_tags_json      TEXT,
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS persisted (
 CREATE TABLE IF NOT EXISTS oplog (
   id          INTEGER PRIMARY KEY,
   ts          INTEGER NOT NULL,
-  file_id     INTEGER,
+  file_id     TEXT,
   action      TEXT NOT NULL,
   before_json TEXT,
   after_json  TEXT,
@@ -124,11 +125,12 @@ CREATE TABLE IF NOT EXISTS oplog (
 );
 `;
 
-export function applySchema(db: Database.Database): void {
+/** True when this store's file ids still need the UUIDv7 migration below applied. */
+export function applySchema(db: Database.Database): boolean {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(STATEMENTS);
-  migrate(db);
+  return migrate(db);
 }
 
 /**
@@ -139,8 +141,12 @@ export function applySchema(db: Database.Database): void {
  * phase 1 added have to be put in by hand. Each is nullable with a harmless default,
  * so adding it is all the migration there is: a folder scanned yesterday opens today
  * without a rescan.
+ *
+ * Returns whether the file-id migration ran, so the caller knows to invalidate the
+ * thumbnail cache (SPEC §8.2) — everything else here is columns, which nothing on
+ * disk is keyed by.
  */
-function migrate(db: Database.Database): void {
+function migrate(db: Database.Database): boolean {
   addColumnIfMissing(db, 'files', 'gps_time_utc', 'TEXT');
   addColumnIfMissing(db, 'strips', 'utc_offset_override_minutes', 'INTEGER');
   addColumnIfMissing(db, 'utc_offset_rules', 'zone', 'TEXT');
@@ -156,6 +162,187 @@ function migrate(db: Database.Database): void {
   dropColumnIfExists(db, 'persisted', 'wrote_time');
   dropColumnIfExists(db, 'persisted', 'applied_json');
   collapseOffsetRamp(db);
+  return migrateFileIdsToUuid(db);
+}
+
+/**
+ * Schema 6 → 7: file ids move from a per-folder `INTEGER PRIMARY KEY` to a UUIDv7
+ * `TEXT`, unique across every folder GeoTagger ever opens (SPEC §8.2). Two folders'
+ * DBs otherwise number their files from 1, and reusing a folder's own ids after a
+ * rescan or a `.geotagger` reset made the thumbnail cache — which is keyed by id and
+ * served with a long-lived `Cache-Control` — serve one photo's cached image for
+ * another.
+ *
+ * SQLite has no `ALTER COLUMN`, so this follows the documented rebuild procedure:
+ * new tables alongside the old ones, copied across through an id map from every old
+ * id to a freshly minted UUID, then the old tables are dropped and the new ones
+ * renamed into place. Nothing reads meaning into the order two file ids compare in,
+ * so the map is built in whatever order the old rows come back in. `oplog.file_id`
+ * has no foreign key and can be null; it maps through when set, and stays null
+ * otherwise. The JSON payload columns (`before_json`, `after_json`,
+ * `original_snapshot_json`, `written_tags_json`, `exiftool_result`) hold tag
+ * *values*, never a file id, so nothing in them needs rewriting.
+ */
+function migrateFileIdsToUuid(db: Database.Database): boolean {
+  const filesColumns = db.pragma('table_info(files)') as { name: string; type: string }[];
+  const idColumn = filesColumns.find((c) => c.name === 'id');
+  if (!idColumn || idColumn.type.toUpperCase() !== 'INTEGER') return false;
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    const tx = db.transaction(() => {
+      const oldIds = (db.prepare('SELECT id FROM files').all() as { id: number }[]).map((r) => r.id);
+      const idMap = new Map<number, string>(oldIds.map((id) => [id, generateFileId()]));
+
+      db.exec(`
+        CREATE TABLE files_new (
+          id                         TEXT PRIMARY KEY,
+          rel_path                   TEXT NOT NULL UNIQUE,
+          filename                   TEXT NOT NULL,
+          ext                        TEXT NOT NULL,
+          kind                       TEXT NOT NULL,
+          size_bytes                 INTEGER NOT NULL,
+          mtime                      INTEGER NOT NULL,
+          content_sig                TEXT NOT NULL,
+          device_id                  TEXT REFERENCES devices(id),
+          width                      INTEGER,
+          height                     INTEGER,
+          duration_ms                INTEGER,
+          orientation                INTEGER,
+          capture_time_raw           TEXT,
+          capture_time_source        TEXT NOT NULL DEFAULT 'none',
+          capture_utc_offset_minutes INTEGER,
+          gps_time_utc               TEXT,
+          orig_gps_present           INTEGER NOT NULL DEFAULT 0,
+          orig_lat                   REAL,
+          orig_lon                   REAL,
+          orig_alt                   REAL,
+          first_seen_at              INTEGER NOT NULL,
+          last_scanned_at            INTEGER NOT NULL,
+          missing                    INTEGER NOT NULL DEFAULT 0,
+          thumb_state                TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE TABLE strip_files_new (
+          strip_id INTEGER NOT NULL REFERENCES strips(id) ON DELETE CASCADE,
+          file_id  TEXT    NOT NULL REFERENCES files_new(id) ON DELETE CASCADE,
+          PRIMARY KEY (file_id)
+        );
+        CREATE TABLE edits_new (
+          file_id                    TEXT PRIMARY KEY REFERENCES files_new(id) ON DELETE CASCADE,
+          lat                        REAL,
+          lon                        REAL,
+          position_source            TEXT,
+          uncertainty_m              REAL,
+          placed_at                  INTEGER,
+          confirmed_at               INTEGER,
+          pending_lat                REAL,
+          pending_lon                REAL,
+          utc_offset_override_minutes INTEGER
+        );
+        CREATE TABLE persisted_new (
+          file_id                TEXT PRIMARY KEY REFERENCES files_new(id) ON DELETE CASCADE,
+          persisted_at           INTEGER NOT NULL,
+          original_snapshot_json TEXT,
+          written_tags_json      TEXT,
+          exiftool_result        TEXT
+        );
+        CREATE TABLE oplog_new (
+          id          INTEGER PRIMARY KEY,
+          ts          INTEGER NOT NULL,
+          file_id     TEXT,
+          action      TEXT NOT NULL,
+          before_json TEXT,
+          after_json  TEXT,
+          ok          INTEGER NOT NULL DEFAULT 1,
+          error       TEXT
+        );
+      `);
+
+      const insertFile = db.prepare(`
+        INSERT INTO files_new (id, rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
+                                device_id, width, height, duration_ms, orientation, capture_time_raw,
+                                capture_time_source, capture_utc_offset_minutes, gps_time_utc,
+                                orig_gps_present, orig_lat, orig_lon, orig_alt, first_seen_at,
+                                last_scanned_at, missing, thumb_state)
+        VALUES (@id, @rel_path, @filename, @ext, @kind, @size_bytes, @mtime, @content_sig,
+                @device_id, @width, @height, @duration_ms, @orientation, @capture_time_raw,
+                @capture_time_source, @capture_utc_offset_minutes, @gps_time_utc,
+                @orig_gps_present, @orig_lat, @orig_lon, @orig_alt, @first_seen_at,
+                @last_scanned_at, @missing, 'pending')
+      `);
+      for (const row of db.prepare('SELECT * FROM files').all() as Record<string, unknown>[]) {
+        insertFile.run({ ...row, id: idMap.get(row.id as number) });
+      }
+
+      const insertStripFile = db.prepare(
+        'INSERT INTO strip_files_new (strip_id, file_id) VALUES (?, ?)',
+      );
+      for (const row of db.prepare('SELECT strip_id, file_id FROM strip_files').all() as {
+        strip_id: number;
+        file_id: number;
+      }[]) {
+        const newId = idMap.get(row.file_id);
+        if (newId) insertStripFile.run(row.strip_id, newId);
+      }
+
+      const insertEdit = db.prepare(`
+        INSERT INTO edits_new (file_id, lat, lon, position_source, uncertainty_m, placed_at,
+                                confirmed_at, pending_lat, pending_lon, utc_offset_override_minutes)
+        VALUES (@file_id, @lat, @lon, @position_source, @uncertainty_m, @placed_at,
+                @confirmed_at, @pending_lat, @pending_lon, @utc_offset_override_minutes)
+      `);
+      for (const row of db.prepare('SELECT * FROM edits').all() as Record<string, unknown>[]) {
+        const newId = idMap.get(row.file_id as number);
+        if (newId) insertEdit.run({ ...row, file_id: newId });
+      }
+
+      const insertPersisted = db.prepare(`
+        INSERT INTO persisted_new (file_id, persisted_at, original_snapshot_json,
+                                    written_tags_json, exiftool_result)
+        VALUES (@file_id, @persisted_at, @original_snapshot_json, @written_tags_json, @exiftool_result)
+      `);
+      for (const row of db.prepare('SELECT * FROM persisted').all() as Record<string, unknown>[]) {
+        const newId = idMap.get(row.file_id as number);
+        if (newId) insertPersisted.run({ ...row, file_id: newId });
+      }
+
+      const insertOplog = db.prepare(`
+        INSERT INTO oplog_new (id, ts, file_id, action, before_json, after_json, ok, error)
+        VALUES (@id, @ts, @file_id, @action, @before_json, @after_json, @ok, @error)
+      `);
+      for (const row of db.prepare('SELECT * FROM oplog').all() as Record<string, unknown>[]) {
+        const oldFileId = row.file_id as number | null;
+        insertOplog.run({ ...row, file_id: oldFileId === null ? null : (idMap.get(oldFileId) ?? null) });
+      }
+
+      db.exec(`
+        DROP TABLE strip_files;
+        DROP TABLE edits;
+        DROP TABLE persisted;
+        DROP TABLE oplog;
+        DROP TABLE files;
+        ALTER TABLE files_new RENAME TO files;
+        ALTER TABLE strip_files_new RENAME TO strip_files;
+        ALTER TABLE edits_new RENAME TO edits;
+        ALTER TABLE persisted_new RENAME TO persisted;
+        ALTER TABLE oplog_new RENAME TO oplog;
+
+        CREATE INDEX files_capture_time ON files(capture_time_raw);
+        CREATE INDEX files_device       ON files(device_id);
+        CREATE INDEX files_thumb_state  ON files(thumb_state);
+        CREATE INDEX strip_files_strip  ON strip_files(strip_id);
+      `);
+
+      const violations = db.pragma('foreign_key_check');
+      if (Array.isArray(violations) && violations.length > 0) {
+        throw new Error(`file-id migration left dangling foreign keys: ${JSON.stringify(violations)}`);
+      }
+    });
+    tx();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+  return true;
 }
 
 /**

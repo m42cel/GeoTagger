@@ -18,7 +18,7 @@ const NEW_YORK = { lat: 40.7128, lon: -74.006 };
 
 function file(over: Partial<FileRecord>): FileRecord {
   return {
-    id: 1,
+    id: 'f1',
     relPath: 'IMG_0001.JPG',
     filename: 'IMG_0001.JPG',
     ext: 'jpg',
@@ -72,8 +72,8 @@ describe('zones', () => {
 describe('buildUtcOffsetRules', () => {
   it('derives one period for a trip that stayed put', () => {
     const rules = buildUtcOffsetRules([
-      file({ id: 1, captureTimeRaw: '2024-07-12T09:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
-      file({ id: 2, captureTimeRaw: '2024-07-14T18:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
+      file({ id: 'f1', captureTimeRaw: '2024-07-12T09:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
+      file({ id: 'f2', captureTimeRaw: '2024-07-14T18:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
     ]);
     expect(rules).toHaveLength(1);
     expect(rules[0]?.offsetMinutes).toBe(120);
@@ -84,8 +84,8 @@ describe('buildUtcOffsetRules', () => {
 
   it('splits into periods when the trip crossed a border', () => {
     const rules = buildUtcOffsetRules([
-      file({ id: 1, captureTimeRaw: '2024-07-12T09:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
-      file({ id: 2, captureTimeRaw: '2024-07-15T09:00:00', origGpsPresent: true, origLat: NEW_YORK.lat, origLon: NEW_YORK.lon }),
+      file({ id: 'f1', captureTimeRaw: '2024-07-12T09:00:00', origGpsPresent: true, origLat: ROME.lat, origLon: ROME.lon }),
+      file({ id: 'f2', captureTimeRaw: '2024-07-15T09:00:00', origGpsPresent: true, origLat: NEW_YORK.lat, origLon: NEW_YORK.lon }),
     ]);
     expect(rules.map((r) => r.offsetMinutes)).toEqual([120, -240]);
   });

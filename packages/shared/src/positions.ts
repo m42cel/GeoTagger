@@ -1,4 +1,5 @@
 import { destinationPoint, distanceMeters, greatCirclePoint, initialBearing, type LatLon } from './geo.js';
+import type { FileId } from './media.js';
 
 /**
  * Position interpolation (SPEC §5): turning a file's effective timestamp and the
@@ -21,7 +22,7 @@ export interface KnownPosition extends LatLon {
 
 /** One file as the interpolator needs it. */
 export interface PositionInput {
-  fileId: number;
+  fileId: FileId;
   /** Where it sits on the absolute timeline; null when it has no capture time at all. */
   effectiveMs: number | null;
   /**
@@ -41,7 +42,7 @@ export interface PositionInput {
 }
 
 export interface ComputedPosition {
-  fileId: number;
+  fileId: FileId;
   lat: number | null;
   lon: number | null;
   /**
@@ -84,7 +85,7 @@ export const DEFAULT_INTERPOLATION_PARAMS: InterpolationParams = {
 const BEYOND_CAP_UNCERTAINTY_M = 50_000;
 
 interface Anchor {
-  fileId: number;
+  fileId: FileId;
   t: number;
   pos: KnownPosition;
 }
@@ -111,8 +112,8 @@ interface Anchor {
 export function computePositions(
   files: readonly PositionInput[],
   params: InterpolationParams = DEFAULT_INTERPOLATION_PARAMS,
-): Map<number, ComputedPosition> {
-  const out = new Map<number, ComputedPosition>();
+): Map<FileId, ComputedPosition> {
+  const out = new Map<FileId, ComputedPosition>();
 
   const anchors: Anchor[] = files
     .filter((f): f is PositionInput & { known: KnownPosition; effectiveMs: number } =>
@@ -156,12 +157,12 @@ export function computePositions(
   return out;
 }
 
-function noPosition(fileId: number): ComputedPosition {
+function noPosition(fileId: FileId): ComputedPosition {
   return { fileId, lat: null, lon: null, uncertaintyM: null, source: 'none', anchorLat: null, anchorLon: null };
 }
 
 /** Only called with at least two anchors — `computePositions` guarantees that. */
-function estimate(fileId: number, t: number, anchors: readonly Anchor[], params: InterpolationParams): ComputedPosition {
+function estimate(fileId: FileId, t: number, anchors: readonly Anchor[], params: InterpolationParams): ComputedPosition {
   const first = anchors[0] as Anchor;
   const second = anchors[1] as Anchor;
   const last = anchors[anchors.length - 1] as Anchor;
@@ -180,7 +181,7 @@ function estimate(fileId: number, t: number, anchors: readonly Anchor[], params:
 }
 
 /** SPEC §5.1 and §5.2: a file whose time falls between two anchors. */
-function interpolateBetween(fileId: number, t: number, a: Anchor, c: Anchor, params: InterpolationParams): ComputedPosition {
+function interpolateBetween(fileId: FileId, t: number, a: Anchor, c: Anchor, params: InterpolationParams): ComputedPosition {
   const spanMs = c.t - a.t;
   if (spanMs <= 0) {
     // The bracketing anchors coincide in time (so `t` does too) — there is no
@@ -216,7 +217,7 @@ function interpolateBetween(fileId: number, t: number, a: Anchor, c: Anchor, par
  * being extrapolated from (the first or the last); `far` is its neighbour, which
  * together with `near` implies the bearing and speed to continue at.
  */
-function extrapolate(fileId: number, t: number, far: Anchor, near: Anchor, params: InterpolationParams): ComputedPosition {
+function extrapolate(fileId: FileId, t: number, far: Anchor, near: Anchor, params: InterpolationParams): ComputedPosition {
   const pairSpanMs = Math.abs(near.t - far.t);
   const d = distanceMeters(far.pos, near.pos);
   const vImplied = pairSpanMs > 0 ? d / (pairSpanMs / 1000) : 0;

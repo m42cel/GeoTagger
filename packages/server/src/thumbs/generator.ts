@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { FileRecord } from '@geotagger/shared';
+import type { FileId, FileRecord } from '@geotagger/shared';
 import { exiftool } from '../metadata/reader.js';
 
 /** Two cached tiers (SPEC §10.1 step 6): eager grid thumbnails, on-demand previews. */
@@ -33,10 +33,13 @@ function tierDir(tier: ThumbTier): string {
  */
 const TIER_DIR_RE = /^(thumb|preview)(-\d+)?$/;
 
-export function thumbPath(thumbsDir: string, fileId: number, tier: ThumbTier): string {
+export function thumbPath(thumbsDir: string, fileId: FileId, tier: ThumbTier): string {
   // Two hex levels of fan-out, so a 5,000-file folder never puts 5,000 entries in
-  // one directory — which some NAS filesystems handle poorly.
-  const bucket = (fileId % 256).toString(16).padStart(2, '0');
+  // one directory — which some NAS filesystems handle poorly. The *last* two hex
+  // characters of the UUID are used rather than the first: a UUIDv7's leading digits
+  // are its millisecond timestamp, so a whole scan's ids would otherwise share a
+  // handful of buckets instead of spreading across all 256.
+  const bucket = fileId.slice(-2).toLowerCase();
   return path.join(thumbsDir, tierDir(tier), bucket, `${fileId}.jpg`);
 }
 
@@ -59,8 +62,26 @@ export function pruneStaleThumbTiers(thumbsDir: string): void {
   }
 }
 
-export function thumbExists(thumbsDir: string, fileId: number, tier: ThumbTier): boolean {
+export function thumbExists(thumbsDir: string, fileId: FileId, tier: ThumbTier): boolean {
   return fs.existsSync(thumbPath(thumbsDir, fileId, tier));
+}
+
+/**
+ * Deletes every tier directory, current and stale alike — used only when the file-id
+ * migration (SPEC §8.2) has just replaced every id in the folder's DB, so nothing
+ * cached under an old id can ever be looked up again.
+ */
+export function pruneAllThumbTiers(thumbsDir: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(thumbsDir, { withFileTypes: true });
+  } catch {
+    return; // nothing cached yet
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !TIER_DIR_RE.test(entry.name)) continue;
+    fs.rmSync(path.join(thumbsDir, entry.name), { recursive: true, force: true });
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FileRecord } from '@geotagger/shared';
+import type { FileId, FileRecord } from '@geotagger/shared';
 
 /**
  * The last two photos clicked in the filmstrips, stacked for a direct visual
@@ -12,9 +12,9 @@ export function PreviewPane({
   bottomFileId,
   fileById,
 }: {
-  topFileId: number | null;
-  bottomFileId: number | null;
-  fileById: Map<number, FileRecord>;
+  topFileId: FileId | null;
+  bottomFileId: FileId | null;
+  fileById: Map<FileId, FileRecord>;
 }) {
   return (
     <div className="preview-pane">

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { FileId } from '@geotagger/shared';
 import { FolderStore } from '../db/store.js';
 import { StripService } from '../strips/service.js';
 import { PositionService } from './service.js';
@@ -20,7 +21,7 @@ function addFile(
   relPath: string,
   localIso: string | null,
   extra: { gps?: { lat: number; lon: number } } = {},
-): number {
+): FileId {
   const { id } = store.upsertScanned(
     { relPath, filename: relPath, ext: 'jpg', kind: 'image', sizeBytes: 1024, mtime: 1 },
     1,
@@ -47,7 +48,7 @@ function addFile(
   return id;
 }
 
-function settlePosition(fileId: number, lat: number, lon: number, confirmed: boolean): void {
+function settlePosition(fileId: FileId, lat: number, lon: number, confirmed: boolean): void {
   store.setDraggedPosition(fileId, lat, lon);
   if (confirmed) store.confirmPosition(fileId, lat, lon, null, true);
 }
@@ -179,7 +180,7 @@ describe('PositionService.compute', () => {
 
 describe('PositionService.unpersistedFileIds (SPEC §6.3)', () => {
   /** What the writer would have recorded for a file it wrote this position to. */
-  function recordWritten(fileId: number, lat: number, lon: number): void {
+  function recordWritten(fileId: FileId, lat: number, lon: number): void {
     store.recordPersisted({
       fileId,
       persistedAt: 2,

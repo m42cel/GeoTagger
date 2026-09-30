@@ -6,7 +6,7 @@ import 'leaflet-polylinedecorator';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import type { ComputedPosition, FileRecord, FilesResponse, TimelineFile, TimelineResponse } from '@geotagger/shared';
+import type { ComputedPosition, FileId, FileRecord, FilesResponse, TimelineFile, TimelineResponse } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
@@ -66,8 +66,8 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
   const [showAppModified, setShowAppModified] = useState(true);
   const [showUnpersisted, setShowUnpersisted] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [multiSelected, setMultiSelected] = useState<Set<number>>(new Set());
+  const [selectedId, setSelectedId] = useState<FileId | null>(null);
+  const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
   const [busy, setBusy] = useState(false);
 
   // Kept in sync with the state above on every render so the marker-rebuild effect
@@ -108,7 +108,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
     }
   }
 
-  function handleDragEnd(fileId: number, lat: number, lon: number, marker: L.Marker, revertTo: L.LatLng): void {
+  function handleDragEnd(fileId: FileId, lat: number, lon: number, marker: L.Marker, revertTo: L.LatLng): void {
     void editPosition(() => api.dragPosition(fileId, lat, lon)).then((ok) => {
       if (ok) {
         setSelectedId(fileId);
@@ -137,15 +137,15 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
     e.preventDefault();
     const map = mapRef.current;
     if (!map) return;
-    const fileId = Number(e.dataTransfer.getData('text/plain'));
-    if (!Number.isFinite(fileId)) return;
+    const fileId = e.dataTransfer.getData('text/plain') as FileId;
+    if (!fileId) return;
     const { lat, lng } = map.mouseEventToLatLng(e.nativeEvent);
     void editPosition(() => api.dragPosition(fileId, lat, lng)).then((ok) => {
       if (ok) setSelectedId(fileId);
     });
   }
 
-  function toggleMultiSelected(fileId: number): void {
+  function toggleMultiSelected(fileId: FileId): void {
     setMultiSelected((prev) => {
       const next = new Set(prev);
       if (next.has(fileId)) next.delete(fileId);
@@ -239,7 +239,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
     [multiSelected, itemById],
   );
 
-  function handleSelectOne(fileId: number): void {
+  function handleSelectOne(fileId: FileId): void {
     setSelectedId(fileId);
     clearMultiSelected();
   }
@@ -358,7 +358,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
         const inside = markersRef.current
           .filter((m) => bounds.contains(m.getLatLng()))
           .map((m) => m.geotaggerFileId)
-          .filter((id): id is number => id !== undefined);
+          .filter((id): id is FileId => id !== undefined);
         setMultiSelected(new Set(inside));
       }
 
@@ -438,7 +438,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
       const event = e as L.LeafletMouseEvent & { layer: L.MarkerCluster };
       const memberIds = (event.layer.getAllChildMarkers() as MarkerWithFile[])
         .map((m) => m.geotaggerFileId)
-        .filter((id): id is number => id !== undefined);
+        .filter((id): id is FileId => id !== undefined);
       if (!event.originalEvent.shiftKey) {
         event.layer.zoomToBounds();
         return;
@@ -739,8 +739,8 @@ function Tray({
   onSelect,
 }: {
   items: MapItem[];
-  selectedId: number | null;
-  onSelect: (fileId: number) => void;
+  selectedId: FileId | null;
+  onSelect: (fileId: FileId) => void;
 }) {
   return (
     <aside className="tray-panel">
@@ -765,7 +765,7 @@ function Tray({
 }
 
 type MarkerWithFile = L.Marker & {
-  geotaggerFileId?: number;
+  geotaggerFileId?: FileId;
   geotaggerBorderClass?: 'known' | 'unconfirmed';
   geotaggerUncertaintyM?: number | null;
 };
@@ -793,7 +793,7 @@ function createGhost(
 
 /** Selection highlight (SPEC §6.3) is a ring layered on top of the border colour, not a replacement for it. */
 function thumbIcon(
-  fileId: number,
+  fileId: FileId,
   borderClass: 'known' | 'unconfirmed',
   selected: boolean,
   multiSelected: boolean,
@@ -819,7 +819,7 @@ function thumbIcon(
  * ring on the cluster icon too — collapsing a stack should not make a selected file
  * look deselected.
  */
-function clusterIcon(markers: L.Marker[], selectedId: number | null, multiSelected: Set<number>): L.DivIcon {
+function clusterIcon(markers: L.Marker[], selectedId: FileId | null, multiSelected: Set<FileId>): L.DivIcon {
   const withFile = markers as MarkerWithFile[];
   const first = withFile[0];
   const fileId = first?.geotaggerFileId;

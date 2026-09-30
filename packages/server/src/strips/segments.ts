@@ -1,3 +1,5 @@
+import type { FileId } from '@geotagger/shared';
+
 /**
  * Cutting, merging and pinning (SPEC §4.3).
  *
@@ -7,13 +9,13 @@
  */
 
 export interface SegmentMember {
-  fileId: number;
+  fileId: FileId;
   /** Where it currently sits on the absolute timeline; null when it is undated. */
   effectiveMs: number | null;
 }
 
 export interface SegmentPlan {
-  fileIds: number[];
+  fileIds: FileId[];
   offsetSeconds: number;
 }
 
@@ -33,8 +35,8 @@ export function planCut(
   members: readonly SegmentMember[],
   atEffectiveMs: number,
 ): { left: SegmentPlan; right: SegmentPlan } | null {
-  const left: number[] = [];
-  const right: number[] = [];
+  const left: FileId[] = [];
+  const right: FileId[] = [];
   for (const m of members) {
     // An undated file has no place on the axis, so it stays with the earlier segment
     // rather than being dropped.

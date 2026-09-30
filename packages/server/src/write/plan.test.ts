@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { FileRecord, PersistPlanEntry, StripRecord, TimelineFile } from '@geotagger/shared';
+import type { FileId, FileRecord, PersistPlanEntry, StripRecord, TimelineFile } from '@geotagger/shared';
 import { naiveToMs } from '@geotagger/shared';
 import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import type { Timeline } from '../time/timeline.js';
@@ -9,7 +9,7 @@ const at = (iso: string) => naiveToMs(iso) as number;
 
 function file(over: Partial<FileRecord> = {}): FileRecord {
   return {
-    id: 1,
+    id: 'f1',
     relPath: 'IMG_0001.JPG',
     filename: 'IMG_0001.JPG',
     ext: 'jpg',
@@ -39,7 +39,7 @@ function file(over: Partial<FileRecord> = {}): FileRecord {
 
 function line(over: Partial<TimelineFile> = {}): TimelineFile {
   return {
-    id: 1,
+    id: 'f1',
     stripId: 1,
     rawCaptureMs: at('2024-07-12T14:00:00'),
     utcOffsetMinutes: 120,
@@ -86,8 +86,8 @@ function context(
   return {
     files,
     timeline,
-    written: new Map<number, OriginalTagValues>(),
-    confirmedPositions: new Map<number, ConfirmedPositionEdit>(),
+    written: new Map<FileId, OriginalTagValues>(),
+    confirmedPositions: new Map<FileId, ConfirmedPositionEdit>(),
     currentSig: () => '1024:10',
     storedSig: () => '1024:10',
     ...rest,
@@ -141,8 +141,8 @@ describe('buildPersistPlan — the per-tag diff (SPEC §9.1)', () => {
   });
 
   it('leaves out a tag GeoTagger already wrote the same value to', () => {
-    const written = new Map<number, OriginalTagValues>([
-      [1, { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
+    const written = new Map<FileId, OriginalTagValues>([
+      ['f1', { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
     ]);
     const plan = buildPersistPlan(
       context([file()], [line({ offsetSeconds: 3600, effectiveMs: at('2024-07-12T13:00:00') })], { written }),
@@ -151,8 +151,8 @@ describe('buildPersistPlan — the per-tag diff (SPEC §9.1)', () => {
   });
 
   it('writes only the tags that moved when the correction was changed after a persist', () => {
-    const written = new Map<number, OriginalTagValues>([
-      [1, { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
+    const written = new Map<FileId, OriginalTagValues>([
+      ['f1', { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
     ]);
     const plan = buildPersistPlan(
       context([file()], [line({ offsetSeconds: 7200, effectiveMs: at('2024-07-12T14:00:00') })], { written }),
@@ -217,8 +217,8 @@ describe('buildPersistPlan — the per-tag diff (SPEC §9.1)', () => {
 });
 
 describe('buildPersistPlan — position (SPEC §9.1, §9.2)', () => {
-  const confirmed = new Map<number, ConfirmedPositionEdit>([
-    [1, { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }],
+  const confirmed = new Map<FileId, ConfirmedPositionEdit>([
+    ['f1', { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }],
   ]);
 
   it('leaves the position tags alone for a file with no confirmed position, even with camera GPS', () => {
@@ -249,7 +249,7 @@ describe('buildPersistPlan — position (SPEC §9.1, §9.2)', () => {
   it('marks an accepted estimate as "confirmed" provenance', () => {
     const plan = buildPersistPlan(
       context([file({ captureUtcOffsetMinutes: 120 })], [line()], {
-        confirmedPositions: new Map([[1, { lat: 47.1, lon: 11.2, positionSource: 'estimate', uncertaintyM: 30 }]]),
+        confirmedPositions: new Map([['f1', { lat: 47.1, lon: 11.2, positionSource: 'estimate', uncertaintyM: 30 }]]),
       }),
     );
     expect(plan.entries[0]?.positionSource).toBe('confirmed');
@@ -257,8 +257,8 @@ describe('buildPersistPlan — position (SPEC §9.1, §9.2)', () => {
   });
 
   it('leaves out a confirmed position GeoTagger already wrote', () => {
-    const written = new Map<number, OriginalTagValues>([
-      [1, { 'EXIF:GPSLatitude': '47.1', 'EXIF:GPSLatitudeRef': 'N', 'EXIF:GPSLongitude': '11.2', 'EXIF:GPSLongitudeRef': 'E', 'XMP:GPSLatitude': '47.1', 'XMP:GPSLongitude': '11.2' }],
+    const written = new Map<FileId, OriginalTagValues>([
+      ['f1', { 'EXIF:GPSLatitude': '47.1', 'EXIF:GPSLatitudeRef': 'N', 'EXIF:GPSLongitude': '11.2', 'EXIF:GPSLongitudeRef': 'E', 'XMP:GPSLatitude': '47.1', 'XMP:GPSLongitude': '11.2' }],
     ]);
     const plan = buildPersistPlan(
       context([file({ captureUtcOffsetMinutes: 120 })], [line()], { confirmedPositions: confirmed, written }),
@@ -282,8 +282,8 @@ describe('buildPersistPlan — one field at a time (SPEC §9.3)', () => {
   it('does not propose a field again after writing the other one', () => {
     // The bug this replaces: the record of the last write covered the whole file, so a
     // write of one field forgot the other and proposed it again on every Persist, for ever.
-    const written = new Map<number, OriginalTagValues>([
-      [1, {
+    const written = new Map<FileId, OriginalTagValues>([
+      ['f1', {
         'EXIF:DateTimeOriginal': '2024:07:12 16:00:00',
         'EXIF:CreateDate': '2024:07:12 16:00:00',
         'EXIF:OffsetTimeOriginal': '+02:00',
@@ -299,20 +299,20 @@ describe('buildPersistPlan — one field at a time (SPEC §9.3)', () => {
     const plan = buildPersistPlan(
       context([file()], [line({ offsetSeconds: 7200, effectiveMs: at('2024-07-12T14:00:00') })], {
         written,
-        confirmedPositions: new Map([[1, { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }]]),
+        confirmedPositions: new Map([['f1', { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }]]),
       }),
     );
     expect(plan.entries).toEqual([]);
   });
 
   it('preserves only the originals of the tags in this write', () => {
-    const written = new Map<number, OriginalTagValues>([
-      [1, { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
+    const written = new Map<FileId, OriginalTagValues>([
+      ['f1', { 'EXIF:DateTimeOriginal': '2024:07:12 15:00:00', 'EXIF:CreateDate': '2024:07:12 15:00:00', 'EXIF:OffsetTimeOriginal': '+02:00', 'EXIF:OffsetTimeDigitized': '+02:00' }],
     ]);
     const plan = buildPersistPlan(
       context([file()], [line({ offsetSeconds: 3600, effectiveMs: at('2024-07-12T13:00:00') })], {
         written,
-        confirmedPositions: new Map([[1, { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }]]),
+        confirmedPositions: new Map([['f1', { lat: 47.1, lon: 11.2, positionSource: 'drag', uncertaintyM: null }]]),
       }),
     );
     // The time tags have been written before; the position tags have not.

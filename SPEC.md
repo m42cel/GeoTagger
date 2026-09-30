@@ -38,7 +38,7 @@ locally on the Mac against a local folder.
 | Area | Decision | Rationale |
 | --- | --- | --- |
 | Architecture | Headless backend serving a browser UI | One codebase serves both NAS and local use; no packaging, no native shell |
-| Backend | Node 22 + TypeScript, Fastify | Shared types with the frontend; best metadata tooling |
+| Backend | Node 26 + TypeScript, Fastify | Shared types with the frontend; best metadata tooling |
 | Frontend | TypeScript + React | Shares the domain model with the backend |
 | Map | Leaflet, raster tiles | Mature draggable-HTML-marker, polyline, circle and clustering ecosystem; trivial file-based tile caching |
 | Metadata | ExifTool via `exiftool-vendored` | Keeps ExifTool alive in `-stay_open` mode; normalises timestamp and GPS representations |
@@ -721,6 +721,7 @@ files(id, rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
       capture_time_raw, capture_time_source, capture_utc_offset_minutes,
       orig_gps_present, orig_lat, orig_lon,
       first_seen_at, last_scanned_at, missing)
+      -- id: UUIDv7 TEXT, unique across every folder GeoTagger opens, not just this one
 
 devices(id, make, model, serial, label, group_id)
 device_groups(id, label)
@@ -959,6 +960,9 @@ Concurrency is bounded and configurable; default 2 workers, appropriate for a lo
 
 ### 10.2 API (outline)
 
+`:id` is a file UUID on every `/api/files/...` and `/api/edits/...` route; on every
+`/api/strips/...` route it is a strip's integer id.
+
 ```
 GET    /api/folders?path=              folder browser
 POST   /api/session/open               open folder, start scan
@@ -1038,7 +1042,7 @@ services:
     restart: unless-stopped
 ```
 
-Image: `node:22-bookworm-slim` plus `exiftool` (and perl), `ffmpeg`, `libheif`. Built for
+Image: `node:26-bookworm-slim` plus `exiftool` (and perl), `ffmpeg`, `libheif`. Built for
 `linux/arm64` and `linux/amd64`.
 
 Local use:
@@ -1083,7 +1087,7 @@ Focused on the areas where a mistake is silent and expensive:
    the system one (the ABI does not match), so it cannot decode HEIC in the container at all.
    The designed mitigation holds — embedded preview extraction first, ffmpeg as fallback — but
    it needs **ffmpeg 7.1**, which decodes HEIF stills; bookworm's 5.1 does not. The image base
-   is therefore `node:22-trixie-slim` rather than bookworm.
+   is therefore `node:26-trixie-slim` rather than bookworm.
 2. **OSM tile policy** — the default provider forbids bulk downloading, so "pre-download area"
    is disabled for it and PMTiles is the offline route. Terms should be re-checked before
    release.

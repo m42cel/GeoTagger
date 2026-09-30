@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { BulkConfirmRequest, DragPositionRequest, FilesResponse } from '@geotagger/shared';
+import type { BulkConfirmRequest, DragPositionRequest, FileId, FilesResponse } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
+import { isFileId } from './files.js';
 
 /**
  * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, revert, reset,
@@ -80,8 +81,8 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
   app.post<{ Body: BulkConfirmRequest }>('/api/edits/bulk', async (req, reply) => {
     const session = sessions.require();
     const fileIds = req.body?.fileIds;
-    if (!Array.isArray(fileIds) || fileIds.some((id) => typeof id !== 'number')) {
-      return badRequest(reply, 'fileIds must be an array of numbers.');
+    if (!Array.isArray(fileIds) || fileIds.some((id) => typeof id !== 'string')) {
+      return badRequest(reply, 'fileIds must be an array of file ids.');
     }
     for (const id of fileIds) {
       if (!session.store.getFile(id)) return notFound(reply, String(id));
@@ -101,9 +102,8 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
   });
 }
 
-function parseId(raw: string): number | null {
-  const id = Number.parseInt(raw, 10);
-  return Number.isFinite(id) ? id : null;
+function parseId(raw: string): FileId | null {
+  return isFileId(raw) ? raw : null;
 }
 
 function notFound(reply: FastifyReply, rawId: string): FastifyReply {

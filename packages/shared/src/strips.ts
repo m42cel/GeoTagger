@@ -1,3 +1,5 @@
+import type { FileId } from './media.js';
+
 /** How the initial strips are formed (SPEC §4.4). */
 export type GroupingMode = 'device' | 'subfolder' | 'manual';
 
@@ -65,7 +67,7 @@ export interface UtcOffsetRule {
 
 /** One file as the alignment view needs it: raw reading, resolution, and result. */
 export interface TimelineFile {
-  id: number;
+  id: FileId;
   stripId: number | null;
   /** The file's own wall-clock reading as epoch ms, read as if UTC. Null when undated. */
   rawCaptureMs: number | null;

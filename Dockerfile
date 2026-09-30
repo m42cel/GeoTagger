@@ -7,7 +7,7 @@
 # image as the runtime, so its binary matches both the platform and the glibc of the
 # image it ends up in. Changing one stage's base without the other breaks it.
 
-FROM node:22-trixie-slim AS builder
+FROM node:26-trixie-slim AS builder
 WORKDIR /app
 
 # perl is needed by the ExifTool that exiftool-vendored ships and unpacks at install.
@@ -37,7 +37,7 @@ RUN test -f packages/shared/dist/index.js \
 RUN npm prune --omit=dev
 
 
-FROM node:22-trixie-slim AS runtime
+FROM node:26-trixie-slim AS runtime
 WORKDIR /app
 
 # perl   — ExifTool is a Perl program

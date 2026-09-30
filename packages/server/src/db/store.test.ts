@@ -354,3 +354,205 @@ describe('schema 2 → 3 — the offset ramp collapses to one offset', () => {
     }
   });
 });
+
+describe('schema 6 → 7 — file ids move from INTEGER to UUIDv7 TEXT', () => {
+  /** A `.geotagger/edits.sqlite` as a pre-UUID GeoTagger left it, with integer file ids. */
+  function writeSchema6Store(dir: string): void {
+    fs.mkdirSync(path.join(dir, '.geotagger'), { recursive: true });
+    const db = new Database(path.join(dir, '.geotagger', 'edits.sqlite'));
+    db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta (key, value) VALUES ('schema_version', '6'), ('grouping_mode', 'device');
+
+      CREATE TABLE devices (
+        id       TEXT PRIMARY KEY,
+        make     TEXT,
+        model    TEXT,
+        serial   TEXT,
+        label    TEXT NOT NULL,
+        group_id INTEGER
+      );
+
+      CREATE TABLE files (
+        id                         INTEGER PRIMARY KEY,
+        rel_path                   TEXT NOT NULL UNIQUE,
+        filename                   TEXT NOT NULL,
+        ext                        TEXT NOT NULL,
+        kind                       TEXT NOT NULL,
+        size_bytes                 INTEGER NOT NULL,
+        mtime                      INTEGER NOT NULL,
+        content_sig                TEXT NOT NULL,
+        device_id                  TEXT REFERENCES devices(id),
+        width                      INTEGER,
+        height                     INTEGER,
+        duration_ms                INTEGER,
+        orientation                INTEGER,
+        capture_time_raw           TEXT,
+        capture_time_source        TEXT NOT NULL DEFAULT 'none',
+        capture_utc_offset_minutes INTEGER,
+        gps_time_utc               TEXT,
+        orig_gps_present           INTEGER NOT NULL DEFAULT 0,
+        orig_lat                   REAL,
+        orig_lon                   REAL,
+        orig_alt                   REAL,
+        first_seen_at              INTEGER NOT NULL,
+        last_scanned_at            INTEGER NOT NULL,
+        missing                    INTEGER NOT NULL DEFAULT 0,
+        thumb_state                TEXT NOT NULL DEFAULT 'pending'
+      );
+
+      CREATE TABLE strips (
+        id                    INTEGER PRIMARY KEY,
+        lane                  INTEGER NOT NULL DEFAULT 0,
+        ordinal               INTEGER NOT NULL DEFAULT 0,
+        label                 TEXT NOT NULL,
+        grouping_source       TEXT NOT NULL,
+        parent_strip_id       INTEGER REFERENCES strips(id),
+        offset_seconds        INTEGER NOT NULL DEFAULT 0,
+        locked                INTEGER NOT NULL DEFAULT 0,
+        utc_offset_override_minutes INTEGER,
+        created_at            INTEGER NOT NULL
+      );
+
+      CREATE TABLE strip_files (
+        strip_id INTEGER NOT NULL REFERENCES strips(id) ON DELETE CASCADE,
+        file_id  INTEGER NOT NULL REFERENCES files(id)  ON DELETE CASCADE,
+        PRIMARY KEY (file_id)
+      );
+
+      CREATE TABLE edits (
+        file_id                    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        lat                        REAL,
+        lon                        REAL,
+        position_source            TEXT,
+        uncertainty_m              REAL,
+        placed_at                  INTEGER,
+        confirmed_at               INTEGER,
+        pending_lat                REAL,
+        pending_lon                REAL,
+        utc_offset_override_minutes INTEGER
+      );
+
+      CREATE TABLE persisted (
+        file_id                INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        persisted_at           INTEGER NOT NULL,
+        original_snapshot_json TEXT,
+        written_tags_json      TEXT,
+        exiftool_result        TEXT
+      );
+
+      CREATE TABLE oplog (
+        id          INTEGER PRIMARY KEY,
+        ts          INTEGER NOT NULL,
+        file_id     INTEGER,
+        action      TEXT NOT NULL,
+        before_json TEXT,
+        after_json  TEXT,
+        ok          INTEGER NOT NULL DEFAULT 1,
+        error       TEXT
+      );
+
+      INSERT INTO files (id, rel_path, filename, ext, kind, size_bytes, mtime, content_sig,
+                          first_seen_at, last_scanned_at, missing, thumb_state)
+      VALUES
+        (1, 'a.jpg', 'a.jpg', 'jpg', 'image', 100, 1, '100:1', 1, 1, 0, 'ready'),
+        (2, 'b.jpg', 'b.jpg', 'jpg', 'image', 200, 2, '200:2', 2, 2, 0, 'ready'),
+        (3, 'c.jpg', 'c.jpg', 'jpg', 'image', 300, 3, '300:3', 3, 3, 0, 'ready');
+
+      INSERT INTO strips (id, lane, ordinal, label, grouping_source, created_at)
+      VALUES (1, 0, 0, 'device', 'device', 1);
+
+      INSERT INTO strip_files (strip_id, file_id) VALUES (1, 1), (1, 2);
+
+      -- A confirmed (known) position on file 1, a pending drag on file 2.
+      INSERT INTO edits (file_id, lat, lon, position_source, uncertainty_m, confirmed_at)
+      VALUES (1, 41.9, 12.5, 'drag', NULL, 5);
+      INSERT INTO edits (file_id, pending_lat, pending_lon, placed_at)
+      VALUES (2, 45.5, 9.2, 6);
+
+      INSERT INTO persisted (file_id, persisted_at, original_snapshot_json, written_tags_json, exiftool_result)
+      VALUES (1, 7, '{"tags":{}}', '{"EXIF:GPSLatitude":"41.9"}', '{"updated":1,"warnings":[]}');
+
+      -- One oplog entry tied to a file, one with no file (file_id NULL).
+      INSERT INTO oplog (ts, file_id, action, before_json, after_json, ok)
+      VALUES (8, 1, 'persist', '{"tags":{}}', '{"tags":{}}', 1);
+      INSERT INTO oplog (ts, file_id, action, ok, error)
+      VALUES (9, NULL, 'scan', 0, 'boom');
+    `);
+    db.close();
+  }
+
+  function open(): { store: FolderStore; dir: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geotagger-schema6-'));
+    writeSchema6Store(dir);
+    return { store: FolderStore.open(dir), dir };
+  }
+
+  it('carries every relation across to the new UUID ids', () => {
+    const { store: migrated, dir } = open();
+    try {
+      const files = migrated.listFiles();
+      expect(files.map((f) => f.relPath)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
+
+      // New ids are UUID-shaped strings, and unique.
+      for (const f of files) {
+        expect(f.id).toMatch(/^[0-9a-f-]{36}$/i);
+      }
+      expect(new Set(files.map((f) => f.id)).size).toBe(files.length);
+
+      const a = files.find((f) => f.relPath === 'a.jpg') as (typeof files)[number];
+      const b = files.find((f) => f.relPath === 'b.jpg') as (typeof files)[number];
+      const c = files.find((f) => f.relPath === 'c.jpg') as (typeof files)[number];
+
+      // The strip membership (a, b) survived, keyed by the new ids.
+      const assignments = migrated.stripAssignments();
+      expect(assignments[a.id]).toBeDefined();
+      expect(assignments[b.id]).toBeDefined();
+      expect(assignments[c.id]).toBeUndefined();
+      expect(migrated.stripMemberIds(assignments[a.id] as number).sort()).toEqual([a.id, b.id].sort());
+
+      // The confirmed position on a, and the pending drag on b.
+      expect(migrated.listConfirmedPositions().get(a.id)).toEqual({ lat: 41.9, lon: 12.5 });
+      expect(migrated.listPendingPositions().get(b.id)).toEqual({ lat: 45.5, lon: 9.2 });
+
+      // The persisted row on a.
+      const persisted = migrated.getPersisted(a.id);
+      expect(persisted?.writtenTagsJson).toBe('{"EXIF:GPSLatitude":"41.9"}');
+
+      // The oplog: one entry mapped through to a's new id, one left null.
+      const oplog = migrated.listOplog();
+      const withFile = oplog.find((e) => e.action === 'persist');
+      const withoutFile = oplog.find((e) => e.action === 'scan');
+      expect(withFile?.fileId).toBe(a.id);
+      expect(withoutFile?.fileId).toBeNull();
+
+      // Foreign keys are consistent after the rebuild.
+      expect(migrated.db.pragma('foreign_key_check')).toEqual([]);
+      expect(migrated.getMeta('schema_version')).toBe('7');
+      // Old thumbnails are keyed by the retired integer ids and can never be found
+      // again, so every file is back to pending and will regenerate on next access.
+      expect(files.every((f) => f.thumbState === 'pending')).toBe(true);
+    } finally {
+      migrated.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op the second time the same folder is opened', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geotagger-schema6-reopen-'));
+    writeSchema6Store(dir);
+    const first = FolderStore.open(dir);
+    const idsBefore = first.listFiles().map((f) => f.id).sort();
+    first.close();
+
+    const second = FolderStore.open(dir);
+    try {
+      const idsAfter = second.listFiles().map((f) => f.id).sort();
+      expect(idsAfter).toEqual(idsBefore);
+      expect(second.getMeta('schema_version')).toBe('7');
+    } finally {
+      second.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

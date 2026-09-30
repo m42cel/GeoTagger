@@ -1,4 +1,5 @@
 import type { PositionSource } from './positions.js';
+import type { FileId } from './media.js';
 
 /**
  * Writing to files (SPEC §9).
@@ -41,7 +42,7 @@ export type PersistFieldChange =
   | { field: 'position'; oldLat: number | null; oldLon: number | null; newLat: number; newLon: number };
 
 export interface PersistPlanEntry {
-  fileId: number;
+  fileId: FileId;
   relPath: string;
   /** Every tag that will be written, for the raw-EXIF view. Never empty. */
   changes: PersistTagChange[];
@@ -68,12 +69,12 @@ export type StalePolicy = 'skip' | 'overwrite';
 
 export interface PersistRequest {
   /** File ids to write; omitted means every entry in the plan. */
-  fileIds?: number[];
+  fileIds?: FileId[];
   stalePolicy?: StalePolicy;
 }
 
 export interface PersistFileResult {
-  fileId: number;
+  fileId: FileId;
   relPath: string;
   ok: boolean;
   skipped: boolean;
@@ -96,7 +97,7 @@ export interface PersistProgress {
 export interface OplogEntry {
   id: number;
   ts: number;
-  fileId: number | null;
+  fileId: FileId | null;
   action: string;
   beforeJson: string | null;
   afterJson: string | null;

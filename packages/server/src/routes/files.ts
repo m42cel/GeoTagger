@@ -1,8 +1,15 @@
 import fs from 'node:fs';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { FilesResponse } from '@geotagger/shared';
+import type { FileId, FilesResponse } from '@geotagger/shared';
 import type { SessionManager } from '../session.js';
 import { generateThumb, thumbPath, type ThumbTier } from '../thumbs/generator.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A file id is a UUID (SPEC §8.2); anything else is malformed and 404s rather than 500s. */
+export function isFileId(raw: string): raw is FileId {
+  return UUID_RE.test(raw);
+}
 
 export function registerFileRoutes(app: FastifyInstance, sessions: SessionManager): void {
   app.get('/api/files', async (): Promise<FilesResponse> => {
@@ -40,8 +47,7 @@ async function serveThumb(
   reply: FastifyReply,
 ): Promise<unknown> {
   const session = sessions.require();
-  const id = Number.parseInt(rawId, 10);
-  const file = Number.isFinite(id) ? session.store.getFile(id) : null;
+  const file = isFileId(rawId) ? session.store.getFile(rawId) : null;
   if (!file) return reply.code(404).send({ error: 'not_found', message: `No file ${rawId}` });
 
   const target = thumbPath(session.store.thumbsDir, file.id, tier);
@@ -58,8 +64,9 @@ async function serveThumb(
     }
   }
 
-  // Thumbnails are keyed by file id and regenerated whenever size or mtime change,
-  // so a long immutable cache is safe and keeps the grid instant on revisits.
+  // File ids are UUIDv7, unique across every folder GeoTagger ever opens, so a
+  // thumbnail's id never means a different photo after a rescan or a reopened
+  // folder — which is what makes a day-long cache safe here.
   return reply
     .header('Content-Type', 'image/jpeg')
     .header('Cache-Control', 'private, max-age=86400')

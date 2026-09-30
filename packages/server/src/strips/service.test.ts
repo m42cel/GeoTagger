@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { StripRecord } from '@geotagger/shared';
+import type { FileId, StripRecord } from '@geotagger/shared';
 import { naiveToMs, originId } from '@geotagger/shared';
 import { FolderStore } from '../db/store.js';
 import { StripService } from './service.js';
@@ -19,7 +19,7 @@ function addFile(
   relPath: string,
   localIso: string | null,
   extra: { device?: string; gps?: { lat: number; lon: number }; utcOffsetMinutes?: number | null; source?: 'exif:DateTimeOriginal' | 'filename' } = {},
-): number {
+): FileId {
   const { id } = store.upsertScanned(
     {
       relPath,
@@ -112,8 +112,10 @@ describe('UTC offset inheritance (SPEC §4.2)', () => {
 });
 
 describe('offsets and locking (SPEC §4.3)', () => {
+  let phoneFile: FileId;
+
   beforeEach(() => {
-    addFile('phone/IMG_1.JPG', '2024-07-12T09:00:00', { device: 'phone', gps: ROME });
+    phoneFile = addFile('phone/IMG_1.JPG', '2024-07-12T09:00:00', { device: 'phone', gps: ROME });
     addFile('phone/IMG_2.JPG', '2024-07-12T12:00:00', { device: 'phone', gps: ROME });
     addFile('sony/DSC_1.JPG', '2024-07-12T08:00:00', { device: 'sony' });
     addFile('sony/DSC_2.JPG', '2024-07-12T11:00:00', { device: 'sony' });
@@ -137,7 +139,7 @@ describe('offsets and locking (SPEC §4.3)', () => {
     expect(() => service.cut(sony.id, at('2024-07-12T09:30:00'))).toThrow(/locked/i);
     expect(() => service.moveToLane(sony.id, 3)).toThrow(/locked/i);
     expect(() => service.setUtcOffsetOverride(sony.id, 60)).toThrow(/locked/i);
-    expect(() => service.pinTrueTime(1, '2024-07-12T09:00:00', 0)).not.toThrow();
+    expect(() => service.pinTrueTime(phoneFile, '2024-07-12T09:00:00', 0)).not.toThrow();
   });
 
   it('leaves a locked strip fully readable, so it stays a snap target', () => {
@@ -296,7 +298,7 @@ describe('grouping (SPEC §4.4)', () => {
   it('makes a strip out of a hand-picked selection', () => {
     service.regroup('device');
     const ids = store.listFiles().map((f) => f.id);
-    service.regroup('manual', { fileIds: [ids[0] as number, ids[2] as number], label: 'Borrowed camera' });
+    service.regroup('manual', { fileIds: [ids[0] as FileId, ids[2] as FileId], label: 'Borrowed camera' });
     const strips = service.strips().strips;
     expect(strips.find((s) => s.label === 'Borrowed camera')?.fileCount).toBe(2);
     expect(strips.reduce((n, s) => n + s.fileCount, 0)).toBe(3);

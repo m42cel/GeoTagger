@@ -10,7 +10,7 @@
     "packages/web"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=26.1.0"
   },
   "scripts": {
     "build": "npm run build -w @geotagger/shared && npm run build -w @geotagger/server && npm run build -w @geotagger/web",
@@ -20,7 +20,7 @@
     "typecheck": "tsc -b --force && tsc -p packages/server/tsconfig.test.json && npm run typecheck -w @geotagger/web"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^26.6.3",
     "typescript": "^5.7.2",
     "vite": "^6.4.3",
     "vitest": "^3.2.4"

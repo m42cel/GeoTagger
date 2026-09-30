@@ -1,4 +1,4 @@
-import type { FileRecord, StripRecord, TimelineFile, UtcOffsetRule } from '@geotagger/shared';
+import type { FileId, FileRecord, StripRecord, TimelineFile, UtcOffsetRule } from '@geotagger/shared';
 import { effectiveMs, naiveToMs } from '@geotagger/shared';
 import { displayOffsetFor, dominantOffsetMinutes, resolveUtcOffset } from './utc-offset.js';
 
@@ -17,12 +17,12 @@ export interface TimelineInput {
   files: readonly FileRecord[];
   strips: readonly StripRecord[];
   /** file id -> strip id. */
-  assignments: Record<number, number>;
+  assignments: Record<FileId, number>;
   rules: readonly UtcOffsetRule[];
   /** The answer to the one-off question of SPEC §4.2, or null if it was never asked. */
   folderUtcOffsetMinutes: number | null;
   /** Per-file offset overrides, from the edit store. */
-  fileOverrides: ReadonlyMap<number, number>;
+  fileOverrides: ReadonlyMap<FileId, number>;
 }
 
 export interface Timeline {
@@ -30,7 +30,7 @@ export interface Timeline {
   /** The same strips, with their bounds on the absolute timeline filled in. */
   strips: StripRecord[];
   displayUtcOffsetMinutes: number;
-  byId: Map<number, TimelineFile>;
+  byId: Map<FileId, TimelineFile>;
 }
 
 export function buildTimeline(input: TimelineInput): Timeline {

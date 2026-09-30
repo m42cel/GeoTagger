@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  FileId,
   FileRecord,
   GroupingMode,
   StripRecord,
@@ -96,7 +97,7 @@ export function AlignmentView({
   const [scale, setScale] = useState<TimeScale>({ startMs: Date.now(), msPerPx: 60_000, widthPx: 0 });
   const [selectedStripId, setSelectedStripId] = useState<number | null>(null);
   /** Multi-select, for building a strip by hand (SPEC §4.4 "Manual"). */
-  const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<number>>(() => new Set());
+  const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<FileId>>(() => new Set());
   const [cursorMs, setCursorMs] = useState<number | null>(null);
   /**
    * Where the last click landed, and so where the next cut goes. It stays put and
@@ -113,7 +114,7 @@ export function AlignmentView({
    * "lower" is a property of where the strips sit, not of this order (see
    * `previewSlots` below).
    */
-  const [recentStrips, setRecentStrips] = useState<readonly { stripId: number; fileId: number }[]>([]);
+  const [recentStrips, setRecentStrips] = useState<readonly { stripId: number; fileId: FileId }[]>([]);
   const previewLoadTokenRef = useRef(0);
   const [drag, setDrag] = useState<Drag>(null);
   const [snapDisabled, setSnapDisabled] = useState(false);
@@ -241,7 +242,7 @@ export function AlignmentView({
    * higher strip, so a photo can jump from one slot to the other as new clicks change
    * which strip is the higher of the current pair.
    */
-  const previewSlots = useMemo((): [number | null, number | null] => {
+  const previewSlots = useMemo((): [FileId | null, FileId | null] => {
     const sorted = [...recentStrips].sort(
       (a, b) => (laneByStripId.get(a.stripId) ?? Infinity) - (laneByStripId.get(b.stripId) ?? Infinity),
     );
@@ -408,7 +409,7 @@ export function AlignmentView({
     setDrag({ kind: 'pan', pointerId: e.pointerId, startX: e.clientX, startMs: scale.startMs });
   };
 
-  const selectFile = (fileId: number, stripId: number, additive: boolean): void => {
+  const selectFile = (fileId: FileId, stripId: number, additive: boolean): void => {
     setSelectedStripId(stripId);
 
     // A browser holds an <img>'s previous frame on screen until its new src finishes
@@ -447,7 +448,7 @@ export function AlignmentView({
     setSelectedFileIds(new Set());
   };
 
-  const pin = (fileId: number): void => {
+  const pin = (fileId: FileId): void => {
     const line = timeline?.files.find((f) => f.id === fileId);
     if (!line || line.effectiveMs === null || timeline === null) return;
     const current = msToNaive(line.effectiveMs + timeline.displayUtcOffsetMinutes * MINUTE_MS).replace('T', ' ');
@@ -465,7 +466,7 @@ export function AlignmentView({
     [timeline, selectedStripId],
   );
   // The detail block describes one file; with several picked, it is the last one.
-  const selectedFileId = selectedFileIds.size === 0 ? null : ([...selectedFileIds].pop() as number);
+  const selectedFileId = selectedFileIds.size === 0 ? null : ([...selectedFileIds].pop() as FileId);
   const selectedLine = timeline?.files.find((f) => f.id === selectedFileId) ?? null;
 
   if (timeline === null) {

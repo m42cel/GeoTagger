@@ -1,5 +1,6 @@
 import type {
   AnswerGroupingQuestionRequest,
+  FileId,
   FilesResponse,
   FolderEntry,
   FolderListing,
@@ -47,7 +48,7 @@ export const api = {
   close: () => request<{ ok: boolean }>('/api/session/close', { method: 'POST' }),
   files: () => request<FilesResponse>('/api/files'),
   strips: () => request<StripsResponse>('/api/strips'),
-  regroup: (mode: GroupingMode, fileIds?: number[], label?: string) =>
+  regroup: (mode: GroupingMode, fileIds?: FileId[], label?: string) =>
     post('/api/strips/regroup', { mode, fileIds, label }),
 
   // ---- alignment view (SPEC §4.3) ----------------------------------------
@@ -65,7 +66,7 @@ export const api = {
   undoStrips: () => post('/api/strips/undo', {}),
   setStripUtcOffset: (stripId: number, utcOffsetMinutes: number | null) =>
     post(`/api/strips/${stripId}/utc-offset`, { utcOffsetMinutes }),
-  pinTrueTime: (fileId: number, trueLocalIso: string) =>
+  pinTrueTime: (fileId: FileId, trueLocalIso: string) =>
     post('/api/strips/pin-true-time', { fileId, trueLocalIso }),
   setFolderUtcOffset: (utcOffsetMinutes: number) => post('/api/session/utc-offset', { utcOffsetMinutes }),
   answerTimestampQuestion: () =>
@@ -83,11 +84,11 @@ export const api = {
 
   // ---- map view editing (SPEC §5.6, §6.5) --------------------------------
 
-  dragPosition: (fileId: number, lat: number, lon: number) => postFiles(`/api/files/${fileId}/position`, { lat, lon }),
-  confirmPosition: (fileId: number) => postFiles(`/api/files/${fileId}/confirm`, {}),
-  revertPosition: (fileId: number) => postFiles(`/api/files/${fileId}/revert-position`, {}),
-  resetPosition: (fileId: number) => postFiles(`/api/files/${fileId}/reset-position`, {}),
-  bulkConfirm: (fileIds: number[]) => postFiles('/api/edits/bulk', { fileIds }),
+  dragPosition: (fileId: FileId, lat: number, lon: number) => postFiles(`/api/files/${fileId}/position`, { lat, lon }),
+  confirmPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/confirm`, {}),
+  revertPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/revert-position`, {}),
+  resetPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/reset-position`, {}),
+  bulkConfirm: (fileIds: FileId[]) => postFiles('/api/edits/bulk', { fileIds }),
 };
 
 /**

@@ -139,7 +139,7 @@ describe('the thumbnail cache', () => {
   }
 
   it('keys a path by the tier and its pixel size', () => {
-    const p = thumbPath('/state/thumbs', 42, 'thumb');
+    const p = thumbPath('/state/thumbs', '42', 'thumb');
     expect(p).toContain(`thumb-${TIER_SIZE.thumb}`);
     expect(path.basename(p)).toBe('42.jpg');
   });
@@ -149,15 +149,15 @@ describe('the thumbnail cache', () => {
     touch(path.join(dir, 'thumb-160', '2a', '1.jpg'));
     // The layout before the size was part of the path.
     touch(path.join(dir, 'thumb', '2a', '1.jpg'));
-    touch(thumbPath(dir, 1, 'thumb'));
-    touch(thumbPath(dir, 1, 'preview'));
+    touch(thumbPath(dir, '1', 'thumb'));
+    touch(thumbPath(dir, '1', 'preview'));
 
     pruneStaleThumbTiers(dir);
 
     expect(fs.existsSync(path.join(dir, 'thumb-160'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'thumb'))).toBe(false);
-    expect(fs.existsSync(thumbPath(dir, 1, 'thumb'))).toBe(true);
-    expect(fs.existsSync(thumbPath(dir, 1, 'preview'))).toBe(true);
+    expect(fs.existsSync(thumbPath(dir, '1', 'thumb'))).toBe(true);
+    expect(fs.existsSync(thumbPath(dir, '1', 'preview'))).toBe(true);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

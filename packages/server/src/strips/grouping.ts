@@ -1,11 +1,11 @@
-import type { DeviceRecord, FileRecord, GroupingMode } from '@geotagger/shared';
+import type { DeviceRecord, FileId, FileRecord, GroupingMode } from '@geotagger/shared';
 import { naiveToMs } from '../metadata/capture-time.js';
 
 export interface BuiltStrip {
   label: string;
   lane: number;
   ordinal: number;
-  fileIds: number[];
+  fileIds: FileId[];
 }
 
 /**
