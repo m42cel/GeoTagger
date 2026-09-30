@@ -42,7 +42,7 @@ locally on the Mac against a local folder.
 | Frontend | TypeScript + React | Shares the domain model with the backend |
 | Map | Leaflet, raster tiles | Mature draggable-HTML-marker, polyline, circle and clustering ecosystem; trivial file-based tile caching |
 | Metadata | ExifTool via `exiftool-vendored` | Keeps ExifTool alive in `-stay_open` mode; normalises timestamp and GPS representations |
-| Images | `sharp` (libvips), with ExifTool preview extraction first | Preview extraction avoids full decodes on weak CPUs |
+| Images | ExifTool preview extraction first, `ffmpeg` to decode and resize | Preview extraction avoids full decodes on weak CPUs; ffmpeg's HEVC decoder covers HEIC (§14) |
 | Video | `ffmpeg` (frame grab), ExifTool (metadata) | |
 | Persistence | SQLite (`better-sqlite3`) | Per-folder edit store and file index |
 | Packaging | Docker image, linux/arm64 + linux/amd64 | NAS deployment; all native dependencies baked in |
@@ -966,9 +966,9 @@ containers that ExifTool can only partially support. Everything else stays in pl
    the camera's (§9.3).
 5. Generate thumbnails in the background, lowest-cost path first:
    - extract an embedded preview (`-b -PreviewImage` / `-ThumbnailImage`) when present;
-   - otherwise decode and downscale with `sharp`;
-   - HEIC falls back to ffmpeg if the bundled libvips cannot decode it (to be verified at build
-     time — see §14);
+   - otherwise decode and downscale the whole file with ffmpeg;
+   - a still that fails that is decoded by ffmpeg from the file itself and downscaled again
+     (HEIC — see §14);
    - video: ffmpeg frame grab at ~10% of duration, clamped to 1–5 s.
 6. Two cached tiers: `thumb` 160 px (eager) and `preview` 1280 px (on demand).
 
@@ -1048,7 +1048,7 @@ mistakes, and it applies equally to reads and writes.
 ```yaml
 services:
   geotagger:
-    image: geotagger:latest
+    image: ghcr.io/m42cel/geotagger:latest
     ports: ["8080:8080"]
     environment:
       PHOTO_ROOT: /photos
@@ -1058,8 +1058,10 @@ services:
     restart: unless-stopped
 ```
 
-Image: `node:26-bookworm-slim` plus `exiftool` (and perl), `ffmpeg`, `libheif`. Built for
-`linux/arm64` and `linux/amd64`.
+Image: `node:26-trixie-slim` plus perl (for the ExifTool that `exiftool-vendored` ships) and
+`ffmpeg`, whose trixie build decodes HEVC and so covers HEIC. Built for `linux/arm64` and
+`linux/amd64`, and published to GHCR: `dev` from `main`, and `x.y.z`, `x.y`, `x` and `latest`
+from each `vx.y.z` tag.
 
 Local use:
 
