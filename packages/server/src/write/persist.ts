@@ -13,6 +13,7 @@ import { contentSig, signatureOf, type FolderStore, type PersistedRow } from '..
 import { exiftool, readRawTags } from '../metadata/reader.js';
 import { collectDateCandidates, collectGps } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
+import { GEOTAGGER_GROUP } from './exiftool-config.js';
 import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import {
   ORIGINAL_ABSENT,
@@ -171,16 +172,34 @@ async function writeOne(
 
   const previous = ctx.store.getPersisted(file.id);
   const previousWritten = previous === null ? null : writtenTagsOf(previous);
-  // The first time either half is ever persisted, the original is whatever the file
-  // currently says — nothing has touched it yet, so both halves' tags are read here even
-  // if only one of them is being written. A later write reuses the stored snapshot: it
-  // must never be replaced by what GeoTagger itself put there since.
+
+  // The plan's `stampsOriginal` is only a cheap DB-backed guess, good enough for the
+  // review dialog's preview but not trusted here (SPEC §9.3's "written exactly once and
+  // never touched again" is a promise about the file, not about the DB's record of it).
+  // The file's own `geotagger:Original*` block is asked directly, every write: present
+  // means already preserved, so this write leaves it alone no matter what the plan or a
+  // stale/missing DB row believed.
+  const fileState = await readFileOriginalState(absPath, file.kind);
+  const changes: readonly PersistTagChange[] = entry.changes.map((change) => ({
+    ...change,
+    stampsOriginal: !fileState.alreadyStamped.has(change.tag),
+  }));
+  const originalTags: OriginalTagValues = {};
+  for (const { tag } of preservedTagsFor(file.kind)) {
+    originalTags[tag] = fileState.alreadyStamped.has(tag)
+      ? (fileState.alreadyStamped.get(tag) ?? null)
+      : (fileState.values[tag] ?? null);
+  }
+
+  // The four summary fields describe what the app itself derived at first scan, not any
+  // one file tag, so they still come from the stored snapshot once one exists; `tags` is
+  // always the fresh, file-verified read above.
   const original: OriginalSnapshot =
     previous?.originalSnapshotJson !== undefined && previous.originalSnapshotJson !== null
-      ? (JSON.parse(previous.originalSnapshotJson) as OriginalSnapshot)
-      : snapshotOf(file, await readPreservedTags(absPath, file.kind));
+      ? { ...(JSON.parse(previous.originalSnapshotJson) as OriginalSnapshot), tags: originalTags }
+      : snapshotOf(file, originalTags);
 
-  const tags = buildWrite(file, entry.changes, original.tags, {
+  const tags = buildWrite(file, changes, original.tags, {
     timeShiftSeconds: entry.timeShiftSeconds,
     positionSource: entry.positionSource === null ? null : entry.positionSource === 'manual' ? 'manual' : 'interpolated-confirmed',
     positionUncertaintyM: entry.positionUncertaintyM,
@@ -191,7 +210,7 @@ async function writeOne(
   // diff: the tags this write touches, merged over the ones earlier writes touched. Merged
   // per tag, so a write of one field never forgets what another field wrote.
   const writtenTags: OriginalTagValues = { ...(previousWritten ?? {}) };
-  for (const change of entry.changes) writtenTags[change.tag] = change.next;
+  for (const change of changes) writtenTags[change.tag] = change.next;
   const expected = expectedValues(entry);
 
   try {
@@ -332,29 +351,59 @@ function snapshotOf(file: FileRecord, tags: OriginalTagValues): OriginalSnapshot
   };
 }
 
+/** What a live read of the file says about the tags GeoTagger preserves (SPEC §9.3). */
+interface FileOriginalState {
+  /** Each tag's current value, exactly as the file holds it. */
+  values: OriginalTagValues;
+  /**
+   * The tags whose `geotagger:Original*` is already in the file, mapped to that
+   * companion's own recorded value — `null` when it records an absence, never omitted
+   * for a tag that is genuinely present.
+   */
+  alreadyStamped: Map<string, string | null>;
+}
+
 /**
- * Reads the tags a write would overwrite, exactly as the file holds them.
+ * Reads a tag's current value and its `geotagger:Original*` companion together, exactly
+ * as the file holds them.
  *
- * `-n` turns off ExifTool's print conversion, so coordinates come back as the signed
- * decimals and bare `N`/`E` refs that can be handed straight back to it — the whole
- * point being that the record holds the same characters the file had. Unlike the scan
- * (SPEC §10.1) this read cannot use `-fast2`: XMP can sit outside the header GeoTagger's
- * scan stops at, and a tag missed here would be recorded as absent when it was not. It
- * runs once per file, on the first write of either half.
+ * The companion's presence, not any DB record, is what decides whether this write may
+ * stamp a tag (SPEC §9.3's "written exactly once and never touched again" is a promise
+ * about the file). `-n` turns off ExifTool's print conversion, so coordinates come back
+ * as the signed decimals and bare `N`/`E` refs that can be handed straight back to it —
+ * the whole point being that the record holds the same characters the file had. Unlike
+ * the scan (SPEC §10.1) this read cannot use `-fast2`: XMP can sit outside the header
+ * GeoTagger's scan stops at, and a tag missed here would be recorded as absent when it
+ * was not. It runs on every write, not only the first, because a write that skips it has
+ * nothing but the DB's word for whether a tag was ever stamped.
  */
-async function readPreservedTags(absPath: string, kind: FileRecord['kind']): Promise<OriginalTagValues> {
+async function readFileOriginalState(absPath: string, kind: FileRecord['kind']): Promise<FileOriginalState> {
   const preserved = preservedTagsFor(kind);
-  const raw = await exiftool().readRaw(absPath, [
-    '-G0',
-    '-n',
-    '-charset',
-    'filename=utf8',
-    ...preserved.map((p) => `-${p.tag}`),
+  const charsetArgs = ['-n', '-charset', 'filename=utf8'];
+
+  // Two reads, not one: `geotagger` is a family-1 group, so its tags have to be read
+  // under `-G1` to come back keyed by that group rather than by the family-0 group
+  // (`XMP`) the config also declares — the same reason the roundtrip tests read them
+  // back with `-G1` rather than the `-G0` the tags themselves are read with below.
+  const [raw, rawOriginals] = await Promise.all([
+    exiftool().readRaw(absPath, ['-G0', ...charsetArgs, ...preserved.map((p) => `-${p.tag}`)]) as Promise<
+      Record<string, unknown>
+    >,
+    exiftool().readRaw(absPath, [
+      '-G1',
+      ...charsetArgs,
+      ...preserved.map((p) => `-${GEOTAGGER_GROUP}:${p.original}`),
+    ]) as Promise<Record<string, unknown>>,
   ]);
 
   const values: OriginalTagValues = {};
-  for (const { tag } of preserved) values[tag] = tagValueOf((raw as Record<string, unknown>)[tag]);
-  return values;
+  const alreadyStamped = new Map<string, string | null>();
+  for (const { tag, original } of preserved) {
+    values[tag] = tagValueOf(raw[tag]);
+    const originalKey = `${GEOTAGGER_GROUP}:${original}`;
+    if (rawOriginals[originalKey] !== undefined) alreadyStamped.set(tag, tagValueOf(rawOriginals[originalKey]));
+  }
+  return { values, alreadyStamped };
 }
 
 /** One tag as the characters ExifTool would write back, or null when it is absent. */
