@@ -61,13 +61,17 @@ export const api = {
     post('/api/strips/merge', { leftStripId, rightStripId }),
   setLane: (stripId: number, lane: number) => post(`/api/strips/${stripId}/lane`, { lane }),
   setLocked: (stripId: number, locked: boolean) => post(`/api/strips/${stripId}/lock`, { locked }),
-  resetStrip: (stripId: number) => post(`/api/strips/${stripId}/reset`, {}),
+  resetStrip: (stripId: number, part: 'offset' | 'drift' | 'all' = 'all') =>
+    post(`/api/strips/${stripId}/reset`, { part }),
   resetAll: () => post('/api/strips/reset-all', {}),
   undoStrips: () => post('/api/strips/undo', {}),
   setStripUtcOffset: (stripId: number, utcOffsetMinutes: number | null) =>
     post(`/api/strips/${stripId}/utc-offset`, { utcOffsetMinutes }),
-  pinTrueTime: (fileId: FileId, trueLocalIso: string) =>
-    post('/api/strips/pin-true-time', { fileId, trueLocalIso }),
+  setTrueTime: (fileId: FileId, trueLocalIso: string) =>
+    post('/api/strips/set-true-time', { fileId, trueLocalIso }),
+  setPinned: (fileId: FileId, pinned: boolean) => post('/api/strips/pin', { fileId, pinned }),
+  stretch: (stripId: number, fileId: FileId, targetEffectiveMs: number) =>
+    post(`/api/strips/${stripId}/stretch`, { fileId, targetEffectiveMs }),
   setFolderUtcOffset: (utcOffsetMinutes: number) => post('/api/session/utc-offset', { utcOffsetMinutes }),
   answerTimestampQuestion: () =>
     request<SessionState>('/api/session/timestamp-question', { method: 'POST' }),

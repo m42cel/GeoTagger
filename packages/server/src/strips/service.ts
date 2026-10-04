@@ -7,13 +7,22 @@ import type {
   StripsResponse,
   TimelineResponse,
 } from '@geotagger/shared';
-import { MINUTE_MS, naiveToMs, originId } from '@geotagger/shared';
+import {
+  driftAllowed,
+  formatDrift,
+  MINUTE_MS,
+  naiveToMs,
+  originId,
+  rebaseCorrection,
+  shiftSecondsAt,
+  stretchAbout,
+} from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import { buildTimeline, type Timeline } from '../time/timeline.js';
 import { buildUtcOffsetRules } from '../time/utc-offset.js';
 import { buildStrips } from './grouping.js';
 import { arrangeLanes, laneAccepts, type LanePlacement } from './lanes.js';
-import { planCut, planMerge, planPin, type SegmentMember } from './segments.js';
+import { correctionOf, planCut, planMerge, planTrueTime, type SegmentMember } from './segments.js';
 
 /**
  * A refused strip operation. Carries a status code because every one of these is a
@@ -143,6 +152,9 @@ export class StripService {
     this.store.groupingMode = 'manual';
     if (fileIds.length === 0) return;
     this.store.transact(() => {
+      // A pin vouches for a file's time under its strip's correction; the new strip
+      // starts from none, so the promise does not survive the move.
+      this.store.setPinned(fileIds, false);
       const lanes = this.store.listStrips().map((s) => s.lane);
       const id = this.store.createStrip(
         {
@@ -167,7 +179,7 @@ export class StripService {
   // ---- offsets, locking, reset -------------------------------------------
 
   setOffset(id: number, seconds: number): void {
-    const strip = this.requireUnlocked(id);
+    const strip = this.requireShiftable(id);
     this.pushUndo();
     this.store.setStripOffset(id, seconds);
     this.settleLanes(strip.id);
@@ -184,11 +196,51 @@ export class StripService {
     this.store.setStripLocked(id, locked);
   }
 
-  /** Back to zero offset. Cuts are structure, and survive (SPEC §4.3). */
+  /**
+   * Back to zero offset and zero drift. Cuts are structure, and survive (SPEC §4.3). A
+   * pinned photo refuses it like a lock does: reset would move a photo the user has said
+   * is right.
+   */
   reset(id: number): void {
-    this.requireUnlocked(id);
+    this.requireShiftable(id, 'reset');
     this.pushUndo();
-    this.store.setStripOffset(id, 0);
+    this.store.setStripCorrection(id, { offsetSeconds: 0, drift: 0, driftOriginMs: null });
+    this.settleLanes(id);
+  }
+
+  /**
+   * Back to zero offset, keeping the stretch. Refused with a pin for the same reason as
+   * `reset`.
+   */
+  resetOffset(id: number): void {
+    const strip = this.requireShiftable(id, 'reset');
+    this.pushUndo();
+    this.store.setStripCorrection(id, { offsetSeconds: 0, drift: strip.drift, driftOriginMs: strip.driftOriginMs });
+    this.settleLanes(id);
+  }
+
+  /**
+   * Straightens a stretched strip back to a plain offset (SPEC §4.3). With one pin, the
+   * pinned photo stays exactly where it is and the rest of the strip straightens about
+   * it; with none, the strip keeps the shift it had where it was stretched about. Two
+   * pins refuse it, since one of them would have to move.
+   */
+  resetDrift(id: number): void {
+    const strip = this.requireUnlocked(id);
+    if (strip.pinnedFileIds.length > 1) {
+      throw new StripOperationError(
+        'fully_pinned',
+        `${strip.label} has two pinned photos; straightening it would move one of them. Unpin one first.`,
+      );
+    }
+    let base = correctionOf(strip);
+    const pinId = strip.pinnedFileIds[0];
+    if (pinId !== undefined) {
+      const pinRawMs = this.timeline().byId.get(pinId)?.rawCaptureMs ?? null;
+      if (pinRawMs !== null) base = rebaseCorrection(base, pinRawMs);
+    }
+    this.pushUndo();
+    this.store.setStripCorrection(id, { offsetSeconds: base.offsetSeconds, drift: 0, driftOriginMs: null });
     this.settleLanes(id);
   }
 
@@ -229,7 +281,7 @@ export class StripService {
 
     this.pushUndo();
     const rightId = this.store.transact(() => {
-      this.store.setStripOffset(strip.id, plan.left.offsetSeconds);
+      this.store.setStripCorrection(strip.id, plan.left.correction);
       // Assigning a file to the new segment moves it out of the old one by itself:
       // every file belongs to exactly one strip (SPEC §8.2).
       return this.store.createStrip(
@@ -239,7 +291,7 @@ export class StripService {
           ordinal: strip.ordinal + 1,
           groupingSource: strip.groupingSource,
           parentStripId: originId(strip),
-          offsetSeconds: plan.right.offsetSeconds,
+          correction: plan.right.correction,
           utcOffsetOverrideMinutes: strip.utcOffsetOverrideMinutes,
         },
         plan.right.fileIds,
@@ -251,7 +303,8 @@ export class StripService {
 
   /**
    * Merges two adjacent segments of the same origin (SPEC §4.3). The result takes the
-   * left segment's offset.
+   * left segment's correction, so a merge that would move a pinned photo of the right
+   * one — the two corrections having diverged since the cut — is refused.
    */
   merge(leftId: number, rightId: number): number {
     const left = this.requireUnlocked(leftId);
@@ -276,10 +329,20 @@ export class StripService {
     const plan = planMerge(
       {
         fileIds: this.membersOf(timeline, first.id).map((m) => m.fileId),
-        offsetSeconds: first.offsetSeconds,
+        correction: correctionOf(first),
       },
       { fileIds: this.membersOf(timeline, second.id).map((m) => m.fileId) },
     );
+    for (const fileId of second.pinnedFileIds) {
+      const line = timeline.byId.get(fileId);
+      if (line?.rawCaptureMs == null) continue;
+      if (Math.abs(shiftSecondsAt(plan.correction, line.rawCaptureMs) - line.offsetSeconds) >= 0.001) {
+        throw new StripOperationError(
+          'merge_moves_pin',
+          'Merging would move a pinned photo of the later segment. Unpin it first.',
+        );
+      }
+    }
 
     // Whichever of the two is the family's origin has to be the row that survives, or
     // the segments still pointing at it would lose the link that lets them be merged.
@@ -288,7 +351,7 @@ export class StripService {
 
     this.pushUndo();
     this.store.transact(() => {
-      this.store.setStripOffset(keep.id, plan.offsetSeconds);
+      this.store.setStripCorrection(keep.id, plan.correction);
       this.store.assignFilesToStrip(keep.id, plan.fileIds);
       this.store.setStripLabel(keep.id, first.label);
       this.store.applyLaneLayout([{ id: keep.id, lane: first.lane, ordinal: first.ordinal }]);
@@ -338,18 +401,21 @@ export class StripService {
     }));
   }
 
-  // ---- pinning (SPEC §4.3) -----------------------------------------------
+  // ---- setting a true time, pinning and stretching (SPEC §4.3) -----------
 
   /**
-   * Shifts a file's whole strip so that file lands on a time read off a clock in the
-   * shot. `trueLocalIso` is a wall clock in the display offset, which is the one the
-   * axis is labelled in and therefore the one the user just read.
+   * Moves a file's strip so that file lands on a time read off a clock in the shot.
+   * `trueLocalIso` is a wall clock in the file's own offset, since that is the zone the
+   * clock in the shot was showing.
+   *
+   * The whole strip shifts — unless it has a pinned photo, in which case it stretches
+   * about that photo instead, exactly as the align buttons do.
    */
-  pinTrueTime(fileId: FileId, trueLocalIso: string, displayUtcOffsetMinutes: number): void {
+  setTrueTime(fileId: FileId, trueLocalIso: string): void {
     const timeline = this.timeline();
     const file = timeline.byId.get(fileId);
     if (!file || file.effectiveMs === null) {
-      throw new StripOperationError('no_such_file', 'That file has no timestamp to pin.', 400);
+      throw new StripOperationError('no_such_file', 'That file has no timestamp to correct.', 400);
     }
     if (file.stripId === null) {
       throw new StripOperationError('no_strip', 'That file is not in a strip.', 400);
@@ -358,11 +424,86 @@ export class StripService {
     if (target === null) {
       throw new StripOperationError('bad_time', `Could not read "${trueLocalIso}" as a time.`, 400);
     }
+    const targetEffectiveMs = target - file.utcOffsetMinutes * MINUTE_MS;
     const strip = this.requireUnlocked(file.stripId);
-    const pinned = planPin(strip, file.effectiveMs, target - displayUtcOffsetMinutes * MINUTE_MS);
+    if (strip.pinnedFileIds.length > 0) {
+      this.stretch(strip.id, fileId, targetEffectiveMs);
+      return;
+    }
 
     this.pushUndo();
-    this.store.setStripOffset(strip.id, pinned);
+    this.store.setStripOffset(strip.id, planTrueTime(strip, file.effectiveMs, targetEffectiveMs));
+    this.settleLanes(strip.id);
+  }
+
+  /**
+   * Marks a file's time as right (SPEC §4.3). Nothing moves: the correction is stored on
+   * the strip in its own right, and pins only decide which gestures may change it.
+   */
+  setPinned(fileId: FileId, pinned: boolean): void {
+    const stripId = this.store.stripAssignments()[fileId];
+    if (stripId === undefined) {
+      throw new StripOperationError('no_strip', 'That file is not in a strip.', 400);
+    }
+    this.requireUnlocked(stripId);
+    this.pushUndo();
+    this.store.setPinned([fileId], pinned);
+  }
+
+  /**
+   * Stretches a strip about its one pinned photo so `fileId` lands on
+   * `targetEffectiveMs`, everything between scaling and everything beyond extrapolating
+   * along the same line (SPEC §4.3).
+   */
+  stretch(stripId: number, fileId: FileId, targetEffectiveMs: number): void {
+    const strip = this.requireUnlocked(stripId);
+    if (strip.pinnedFileIds.length !== 1) {
+      throw new StripOperationError(
+        strip.pinnedFileIds.length === 0 ? 'not_pinned' : 'fully_pinned',
+        strip.pinnedFileIds.length === 0
+          ? `${strip.label} has no pinned photo to stretch about. Pin one first.`
+          : `${strip.label} has two pinned photos, which fix it. Unpin one to stretch it.`,
+      );
+    }
+    const pinId = strip.pinnedFileIds[0] as FileId;
+    if (pinId === fileId) {
+      throw new StripOperationError('moves_pin', 'That photo is pinned. Unpin it to move it.');
+    }
+
+    const timeline = this.timeline();
+    const file = timeline.byId.get(fileId);
+    const pin = timeline.byId.get(pinId);
+    if (file?.stripId !== stripId || file.effectiveMs === null || file.rawCaptureMs === null) {
+      throw new StripOperationError('no_such_file', 'That file is not a dated photo of this strip.', 400);
+    }
+    if (pin?.rawCaptureMs == null) {
+      throw new StripOperationError('pin_undated', 'The pinned photo has no timestamp to stretch about.', 400);
+    }
+
+    const stretched = stretchAbout(
+      strip,
+      pin.rawCaptureMs,
+      file.rawCaptureMs,
+      (targetEffectiveMs - file.effectiveMs) / 1000,
+    );
+    if (stretched === null) {
+      throw new StripOperationError(
+        'same_instant',
+        'That photo was taken at the same moment as the pinned one, so no stretch can separate them.',
+        400,
+      );
+    }
+    if (!driftAllowed(stretched.drift)) {
+      throw new StripOperationError(
+        'drift_too_large',
+        `Prevented a stretch for an unrealistically large clock drift of ${formatDrift(stretched.drift)}. ` +
+          'Correct a deviation that large by cutting the strip and aligning each part on its own.',
+        400,
+      );
+    }
+
+    this.pushUndo();
+    this.store.setStripCorrection(strip.id, stretched);
     this.settleLanes(strip.id);
   }
 
@@ -392,6 +533,22 @@ export class StripService {
     const strip = this.requireStrip(id);
     if (strip.locked) {
       throw new StripOperationError('strip_locked', `${strip.label} is locked. Unlock it first.`);
+    }
+    return strip;
+  }
+
+  /**
+   * A strip whose whole correction may be shifted or reset: unlocked, and with no
+   * pinned photo — one pin turns a shift into a stretch, and two fix the strip (SPEC
+   * §4.3).
+   */
+  private requireShiftable(id: number, action = 'move'): StripRecord {
+    const strip = this.requireUnlocked(id);
+    if (strip.pinnedFileIds.length > 0) {
+      throw new StripOperationError(
+        'strip_pinned',
+        `${strip.label} has a pinned photo, so it can't ${action}. Unpin it first${action === 'move' && strip.pinnedFileIds.length === 1 ? ', or stretch it with the handles' : ''}.`,
+      );
     }
     return strip;
   }

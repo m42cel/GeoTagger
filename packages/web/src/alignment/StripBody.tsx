@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { FileId, FileRecord, TimelineFile } from '@geotagger/shared';
 import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
 
@@ -16,7 +17,7 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  * Height of a lane row. Everything vertical below is derived from it, so a frame
  * fills the strip it sits in rather than floating in its top half.
  */
-const LANE_ROW_PX = 116;
+const LANE_ROW_PX = 136;
 /**
  * What a frame has to clear inside the row: `.strip-hit` sits 4 px in and draws a
  * 1 px border, and a selected frame paints a 2 px ring outside itself. Leaving room
@@ -64,27 +65,43 @@ export function buildStripFiles(files: readonly TimelineFile[]): Map<number, Str
 
 export function StripBody({
   stripFiles,
+  stretchedInstants,
   scale,
   fileById,
   selectedFileIds,
+  pinnedFileIds,
+  activeFileId,
+  onTogglePin,
   onSelectFile,
-  onPinFile,
+  onSetTrueTime,
 }: {
   stripFiles: StripFiles | undefined;
+  /**
+   * Where the files are drawn while a stretch is being dragged — same order as
+   * `stripFiles.instants` — or undefined to draw them where they are.
+   */
+  stretchedInstants?: readonly number[];
   scale: TimeScale;
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
+  pinnedFileIds: readonly FileId[];
+  /** The photo the photo card describes; its thumbnail carries the pin button. */
+  activeFileId: FileId | null;
+  /** Null while the strip is locked, which hides the pin button. */
+  onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
-  onPinFile: (fileId: FileId) => void;
+  onSetTrueTime: (fileId: FileId) => void;
 }) {
   if (!stripFiles || stripFiles.instants.length === 0) {
     return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
   }
 
-  // A correction is one constant across the strip, so the whole element is translated
-  // during a drag and these instants never move under it: the visible slice is found
+  // A move is one constant across the strip, so the whole element is translated during
+  // a body drag and these instants never move under it; a stretch moves each file by a
+  // different amount, so it passes the files' new instants in instead. Either way they
+  // stay ascending — a stretch never reverses a clock — and the visible slice is found
   // by binary search rather than by scanning the whole strip.
-  const positions = stripFiles.instants;
+  const positions = stretchedInstants ?? stripFiles.instants;
   const from = Math.max(0, lowerBound(positions, msAt(scale, -THUMB_PX)) - 1);
   const to = Math.min(positions.length, lowerBound(positions, msAt(scale, scale.widthPx + THUMB_PX)) + 1);
 
@@ -97,8 +114,11 @@ export function StripBody({
       scale={scale}
       fileById={fileById}
       selectedFileIds={selectedFileIds}
+      pinnedFileIds={pinnedFileIds}
+      activeFileId={activeFileId}
+      onTogglePin={onTogglePin}
       onSelectFile={onSelectFile}
-      onPinFile={onPinFile}
+      onSetTrueTime={onSetTrueTime}
     />
   );
 }
@@ -115,8 +135,11 @@ function Thumbnails({
   scale,
   fileById,
   selectedFileIds,
+  pinnedFileIds,
+  activeFileId,
+  onTogglePin,
   onSelectFile,
-  onPinFile,
+  onSetTrueTime,
 }: {
   positions: readonly number[];
   files: readonly TimelineFile[];
@@ -125,16 +148,22 @@ function Thumbnails({
   scale: TimeScale;
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
+  pinnedFileIds: readonly FileId[];
+  activeFileId: FileId | null;
+  onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
-  onPinFile: (fileId: FileId) => void;
+  onSetTrueTime: (fileId: FileId) => void;
 }) {
-  const clusters: { fileId: FileId; x: number; count: number; selected: boolean }[] = [];
+  const clusters: { fileId: FileId; x: number; count: number; selected: boolean; pinned: boolean }[] = [];
   for (let i = from; i < to; i += 1) {
     const x = xOf(scale, positions[i] as number);
     const file = files[i] as TimelineFile;
+    const pinned = pinnedFileIds.includes(file.id);
     const last = clusters[clusters.length - 1];
     if (last && x - last.x < THUMB_PX) {
       last.count += 1;
+      // A pin is a reference point; a stack hiding one still says it holds one.
+      if (pinned) last.pinned = true;
       // A selected file always represents its own stack, so selection stays visible
       // as the axis is zoomed out.
       if (selectedFileIds.has(file.id)) {
@@ -143,34 +172,76 @@ function Thumbnails({
       }
       continue;
     }
-    clusters.push({ fileId: file.id, x, count: 1, selected: selectedFileIds.has(file.id) });
+    clusters.push({ fileId: file.id, x, count: 1, selected: selectedFileIds.has(file.id), pinned });
   }
 
   return (
     <div className="strip-body" style={{ height: LANE_ROW_PX }}>
       {clusters.map((c) => {
         const record = fileById.get(c.fileId);
+        const left = c.x - THUMB_PX / 2;
+        const pinned = pinnedFileIds.includes(c.fileId);
         return (
-          <button
-            type="button"
-            key={c.fileId}
-            className={`shot${c.selected ? ' selected' : ''}`}
-            style={{ left: c.x - THUMB_PX / 2, top: THUMB_TOP_PX, width: THUMB_PX, height: THUMB_PX }}
-            title={record?.filename ?? ''}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}
-            onContextMenu={(e) => {
-              // Right-click offers "set true time" (SPEC §4.3).
-              e.preventDefault();
-              onSelectFile(c.fileId, false);
-              onPinFile(c.fileId);
-            }}
-          >
-            <img src={`/api/files/${c.fileId}/thumb`} alt="" loading="lazy" draggable={false} />
-            {c.count > 1 && <span className="stack-count">{c.count}</span>}
-          </button>
+          <Fragment key={c.fileId}>
+            <button
+              type="button"
+              className={`shot${c.selected ? ' selected' : ''}`}
+              style={{ left, top: THUMB_TOP_PX, width: THUMB_PX, height: THUMB_PX }}
+              title={record?.filename ?? ''}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}
+              onContextMenu={(e) => {
+                // Right-click offers "set true time" (SPEC §4.3).
+                e.preventDefault();
+                onSelectFile(c.fileId, false);
+                onSetTrueTime(c.fileId);
+              }}
+            >
+              <img src={`/api/files/${c.fileId}/thumb`} alt="" loading="lazy" draggable={false} />
+              {c.pinned && <span className="pin-badge">pinned</span>}
+              {c.count > 1 && <span className="stack-count">{c.count}</span>}
+            </button>
+            {/* A sibling, not a child: a button cannot sit inside the thumbnail's button. */}
+            {c.fileId === activeFileId && onTogglePin !== null && (
+              <button
+                type="button"
+                className={`shot-pin keeps-mark${pinned ? ' on' : ''}`}
+                style={{ left: left + PIN_INSET_PX, top: THUMB_TOP_PX + THUMB_PX - PIN_BUTTON_PX - PIN_INSET_PX }}
+                aria-label={pinned ? 'Unpin' : 'Pin'}
+                aria-pressed={pinned}
+                title={
+                  pinned
+                    ? 'Unpin (p): this photo may move with its strip again'
+                    : "Pin (p): this photo's time is right. One pin turns the strip's moves into stretches about it; two fix it."
+                }
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onTogglePin(c.fileId)}
+              >
+                <PinIcon />
+              </button>
+            )}
+          </Fragment>
         );
       })}
     </div>
+  );
+}
+
+const PIN_BUTTON_PX = 24;
+const PIN_INSET_PX = 4;
+
+/** A pushpin: outlined, and filled once the photo is pinned (by CSS on the button). */
+function PinIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        className="pin-head"
+        d="M9 3h6l-1 6 3.5 3.5h-11L10 9z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path d="M12 12.5V21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }

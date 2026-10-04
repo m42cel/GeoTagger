@@ -1,163 +1,206 @@
 import { useEffect, useState } from 'react';
 import type { CaptureTimeSource, FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
-import {
-  formatInstant,
-  formatOffset,
-  formatUtcOffset,
-  parseOffsetSeconds,
-  parseUtcOffsetMinutes,
-} from '@geotagger/shared';
+import { formatInstant, formatUtcOffset } from '@geotagger/shared';
 
 /**
- * The detail strip under the lanes (SPEC §6.2).
- *
- * The numeric fields are not a convenience: at trip zoom one pixel covers minutes, so
- * typing and keyboard nudging are the only ways to reach the second-level precision the
- * correction actually needs (SPEC §14.4).
+ * The detail area under the lanes (SPEC §6.2): the selected photo. The selected strip's
+ * correction is edited in its lane header.
  */
-/** What SPEC §4.2 settled on for a strip's files, as `stripUtcSummary` gathers it. */
-export interface StripUtcSummary {
-  /** Distinct offsets across the strip in time order; more than one means it crossed. */
-  offsets: number[];
-  /** Where they came from, or null when the strip's files do not agree on that. */
-  source: TimelineFile['utcOffsetSource'] | null;
-}
-
 export function SelectionPanel({
   strip,
-  fileCountLabel,
-  mergeTargetId,
-  cutAtMs,
-  displayUtcOffsetMinutes,
-  utcSummary,
   selectedFile,
   selectedLine,
-  onSetOffset,
-  onCut,
-  onMerge,
-  onReset,
-  onSetUtcOffset,
-  onPin,
+  onSetTrueTime,
 }: {
   strip: StripRecord | null;
-  fileCountLabel: string;
-  mergeTargetId: number | null;
-  /** Where a cut would land: the last place the pointer was over the canvas. */
-  cutAtMs: number | null;
-  displayUtcOffsetMinutes: number;
-  utcSummary: StripUtcSummary | null;
   selectedFile: FileRecord | null;
   selectedLine: TimelineFile | null;
-  onSetOffset: (seconds: number) => void;
-  onCut: (atMs: number) => void;
-  onMerge: (rightStripId: number) => void;
-  onReset: () => void;
-  onSetUtcOffset: (minutes: number | null) => void;
-  onPin: () => void;
+  onSetTrueTime: (trueLocalIso: string) => void;
 }) {
-  if (strip === null) {
+  return (
+    <div className="selection-panel">
+      <PhotoCard
+        strip={strip}
+        file={selectedFile}
+        line={selectedLine}
+        onSetTrueTime={onSetTrueTime}
+      />
+    </div>
+  );
+}
+
+/** Everything that applies to the one selected photo, beside a large preview of it. */
+function PhotoCard({
+  strip,
+  file,
+  line,
+  onSetTrueTime,
+}: {
+  strip: StripRecord | null;
+  file: FileRecord | null;
+  line: TimelineFile | null;
+  onSetTrueTime: (trueLocalIso: string) => void;
+}) {
+  if (strip === null || file === null || line === null) {
     return (
-      <div className="selection-panel muted">
-        Select a strip to set its offset exactly, cut it or lock it.
-      </div>
+      <section className="selection-card">
+        <p className="muted">Click a photo to see its time and set its true time. Its thumbnail then carries a pin button.</p>
+      </section>
     );
   }
 
+  const pinned = strip.pinnedFileIds.includes(file.id);
+  // Why the corrected time can't be typed over, or null when it can (SPEC §4.3).
+  const editBlocked = strip.locked
+    ? 'The strip is locked.'
+    : pinned
+      ? 'This photo is pinned. Unpin it to change its time.'
+      : strip.pinnedFileIds.length > 1
+        ? 'Two pinned photos fix this strip.'
+        : null;
+
   return (
-    <div className="selection-panel">
+    <section className="selection-card">
       <div className="selection-head">
-        <strong>{strip.label}</strong>
-        <span className="muted">{fileCountLabel}</span>
-        {strip.locked && <span className="badge locked">locked</span>}
+        <strong className="photo-name" title={file.relPath}>
+          {file.filename}
+        </strong>
+        {pinned && <span className="state-badge pin">pinned</span>}
       </div>
-
-      <div className="selection-fields">
-        <label>
-          offset
-          <OffsetField value={strip.offsetSeconds} disabled={strip.locked} onCommit={onSetOffset} />
-        </label>
-        <label>
-          UTC
-          <UtcField
-            value={strip.utcOffsetOverrideMinutes}
-            disabled={strip.locked}
-            onCommit={onSetUtcOffset}
-          />
-        </label>
-        {utcSummary && utcSummary.offsets.length > 0 && (
-          <span className="utc-resolved muted" title={utcResolvedTitle(utcSummary)}>
-            resolves to {utcSummary.offsets.map(formatUtcOffset).join(' → ')}
-            {utcSummary.source !== null && ` · ${UTC_SOURCE_LABEL[utcSummary.source]}`}
-          </span>
-        )}
-      </div>
-
-      <div className="selection-actions">
-        <button
-          type="button"
-          className="ghost"
-          disabled={strip.locked || cutAtMs === null}
-          title={
-            cutAtMs === null
-              ? 'Point at the axis to place the cut'
-              : 'Cuts where the pointer last was — or press c without leaving the strip'
-          }
-          onClick={() => cutAtMs !== null && onCut(cutAtMs)}
-        >
-          ✂ cut at cursor <kbd>c</kbd>
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          disabled={mergeTargetId === null || strip.locked}
-          title={mergeTargetId === null ? 'No adjacent segment of this strip to merge with' : undefined}
-          onClick={() => mergeTargetId !== null && onMerge(mergeTargetId)}
-        >
-          merge
-        </button>
-        <button type="button" className="ghost" disabled={strip.locked} onClick={onReset}>
-          reset
-        </button>
-      </div>
-
-      {selectedFile && selectedLine && (
-        <div className="selection-file">
-          <FilePreview file={selectedFile} />
+      <div className="photo-card-body">
+        <FilePreview file={file} />
+        <div className="photo-card-info">
           <dl className="file-detail">
-            <dt>file</dt>
-            <dd>{selectedFile.filename}</dd>
             <dt>reads</dt>
             <dd>
-              {selectedFile.captureTimeRaw?.replace('T', ' ') ?? '—'}
-              {selectedFile.captureUtcOffsetMinutes !== null && (
-                <em> {formatUtcOffset(selectedFile.captureUtcOffsetMinutes)}</em>
-              )}{' '}
-              <em className={weakSource(selectedFile.captureTimeSource) ? 'weak' : ''}>
-                {SOURCE_LABEL[selectedFile.captureTimeSource]}
-                {weakSource(selectedFile.captureTimeSource) && ' — weak source'}
+              {file.captureTimeRaw?.replace('T', ' ') ?? '—'}
+              {file.captureUtcOffsetMinutes !== null && <em> {formatUtcOffset(file.captureUtcOffsetMinutes)}</em>}{' '}
+              <em className={weakSource(file.captureTimeSource) ? 'weak' : ''}>
+                {SOURCE_LABEL[file.captureTimeSource]}
+                {weakSource(file.captureTimeSource) && ' — weak source'}
               </em>
             </dd>
-            {corrects(selectedFile, selectedLine) && (
-              <>
-                <dt>corrected</dt>
-                <dd>
-                  {selectedLine.effectiveMs === null
-                    ? '—'
-                    : formatInstant(selectedLine.effectiveMs, displayUtcOffsetMinutes, { seconds: true, date: true })}{' '}
-                  <em>{formatUtcOffset(selectedLine.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[selectedLine.utcOffsetSource]}</em>
-                </dd>
-              </>
-            )}
-            <dd className="pin-action">
-              <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
-                set true time…
-              </button>
+            <dt>corrected</dt>
+            <dd>
+              <CorrectedTime
+                key={file.id}
+                line={line}
+                blockedReason={editBlocked}
+                stretches={strip.pinnedFileIds.length === 1}
+                onCommit={onSetTrueTime}
+              />
             </dd>
           </dl>
         </div>
-      )}
-    </div>
+      </div>
+    </section>
   );
+}
+
+/**
+ * The photo's corrected time, typed over to set its true time (SPEC §4.3): the strip
+ * shifts so this photo lands there, or stretches about its pinned photo when it has one.
+ * The time is the wall clock in the photo's own offset, as a clock in the shot shows it.
+ */
+function CorrectedTime({
+  line,
+  blockedReason,
+  stretches,
+  onCommit,
+}: {
+  line: TimelineFile;
+  blockedReason: string | null;
+  stretches: boolean;
+  onCommit: (trueLocalIso: string) => void;
+}) {
+  const shown =
+    line.effectiveMs === null ? null : formatInstant(line.effectiveMs, line.utcOffsetMinutes, { seconds: true, date: true });
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(shown ?? '');
+
+  const commit = (): void => {
+    setEditing(false);
+    const iso = parseLocalTime(text);
+    if (iso !== null && iso.replace('T', ' ') !== shown) onCommit(iso);
+  };
+
+  if (shown === null) return <>—</>;
+
+  return (
+    <span className="corrected-time">
+      {editing ? (
+        <>
+          <input
+            type="text"
+            className="offset-field corrected-input"
+            value={text}
+            autoFocus
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') setEditing(false);
+              e.stopPropagation();
+            }}
+          />
+          <button
+            type="button"
+            className="edit-button confirm"
+            aria-label="Apply the true time"
+            title="Apply (Enter) — Escape cancels"
+            // Kept from taking focus, so the field's blur doesn't commit first.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={commit}
+          >
+            <Icon path="M5 12.5l4.5 4.5L19 7.5" />
+          </button>
+        </>
+      ) : (
+        <>
+          {shown}
+          <button
+            type="button"
+            className="edit-button"
+            disabled={blockedReason !== null}
+            aria-label="Set the true time"
+            title={
+              blockedReason ??
+              (stretches
+                ? 'Set the true time: the strip stretches about its pinned photo so this one lands there'
+                : 'Set the true time: the whole strip shifts so this photo lands there')
+            }
+            onClick={() => {
+              setText(shown);
+              setEditing(true);
+            }}
+          >
+            <Icon path="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6 M17.5 3.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z" />
+          </button>
+        </>
+      )}
+      <em>
+        {formatUtcOffset(line.utcOffsetMinutes)} · {UTC_SOURCE_LABEL[line.utcOffsetSource]}
+      </em>
+    </span>
+  );
+}
+
+/** A small line icon — a pen in a square, a check mark — drawn in the text colour. */
+function Icon({ path }: { path: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** `2024-07-12 15:34:22`, `2024-07-12T15:34` and the like to a naive ISO string, or null. */
+export function parseLocalTime(input: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(input.trim());
+  if (!m) return null;
+  const [, date, h, min, sec] = m as unknown as [string, string, string, string, string | undefined];
+  if (Number(h) > 23 || Number(min) > 59 || Number(sec ?? 0) > 59) return null;
+  return `${date}T${h.padStart(2, '0')}:${min}:${sec ?? '00'}`;
 }
 
 /**
@@ -186,79 +229,20 @@ function FilePreview({ file }: { file: FileRecord }) {
   );
 }
 
-/** A text field that keeps what was typed until it parses, so a half-typed offset survives. */
-function OffsetField({
-  value,
-  disabled,
-  onCommit,
-}: {
-  value: number;
-  disabled: boolean;
-  onCommit: (seconds: number) => void;
-}) {
-  const [text, setText] = useState(() => formatOffset(value));
-  useEffect(() => setText(formatOffset(value)), [value]);
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  const commit = (): void => {
-    const parsed = parseOffsetSeconds(text);
-    if (parsed === null || parsed === value) setText(formatOffset(value));
-    else onCommit(parsed);
-  };
-
-  return (
-    <input
-      type="text"
-      className="offset-field"
-      value={text}
-      disabled={disabled}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-        if (e.key === 'Escape') setText(formatOffset(value));
-        // The lanes below nudge on arrow keys; inside a text field they belong to the
-        // caret.
-        e.stopPropagation();
-      }}
-    />
-  );
-}
-
-function UtcField({
-  value,
-  disabled,
-  onCommit,
-}: {
-  value: number | null;
-  disabled: boolean;
-  onCommit: (minutes: number | null) => void;
-}) {
-  const [text, setText] = useState(() => (value === null ? '' : formatUtcOffset(value)));
-  useEffect(() => setText(value === null ? '' : formatUtcOffset(value)), [value]);
-
-  return (
-    <input
-      type="text"
-      className="offset-field narrow"
-      value={text}
-      disabled={disabled}
-      placeholder="inherited"
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        if (text.trim() === '') {
-          if (value !== null) onCommit(null);
-          return;
-        }
-        const parsed = parseUtcOffsetMinutes(text);
-        if (parsed === null) setText(value === null ? '' : formatUtcOffset(value));
-        else if (parsed !== value) onCommit(parsed);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-        e.stopPropagation();
-      }}
-    />
-  );
+/** `12 Jul`, `12–21 Jul`, `30 Jun – 2 Jul`, or `30 Dec 2024 – 2 Jan 2025` across a year. */
+export function dateRange(fromMs: number | null, toMs: number | null, utcOffsetMinutes: number): string | null {
+  if (fromMs === null || toMs === null) return null;
+  const a = new Date(fromMs + utcOffsetMinutes * 60_000);
+  const b = new Date(toMs + utcOffsetMinutes * 60_000);
+  const day = (d: Date): string => `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  if (a.getUTCFullYear() !== b.getUTCFullYear()) {
+    return `${day(a)} ${a.getUTCFullYear()} – ${day(b)} ${b.getUTCFullYear()}`;
+  }
+  if (a.getUTCMonth() !== b.getUTCMonth()) return `${day(a)} – ${day(b)}`;
+  if (a.getUTCDate() !== b.getUTCDate()) return `${a.getUTCDate()}–${day(b)}`;
+  return day(a);
 }
 
 const SOURCE_LABEL: Record<CaptureTimeSource, string> = {
@@ -280,33 +264,6 @@ const UTC_SOURCE_LABEL: Record<TimelineFile['utcOffsetSource'], string> = {
   folder: 'answered for the folder',
   assumed: 'assumed UTC',
 };
-
-function utcResolvedTitle(summary: StripUtcSummary): string {
-  if (summary.offsets.length > 1) {
-    return (
-      'This strip spans a UTC offset change — its files resolve to more than one offset.\n' +
-      'Nothing needs cutting for that: the offset is resolved per file from where it lands in time.'
-    );
-  }
-  return summary.source === null
-    ? "The strip's files do not all get their offset from the same place."
-    : `Every file in this strip: ${UTC_SOURCE_LABEL[summary.source]}.`;
-}
-
-/**
- * Whether the correction line says anything the “reads” line did not.
- *
- * A file that states its own offset and sits on an unshifted strip is already fully
- * described by what it reads: repeating the same instant under a “corrected” label
- * invites the user to hunt for a difference that is not there. The line earns its place
- * only when the strip actually moves the clock, or when the offset we would write comes
- * from somewhere other than the file itself — inheritance, a strip or file override,
- * the folder's answer, or the assumed-UTC fallback.
- */
-function corrects(file: FileRecord, line: TimelineFile): boolean {
-  if (line.offsetSeconds !== 0) return true;
-  return file.captureUtcOffsetMinutes === null || line.utcOffsetSource !== 'file';
-}
 
 /**
  * A time recovered from a filename or an mtime is flagged, because a wrong timestamp

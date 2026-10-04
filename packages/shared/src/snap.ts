@@ -145,3 +145,54 @@ export function nudgeSeconds(modifiers: { shift?: boolean; ctrlOrMeta?: boolean 
 export function snapToleranceMs(msPerPixel: number, pixels = 6): number {
   return Math.max(MINUTE_MS / 60, msPerPixel * pixels);
 }
+
+export interface StretchSnapInput {
+  /** The drift the pointer alone would produce, stretching about `pivotRawMs`. */
+  candidateDrift: number;
+  pivotRawMs: number;
+  /** Raw reading of the file under the dragged handle — where the tolerance is measured. */
+  handleRawMs: number;
+  /**
+   * The stretched strip's files at `candidateDrift`, ascending by `ms`: raw reading and
+   * absolute instant. Sample rather than pass thousands, as for a move.
+   */
+  moving: readonly { rawMs: number; ms: number }[];
+  /** Absolute instants of every file in other lanes, ascending. */
+  targetMs: readonly number[];
+  toleranceMs: number;
+  enabled: boolean;
+}
+
+/**
+ * Magnetic snapping while a strip is stretched about its pin (SPEC §4.3).
+ *
+ * A stretch moves each file in proportion to its distance from the pin, so the pull is
+ * judged by how far the *handle* would have to move to land a file on a photo of
+ * another lane — measuring it at the file instead would let a file a minute from the
+ * pin, which barely moves, yank the far end of the strip by hours. Only photos pull:
+ * drift is never a whole minute or hour.
+ */
+export function computeStretchSnap(input: StretchSnapInput): { drift: number; snapped: boolean } {
+  const base = { drift: input.candidateDrift, snapped: false };
+  const reach = input.handleRawMs - input.pivotRawMs;
+  if (!input.enabled || input.toleranceMs <= 0 || reach === 0 || input.targetMs.length === 0) return base;
+
+  let best: { drift: number; handleMoveMs: number } | null = null;
+  let j = 0;
+  for (const m of input.moving) {
+    const lever = m.rawMs - input.pivotRawMs;
+    if (lever === 0) continue;
+    while (
+      j + 1 < input.targetMs.length &&
+      Math.abs((input.targetMs[j + 1] as number) - m.ms) <= Math.abs((input.targetMs[j] as number) - m.ms)
+    ) {
+      j += 1;
+    }
+    const deltaDrift = ((input.targetMs[j] as number) - m.ms) / lever;
+    const handleMoveMs = Math.abs(deltaDrift * reach);
+    if (handleMoveMs <= input.toleranceMs && (best === null || handleMoveMs < best.handleMoveMs)) {
+      best = { drift: input.candidateDrift + deltaDrift, handleMoveMs };
+    }
+  }
+  return best === null ? base : { drift: best.drift, snapped: true };
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UtcOffsetRule } from '@geotagger/shared';
-import { bandLabel, bandShortLabel, zoneBands } from './zone-bands.js';
+import { bandLabel, bandShortLabel, offsetSegments, zoneBands } from './zone-bands.js';
 
 const HOUR = 3_600_000;
 const T0 = Date.UTC(2024, 6, 12, 6, 0, 0);
@@ -76,5 +76,21 @@ describe('zoneBands', () => {
     const bands = zoneBands([rule(1, 0, 20, -300, 'America/New_York')], view, null);
     expect(bandLabel(bands[1]!)).toBe('-05:00 New York');
     expect(bandShortLabel(bands[1]!)).toBe('-05:00');
+  });
+});
+
+describe('offsetSegments', () => {
+  it('splits a crossing at its midpoint and merges agreeing neighbours', () => {
+    const bands = zoneBands([rule(1, 0, 20, -360, null), rule(2, 30, 60, -420, null)], view, null);
+    const segments = offsetSegments(bands, 0);
+
+    expect(segments).toEqual([
+      { fromMs: -Infinity, toMs: T0 + 25 * HOUR, offsetMinutes: -360 },
+      { fromMs: T0 + 25 * HOUR, toMs: Infinity, offsetMinutes: -420 },
+    ]);
+  });
+
+  it('falls back to the given offset when there are no bands', () => {
+    expect(offsetSegments([], 120)).toEqual([{ fromMs: -Infinity, toMs: Infinity, offsetMinutes: 120 }]);
   });
 });

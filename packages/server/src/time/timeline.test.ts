@@ -47,6 +47,9 @@ function strip(over: Partial<StripRecord>): StripRecord {
     groupingSource: 'device',
     parentStripId: null,
     offsetSeconds: 0,
+    drift: 0,
+    driftOriginMs: null,
+    pinnedFileIds: [],
     locked: false,
     utcOffsetOverrideMinutes: null,
     createdAt: 0,
@@ -100,5 +103,27 @@ describe('buildTimeline', () => {
     expect(videoLine?.effectiveMs).toBe(at('2024-08-23T00:37:40'));
     // 28m44s after the photo, exactly as the raw readings say.
     expect((videoLine?.effectiveMs as number) - (photoLine?.effectiveMs as number)).toBe(28 * 60_000 + 44_000);
+  });
+
+  it("evaluates a stretched strip's correction at each file's own raw reading (SPEC §4.3)", () => {
+    const early = file({ id: 'f1', captureTimeRaw: '2024-07-12T10:00:00', captureUtcOffsetMinutes: 0 });
+    const late = file({ id: 'f2', captureTimeRaw: '2024-07-12T16:00:00', captureUtcOffsetMinutes: 0 });
+    // Pinned at 10:00 with a 30 s offset, gaining 10 s an hour from there.
+    const s = strip({ id: 1, offsetSeconds: 30, drift: 10 / 3600, driftOriginMs: at('2024-07-12T10:00:00') });
+
+    const timeline = buildTimeline({
+      files: [early, late],
+      strips: [s],
+      assignments: { f1: 1, f2: 1 },
+      rules: [],
+      folderUtcOffsetMinutes: null,
+      fileOverrides: new Map(),
+    });
+
+    const [earlyLine, lateLine] = timeline.files;
+    expect(earlyLine?.offsetSeconds).toBe(30);
+    expect(earlyLine?.effectiveMs).toBe(at('2024-07-12T10:00:30'));
+    expect(lateLine?.offsetSeconds).toBeCloseTo(90, 9);
+    expect(lateLine?.effectiveMs).toBeCloseTo(at('2024-07-12T16:01:30'), 3);
   });
 });
