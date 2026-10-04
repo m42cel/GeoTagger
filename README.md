@@ -30,11 +30,16 @@ Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
 - **Side-by-side comparison.** The last two photos you clicked are shown next to each
   other. One click aligns their strips so both photos land on the same instant, for
   example two cameras that shot the same moment.
-- **Set the true time.** Right-click a photo that shows a clock and enter the time on
-  it. Its whole strip shifts to match.
+- **Set the true time.** Right-click a photo that shows a clock, or edit the time in
+  the selected photo's card, and enter the time on it. Its whole strip shifts to match.
+- **Pin and stretch for clock drift.** A camera clock that ran fast or slow is right at
+  one point and minutes out at another. Pin a photo whose time is right (`p`), and the
+  strip stretches about it instead of moving: drag the handles at its ends, or align or
+  set the true time of a second photo. Two pins fix the strip completely.
 - **Cut, merge, lock and reset.** Cut a strip where a camera's clock changed partway
   through the trip, merge segments back together, lock a strip that is already right,
-  or reset one back to no correction.
+  or reset its offset and its drift separately. All of a strip's controls sit in its
+  lane header.
 - **UTC offsets.** Files with both GPS and a trustworthy clock set the UTC offset for
   their stretch of the trip (by an offline timezone lookup). Files with only local time
   from the same stretch take that offset. You can override it per strip.
