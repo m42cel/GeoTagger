@@ -36,7 +36,8 @@ import {
   type AlignPreviewSlot,
 } from './align-preview.js';
 import { PreviewPane } from './PreviewPane.js';
-import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
+import { LaneHeader } from './LaneHeader.js';
+import { SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
@@ -191,9 +192,18 @@ export function AlignmentView({
       .catch((err: unknown) => setError(errorText(err)));
   }, []);
 
+  // A refusal floats over the view rather than pushing it down, and goes by itself.
+  useEffect(() => {
+    if (error === null) return;
+    const timer = setTimeout(() => setError(null), ERROR_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [error]);
+
   const run = useCallback((promise: Promise<TimelineResponse>) => {
     // Mutating calls answer with the whole timeline, so one response redraws
     // everything a strip change can touch: lanes, ordinals and inherited offsets.
+    // A refusal is about the action that caused it; the next one starts clean.
+    setError(null);
     promise.then(setTimeline).catch((err: unknown) => setError(errorText(err)));
   }, []);
 
@@ -558,11 +568,22 @@ export function AlignmentView({
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Alt') setSnapDisabled(true);
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+
+    // `p` pins or unpins the photo the photo card describes, like its thumbnail's button.
+    if ((e.key === 'p' || e.key === 'P') && plain) {
+      const fileStrip = timeline?.strips.find((s) => s.id === selectedLine?.stripId);
+      if (selectedFileId === null || fileStrip === undefined || fileStrip.locked) return;
+      e.preventDefault();
+      run(api.setPinned(selectedFileId, !fileStrip.pinnedFileIds.includes(selectedFileId)));
+      return;
+    }
+
     if (selectedStrip === null || selectedStrip.locked) return;
 
     // `c` cuts where the pointer is, without the round trip to the button that made
     // the pointer leave the strip in the first place.
-    if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if ((e.key === 'c' || e.key === 'C') && plain) {
       if (markMs === null) return;
       e.preventDefault();
       cutAt(markMs);
@@ -655,21 +676,53 @@ export function AlignmentView({
     run(api.setTrueTime(fileId, answer.trim().replace(' ', 'T')));
   };
 
-  const mergeTargetId = useMemo(() => nextSegmentId(timeline?.strips ?? [], selectedStrip), [timeline, selectedStrip]);
-  const utcSummary = useMemo(
-    () => stripUtcSummary(timeline?.files ?? [], selectedStripId),
-    [timeline, selectedStripId],
+  /** The selected strip's neighbours in its family — what the merge arrows merge with. */
+  const mergeNeighbours = useMemo(
+    () => adjacentSegmentIds(timeline?.strips ?? [], selectedStrip),
+    [timeline, selectedStrip],
   );
   // The detail block describes one file; with several picked, it is the last one.
   const selectedFileId = selectedFileIds.size === 0 ? null : ([...selectedFileIds].pop() as FileId);
   const selectedLine = timeline?.files.find((f) => f.id === selectedFileId) ?? null;
+
+  // The cut button floats beside the mark, in the selected strip's lane, whenever the
+  // mark falls inside that strip — so a cut is made where it is seen (SPEC §6.2).
+  const idle = drag === null && pendingMove === null && pendingStretch === null;
+  const cutFloat =
+    idle &&
+    selectedStrip !== null &&
+    !selectedStrip.locked &&
+    markMs !== null &&
+    selectedStrip.firstEffectiveMs !== null &&
+    selectedStrip.lastEffectiveMs !== null &&
+    markMs > selectedStrip.firstEffectiveMs &&
+    markMs < selectedStrip.lastEffectiveMs
+      ? { left: xOf(scale, markMs) + 4, top: selectedStrip.lane * STRIP_LANE_ROW_PX + 8 }
+      : null;
+
+  // Half-transparent arrows just outside the selected segment's ends, pointing at the
+  // neighbour each would merge it with.
+  const mergeArrows: { side: 'left' | 'right'; otherId: number; left: number; top: number; disabled: boolean }[] = [];
+  if (idle && selectedStrip !== null && !selectedStrip.locked) {
+    const top = selectedStrip.lane * STRIP_LANE_ROW_PX + STRIP_LANE_ROW_PX / 2 - MERGE_ARROW_PX / 2;
+    const { previous, next } = mergeNeighbours;
+    if (previous !== null && selectedStrip.firstEffectiveMs !== null) {
+      const left = xOf(scale, selectedStrip.firstEffectiveMs) - STRIP_PAD_PX - MERGE_ARROW_PX - 4;
+      mergeArrows.push({ side: 'left', otherId: previous.id, left, top, disabled: previous.locked });
+    }
+    if (next !== null && selectedStrip.lastEffectiveMs !== null) {
+      const left = xOf(scale, selectedStrip.lastEffectiveMs) + STRIP_PAD_PX + 4;
+      mergeArrows.push({ side: 'right', otherId: next.id, left, top, disabled: next.locked });
+    }
+  }
 
   if (timeline === null) {
     return <p className="muted">{error ?? 'Loading the timeline…'}</p>;
   }
 
   return (
-    <section className="alignment">
+    // Any click or drag is the next action, and dismisses the last one's refusal.
+    <section className="alignment" onPointerDownCapture={() => setError(null)}>
       <div className="align-toolbar">
         <label>
           grouping
@@ -753,7 +806,14 @@ export function AlignmentView({
         </button>
       </div>
 
-      {error && <div className="banner error">{error}</div>}
+      {error && (
+        <div className="toast error" role="alert">
+          <span>{error}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setError(null)}>
+            ×
+          </button>
+        </div>
+      )}
 
       {timeline.needsUtcOffsetAnswer && (
         <UtcOffsetPrompt
@@ -767,36 +827,18 @@ export function AlignmentView({
         <div className="align-grid">
           <div className="lane-headers">
             {lanes.map((lane, i) => (
-              <div className="lane-header" key={i} style={{ height: STRIP_LANE_ROW_PX }}>
-                <span className="lane-label" title={lane.map((s) => s.label).join(' · ')}>
-                  {lane[0]?.label ?? ''}
-                  {lane.length > 1 && <em> ·{lane.length} segments</em>}
-                </span>
-                <span className="lane-controls">
-                  {lane.map((strip, segment) => (
-                    <span key={strip.id}>
-                      {lane.length > 1 && <em className="segment-no">{segment + 1}</em>}
-                      <button
-                        type="button"
-                        className={`chip${strip.locked ? ' on' : ''}`}
-                        title={strip.locked ? 'Unlock' : 'Lock: freeze this clock, keep it as a snap target'}
-                        onClick={() => run(api.setLocked(strip.id, !strip.locked))}
-                      >
-                        {strip.locked ? 'locked' : 'lock'}
-                      </button>
-                      <button
-                        type="button"
-                        className="chip"
-                        disabled={strip.locked}
-                        title="Back to zero offset"
-                        onClick={() => run(api.resetStrip(strip.id))}
-                      >
-                        reset
-                      </button>
-                    </span>
-                  ))}
-                </span>
-              </div>
+              <LaneHeader
+                key={i}
+                lane={lane}
+                selectedStripId={selectedStripId}
+                displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
+                height={STRIP_LANE_ROW_PX}
+                onSelect={setSelectedStripId}
+                onSetOffset={(stripId, seconds) => run(api.setOffset(stripId, seconds))}
+                onReset={(stripId, part) => run(api.resetStrip(stripId, part))}
+                onSetLocked={(stripId, locked) => run(api.setLocked(stripId, locked))}
+                onSetUtcOffset={(stripId, minutes) => run(api.setStripUtcOffset(stripId, minutes))}
+              />
             ))}
           </div>
 
@@ -807,6 +849,9 @@ export function AlignmentView({
             onKeyDown={onKeyDown}
             onKeyUp={(e) => e.key === 'Alt' && setSnapDisabled(false)}
             onPointerDownCapture={(e) => {
+              // The floating cut and merge controls act on the mark; clicking them must
+              // not move it.
+              if ((e.target as Element).closest('.keeps-mark')) return;
               const rect = canvasRef.current?.getBoundingClientRect();
               if (rect) setMarkMs(msAt(scale, e.clientX - rect.left));
             }}
@@ -858,6 +903,12 @@ export function AlignmentView({
                         fileById={fileById}
                         selectedFileIds={selectedFileIds}
                         pinnedFileIds={strip.pinnedFileIds}
+                        activeFileId={selectedFileId}
+                        onTogglePin={
+                          strip.locked
+                            ? null
+                            : (id) => run(api.setPinned(id, !strip.pinnedFileIds.includes(id)))
+                        }
                         onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
                         onSetTrueTime={setTrueTime}
                       />
@@ -868,6 +919,45 @@ export function AlignmentView({
             ))}
 
             {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
+
+            {cutFloat !== null && (
+              <button
+                type="button"
+                className="cut-float keeps-mark"
+                style={{ left: cutFloat.left, top: cutFloat.top }}
+                title="Cut the strip here — or press c"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => markMs !== null && cutAt(markMs)}
+              >
+                ✂ cut
+              </button>
+            )}
+
+            {mergeArrows.map((arrow) => (
+              <button
+                type="button"
+                key={arrow.side}
+                className="merge-arrow keeps-mark"
+                style={{ left: arrow.left, top: arrow.top }}
+                disabled={arrow.disabled}
+                title={
+                  arrow.disabled
+                    ? 'That segment is locked'
+                    : `Merge with the ${arrow.side === 'left' ? 'previous' : 'next'} segment; the result takes the earlier one's correction`
+                }
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() =>
+                  selectedStrip !== null &&
+                  run(
+                    arrow.side === 'left'
+                      ? api.merge(arrow.otherId, selectedStrip.id)
+                      : api.merge(selectedStrip.id, arrow.otherId),
+                  )
+                }
+              >
+                {arrow.side === 'left' ? '◀' : '▶'}
+              </button>
+            ))}
             {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
 
             {drag?.kind === 'stretch' && (
@@ -927,24 +1017,10 @@ export function AlignmentView({
       </div>
 
       <SelectionPanel
-        strip={selectedStrip}
-        fileCountLabel={`${selectedStrip?.fileCount.toLocaleString() ?? 0} files`}
-        mergeTargetId={mergeTargetId}
-        cutAtMs={markMs}
+        strip={selectedLine?.stripId == null ? null : (timeline.strips.find((s) => s.id === selectedLine.stripId) ?? null)}
         selectedFile={selectedFileId === null ? null : fileById.get(selectedFileId) ?? null}
         selectedLine={selectedLine}
-        onSetOffset={(seconds) => selectedStrip && run(api.setOffset(selectedStrip.id, seconds))}
-        onCut={cutAt}
-        onMerge={(rightId) => selectedStrip && run(api.merge(selectedStrip.id, rightId))}
-        onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}
-        utcSummary={utcSummary}
-        onSetUtcOffset={(minutes) => selectedStrip && run(api.setStripUtcOffset(selectedStrip.id, minutes))}
-        onSetTrueTime={() => selectedFileId !== null && setTrueTime(selectedFileId)}
-        onTogglePin={() =>
-          selectedFileId !== null &&
-          selectedStrip !== null &&
-          run(api.setPinned(selectedFileId, !selectedStrip.pinnedFileIds.includes(selectedFileId)))
-        }
+        onSetTrueTime={(iso) => selectedFileId !== null && run(api.setTrueTime(selectedFileId, iso))}
       />
     </section>
   );
@@ -966,6 +1042,8 @@ function hitStyle(strip: StripRecord, scale: TimeScale, stretched?: readonly num
 }
 
 const HANDLE_PX = 8;
+const ERROR_TOAST_MS = 6000;
+const MERGE_ARROW_PX = 22;
 
 /**
  * The stretch handles a strip shows: one at each end, but only on a strip with exactly
@@ -1046,38 +1124,18 @@ function groupByLane(strips: readonly StripRecord[]): StripRecord[][] {
   return lanes;
 }
 
-/**
- * What UTC offsets a strip's files actually resolve to, in time order.
- *
- * Worth stating next to the field that overrides it, because the two are easy to
- * confuse: the field holds what was *typed*, usually nothing, while this is what §4.2
- * settled on. A strip that crossed a border while nobody cut it shows two offsets here
- * — which is correct, and invisible anywhere else.
- */
-function stripUtcSummary(files: readonly TimelineFile[], stripId: number | null): StripUtcSummary | null {
-  if (stripId === null) return null;
-  const lines = files
-    .filter((f) => f.stripId === stripId && f.effectiveMs !== null)
-    .sort((a, b) => (a.effectiveMs as number) - (b.effectiveMs as number));
-  if (lines.length === 0) return null;
-
-  const offsets: number[] = [];
-  const sources = new Set<TimelineFile['utcOffsetSource']>();
-  for (const line of lines) {
-    if (offsets[offsets.length - 1] !== line.utcOffsetMinutes) offsets.push(line.utcOffsetMinutes);
-    sources.add(line.utcOffsetSource);
-  }
-  return { offsets, source: sources.size === 1 ? (lines[0] as TimelineFile).utcOffsetSource : null };
-}
-
-/** The segment immediately after this one in its family — the one `merge` accepts. */
-function nextSegmentId(strips: readonly StripRecord[], strip: StripRecord | null): number | null {
-  if (strip === null) return null;
+/** The segments immediately before and after this one in its family — the ones `merge` accepts. */
+function adjacentSegmentIds(
+  strips: readonly StripRecord[],
+  strip: StripRecord | null,
+): { previous: StripRecord | null; next: StripRecord | null } {
+  if (strip === null) return { previous: null, next: null };
   const family = strips
     .filter((s) => originId(s) === originId(strip))
     .sort((a, b) => (a.firstEffectiveMs ?? Infinity) - (b.firstEffectiveMs ?? Infinity));
   const i = family.findIndex((s) => s.id === strip.id);
-  return i >= 0 ? family[i + 1]?.id ?? null : null;
+  if (i < 0) return { previous: null, next: null };
+  return { previous: family[i - 1] ?? null, next: family[i + 1] ?? null };
 }
 
 function shiftedInstants(instants: readonly number[], deltaSeconds: number): number[] {

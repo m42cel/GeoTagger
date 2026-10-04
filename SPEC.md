@@ -224,8 +224,8 @@ definite number of seconds.
 #### Dragging
 
 - Grabbing a strip's **body** shifts every file in it by a constant offset.
-- A live readout shows the exact offset while dragging (`+1h 02m 12s`), and the selected strip
-  has an editable offset field for exact entry.
+- A live readout shows the exact offset while dragging (`+1h 02m 12s`), and every strip has an
+  editable offset field in its lane header for exact entry.
 - Keyboard nudging reaches precision the mouse cannot: `←`/`→` 1 second, `Shift` 1 minute,
   `Ctrl`/`Cmd` 1 hour.
 - **Magnetic snapping** pulls a strip into alignment when its photos come close to lining up
@@ -261,7 +261,12 @@ is only for a clock that ran at the wrong *rate* throughout.
 
 #### Locking and reset
 
-Every strip carries two always-visible controls in its lane header, independent of selection.
+A strip's correction is edited in its lane header, independent of selection: the offset field,
+the drift (`0 s/day` until the strip is stretched), the strip's time zone override of §4.2 (`TZ`,
+empty — `auto` — unless one is typed in), a reset (↺) beside each, and the lock with a pin count
+beside it. A lane holding several
+segments of a cut strip shows the selected segment's controls — the first segment's while none of
+them is selected — with the segment numbers to switch between them.
 
 **Lock** freezes a strip: no body drag, no stretch, no cut, no merge, no lane move, no keyboard
 nudge, no pinning. Its purpose is the device whose clock is already correct — typically a phone —
@@ -273,10 +278,16 @@ A locked strip remains fully functional in every other respect: it is still sele
 inspectable, and crucially it is **still a snap target**, so other strips continue to align
 against it. Locking protects it from being changed; it does not remove it from the work.
 
-**Reset** returns a strip to zero offset and zero drift in one click. It does not undo cuts —
-segments are structure, not correction, and merging them is a separate action. Reset is refused
-on a locked strip and on a strip with a pinned photo — it would move a photo the user has said is
-right — and like every other change it is undoable.
+The two halves of the correction **reset** separately, each from beside its own value. Neither
+undoes cuts — segments are structure, not correction, and merging them is a separate action —
+both are refused on a locked strip, and like every other change both are undoable.
+
+- **Reset offset** zeroes the offset and keeps the stretch. It is refused while a photo is
+  pinned: it would move a photo the user has said is right.
+- **Reset stretch** zeroes the drift and keeps the offset: with one pinned photo, that photo
+  stays exactly where it is and the strip straightens about it; with none, the strip keeps the
+  shift it had where it was stretched about; with two pins it is refused, since one of them
+  would move.
 
 A **reset all** control in the view toolbar rebuilds every strip from the current grouping mode,
 discarding cuts, offsets, drift, pins and locks together, with a confirmation.
@@ -294,8 +305,13 @@ a battery removed, a manual correction made mid-holiday.
   segment is **automatically promoted to its own lane** — because strips in one lane must stay
   ordered. A segment can also be dragged vertically into another lane deliberately.
 - Empty lanes collapse automatically.
+- The cut is made at the mark — the hairline left where the canvas was last clicked — with a
+  **cut** button that floats beside the mark in the selected strip's lane whenever the mark
+  falls inside that strip, or with `c`.
 - Two adjacent segments of the same origin can be **merged** again; the result takes the left
-  segment's correction. A merge that would move a pinned photo of the right segment — because
+  segment's correction. The selected segment shows a faint arrow just outside each end that has a
+  neighbour to merge with, pointing at it; it firms up under the pointer, and a click merges in
+  that direction. A merge that would move a pinned photo of the right segment — because
   the two corrections have since diverged — is refused.
 
 ```
@@ -310,9 +326,11 @@ drag the right segment left, past the first:
 
 #### Setting a known time
 
-Right-clicking a photo offers **set true time**: enter the real time of that one photo (from a
-clock in the shot, a departure board, a receipt) and its whole strip shifts so that photo lands
-there. This is the precision path when no other device was present to align against, and it
+Right-clicking a photo, or the edit button beside its corrected time in the photo card, offers
+**set true time**: enter the real time of that one photo (from a clock in the shot, a departure
+board, a receipt) and its whole strip shifts so that photo lands there. The photo card always
+shows the corrected time, even where it equals what the file reads, since it is the field typed
+over. This is the precision path when no other device was present to align against, and it
 applies in both directions — an anchor found in the middle of a bad batch corrects the files
 before it as well as after it. On a strip with one pinned photo it stretches instead, exactly
 like the align buttons of §6.2. Setting the true time does not pin the photo.
@@ -542,20 +560,27 @@ No map. A shared, zoomable time axis with one lane per strip.
 ```
  grouping: [ by subfolder ▾ ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
 
- iPhone 15 Pro  [locked] [reset] │  ■■ ■▅   ■▅█▃      ■■■▆   │   offset  0
-                                 │                           │
- SONY ILCE-7M4  [ lock ] [reset] │    ■■ ■▅   ■▅█▃      ■■■▆ │   +1h 02m 12s
-                                 │                           │
- DJI Mini 4     [ lock ] [reset] │        ■▅            ■■   │   +2h 00m
-                                 ├───────────────────────────┤
-                                 │+02:00 Berlin░░░+09:00 Tokyo│  ← UTC offset periods
-                                 └───────────────────────────┘
-                                  09:00    12:00    15:00  18:00
+ iPhone 15 Pro · 412    [■]  │  ■■ ■▅   ■▅█▃      ■■■▆        │  ← [■] closed padlock: locked
+ Offset [ 0 s         ] ↺    │                                │
+ Drift  [ 0 s/day     ] ↺    │                                │
+ TZ     [ auto        ] ↺    │                                │
+ SONY ILCE-7… · 896 1 pin [□]│      ■■ ■▅  │✂ cut   ■■■▆      │  ← [□] open padlock
+ [ 1 ][ 2 ]                  │    ◀ ■▅█▃   │                  │  ← segment 2 selected:
+ Offset [ +1h 02m 12s ] ↺    │             │                  │    merge arrow, cut at the mark
+ Drift  [ +14 s/day   ] ↺    │                                │
+ TZ     [ +02:00      ] ↺    │                                │
+                             ├────────────────────────────────┤
+                             │+02:00 Berlin░░░░░+09:00 Tokyo  │  ← UTC offset periods
+                             └────────────────────────────────┘
+                              09:00    12:00    15:00   18:00
 
- selected: SONY ILCE-7M4 · 896 files · 12–21 Jul
-   offset  [ +1h 02m 12s ]   drift +14 s/day   UTC [ inherited ]   resolves to +02:00 · inherited from GPS
-   [ ✂ cut at cursor ]  [ merge ]  [ reset ]
-   IMG_4471.JPG   [ set true time… ]  [ pin ]
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │ DSC04471.JPG  pinned                                                 │
+ │ ┌──────────────┐  reads      2024-07-12 14:32:10  EXIF               │
+ │ │   preview    │  corrected  2024-07-12 15:34:22 [✎] +02:00 · inh.   │
+ │ │              │                                                     │
+ │ └──────────────┘                                                     │
+ └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **The UTC offset periods of §4.2 are drawn as a ribbon** between the lanes and the axis. It sits
@@ -571,9 +596,13 @@ there simply takes the nearer period. So observed stretches are drawn solid and 
 (`░` above), which makes a border crossing read as the interval of doubt it actually is instead
 of a hard line at an instant nobody knows.
 
-The selection panel states what the strip's files **resolved to**, beside the field that
-overrides it — two offsets where a strip spans a crossing. The field holds what was typed,
-usually nothing; the readout is what §4.2 settled on, and the two are otherwise easy to confuse.
+Strip controls live on the lanes (§4.3), so a control always says by where it sits whether it acts
+on a strip or on one photo. Under the lanes, the selected photo gets a card of its own, leading
+with a large preview of it.
+
+The strip's UTC offset override of §4.2 is the `TZ` field in its lane header. It is empty unless
+typed into: each photo then takes the offset inferred for when it was taken, and the photo card
+shows which one it got and where from.
 
 **Zoom levels** run from whole trip down to minutes. Strips always render as photo thumbnails,
 at every zoom level: aligning by hand means recognising the same moment on two devices, and an
@@ -606,8 +635,13 @@ not stop it. The view recentres on the now-shared instant, keeping the current z
 The pins of §4.3 change what a button does to the strip it would move. With one pinned photo in
 that strip the button reads **stretch top to bottom** (or bottom to top) and stretches the strip
 about its pin instead of shifting it; it is disabled when the pane's photo *is* the pin, or when
-the strip already has two. A photo is pinned from the selection panel, beside **set true time**,
-and pinned photos carry a `pinned` badge on their thumbnails in the lanes.
+the strip already has two. A photo is pinned with a pin button at the bottom left of its
+thumbnail, shown on the selected photo only — like the cut button, only where it acts — or with
+`p`, and pinned photos carry a `pinned` badge on their thumbnails in the lanes.
+
+A refused change — a merge that would move a pin, a stretch beyond the drift limit — is reported
+in a message floating over the view rather than a banner that pushes the lanes down. It can be
+dismissed, goes by itself after a few seconds, and is cleared by the next action.
 
 ### 6.3 Map view
 
@@ -1058,7 +1092,7 @@ POST   /api/strips/:id/cut             split at a timestamp
 POST   /api/strips/merge               merge two adjacent segments
 POST   /api/strips/:id/lane            move to another lane
 POST   /api/strips/:id/lock            lock / unlock
-POST   /api/strips/:id/reset           zero the offset and drift
+POST   /api/strips/:id/reset           zero the offset, the drift, or both
 POST   /api/strips/:id/stretch         stretch about the pin so a file lands on an instant
 POST   /api/strips/pin                 pin / unpin a file
 POST   /api/strips/set-true-time       shift (or stretch) so a file lands on a true time

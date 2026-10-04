@@ -43,7 +43,7 @@ describe('formatOffset / parseOffsetSeconds', () => {
     expect(formatOffset(3732)).toBe('+1h 02m 12s');
     expect(formatOffset(-2700)).toBe('-45m 00s');
     expect(formatOffset(-7)).toBe('-7s');
-    expect(formatOffset(0)).toBe('0');
+    expect(formatOffset(0)).toBe('0 s');
   });
 
   it('reads back what it writes', () => {

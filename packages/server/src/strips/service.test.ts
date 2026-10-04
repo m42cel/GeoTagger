@@ -404,6 +404,44 @@ describe('pinning and stretching (SPEC §4.3)', () => {
     expect(stripFor('sony').pinnedFileIds).toEqual([]);
   });
 
+  it('resets the offset and the stretch separately', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setOffset(sony.id, 30);
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:30'));
+    const pinBefore = effective(f10);
+
+    // With the pin: the offset reset is refused, the stretch reset keeps the pin in place.
+    expect(() => service.resetOffset(sony.id)).toThrow(/pinned/i);
+    service.resetDrift(sony.id);
+    expect(stripFor('sony').drift).toBe(0);
+    expect(effective(f10)).toBe(pinBefore);
+    expect(effective(f16)).toBe(at('2024-07-12T16:00:30'));
+
+    // Without it, the offset goes back to zero on its own.
+    service.setPinned(f10, false);
+    service.resetOffset(sony.id);
+    expect(effective(f10)).toBe(at('2024-07-12T10:00:00'));
+  });
+
+  it('keeps the stretch when only the offset is reset', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    service.setPinned(f10, false);
+    const drift = stripFor('sony').drift;
+    service.resetOffset(sony.id);
+    expect(stripFor('sony').drift).toBe(drift);
+  });
+
+  it('refuses to straighten a strip two pins fix', () => {
+    const [f8, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    service.setPinned(f8, true);
+    expect(() => service.resetDrift(sony.id)).toThrow(/two pinned/i);
+  });
+
   it('drops pins on files moved into a hand-made strip', () => {
     const [, f10] = sonyFiles as [FileId, FileId];
     service.setPinned(f10, true);

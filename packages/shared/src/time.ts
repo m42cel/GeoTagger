@@ -49,14 +49,14 @@ export function effectiveMs(
 }
 
 /**
- * An offset as the alignment view writes it: `+1h 02m 12s`, `-45m 00s`, `0`.
+ * An offset as the alignment view writes it: `+1h 02m 12s`, `-45m 00s`, `0 s`.
  *
  * Minutes and seconds are zero-padded once a larger unit is present so a live readout
  * during a drag does not jitter in width as the digits change.
  */
 export function formatOffset(seconds: number): string {
   const rounded = Math.round(seconds);
-  if (rounded === 0) return '0';
+  if (rounded === 0) return '0 s';
   const sign = rounded < 0 ? '-' : '+';
   const abs = Math.abs(rounded);
   const h = Math.floor(abs / 3600);

@@ -44,7 +44,7 @@ describe('stretchAbout', () => {
 
 describe('formatDrift', () => {
   it('writes the drift as seconds a day', () => {
-    expect(formatDrift(0)).toBe('0');
+    expect(formatDrift(0)).toBe('0 s/day');
     expect(formatDrift(14 / 86_400)).toBe('+14 s/day');
     expect(formatDrift(-2.5 / 86_400)).toBe('-2.5 s/day');
   });

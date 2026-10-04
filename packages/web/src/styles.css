@@ -139,6 +139,25 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   margin: 0 16px 12px;
 }
 
+/* A message floating over the page instead of pushing it down. */
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: min(640px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.toast button { border: none; background: none; color: inherit; font-size: 16px; line-height: 1; padding: 2px 6px; }
+
 /* ---- folder picker ---- */
 
 .picker { max-width: 860px; }
@@ -358,7 +377,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   --axis-h: 22px;
   --ribbon-h: 18px;
   display: grid;
-  grid-template-columns: 190px 1fr;
+  grid-template-columns: 210px 1fr;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
@@ -406,12 +425,33 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .lane-header {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  padding: 0 10px;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 8px 10px 0;
   border-bottom: 1px solid var(--line);
   overflow: hidden;
 }
+/* The strip's name, with its lock at the end of the same line. */
+.lane-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lane-title .lane-label { flex: 1; min-width: 0; }
+.lane-title .state-badge { flex: none; }
+.lock-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--muted);
+}
+.lock-toggle:hover { border-color: var(--muted); }
+.lock-toggle.on { border-color: var(--muted); }
+/* Open: all grey. Closed: the body turns yellow; the shackle stays grey. */
+.lock-toggle .lock-shackle { stroke: #8a9099; }
+.lock-toggle .lock-body { fill: #8a9099; }
+.lock-toggle.on .lock-body { fill: #f2b705; }
+
 .lane-label {
   font-weight: 550;
   font-size: 13px;
@@ -420,9 +460,16 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   white-space: nowrap;
 }
 .lane-label em { font-style: normal; color: var(--muted); font-weight: 400; font-size: 11px; }
-.lane-controls { display: flex; gap: 4px; flex-wrap: wrap; }
-.lane-controls > span { display: flex; gap: 4px; align-items: center; }
-.segment-no { font-style: normal; font-size: 10px; color: var(--muted); }
+/* One row per value the header edits: the value, then what resets it. */
+.lane-row-control { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+/* Each reset at the header's right edge, so the resets line up whatever the value's width. */
+.lane-row-label { width: 38px; flex: none; color: var(--muted); }
+/* The value takes whatever the label and the reset leave, so the resets line up. */
+.lane-row-control > .offset-field { flex: 1; min-width: 0; }
+.lane-row-control > .chip { flex: none; }
+.reset-chip { font-size: 13px; line-height: 1; padding: 2px 5px; }
+.segment-picker { display: flex; gap: 3px; }
+.segment-picker .chip { min-width: 20px; }
 
 .chip {
   font-size: 10px;
@@ -530,6 +577,27 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  */
 .shot img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--bg); }
 
+/* The pin button on the selected thumbnail, bottom-left — like the cut button, only where it acts. */
+.shot-pin {
+  position: absolute;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+}
+.shot-pin:hover { border-color: var(--pin); color: var(--pin); }
+.shot-pin .pin-head { fill: none; }
+.shot-pin.on { border-color: var(--pin); color: var(--pin); }
+.shot-pin.on .pin-head { fill: currentColor; }
+
 /*
  * A frosted pill, so it reads on a bright beach and a dark interior alike without
  * covering more of the photo than it needs to.
@@ -585,15 +653,42 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   pointer-events: none;
 }
 
-.selection-actions kbd {
-  font: inherit;
-  font-size: 10px;
-  padding: 0 4px;
-  margin-left: 4px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  color: var(--muted);
+/* The cut button, floating beside the mark in the selected strip's lane. */
+.cut-float {
+  position: absolute;
+  z-index: 4;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
+.cut-float:hover { background: var(--accent); color: #fff; }
+
+/*
+ * The merge arrows beside the selected segment's ends. Faint until pointed at, so they
+ * say a merge is possible without competing with the photos.
+ */
+.merge-arrow {
+  position: absolute;
+  z-index: 4;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--accent);
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+.merge-arrow:hover:not(:disabled) { opacity: 1; }
+.merge-arrow:disabled { cursor: not-allowed; opacity: 0.15; }
 
 .drag-readout {
   position: absolute;
@@ -723,42 +818,40 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 /* ---- selection panel ---- */
 
-.selection-panel {
+/* The selected photo's card; the selected strip is edited in its lane header. */
+.selection-panel { display: grid; gap: 12px; }
+.selection-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
 }
-.selection-head { display: flex; align-items: center; gap: 10px; }
-.badge.locked { position: static; background: var(--weak); }
+.selection-card p { margin: 0; font-size: 12px; }
+.selection-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.photo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 20px; }
 
-.selection-fields { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.selection-fields label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-/* What §4.2 settled on, beside the field that overrides it — a readout, not a control. */
-.utc-resolved {
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  cursor: help;
+/* A state the selection is in — locked, pinned — inline beside its name. */
+.state-badge {
+  /* A fixed height with its text centred inside, so it sits mid-line beside any name. */
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0 6px;
+  border: 1px solid var(--weak);
+  border-radius: 8px;
+  color: var(--weak);
 }
-.offset-field {
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  width: 120px;
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: inherit;
-}
-.offset-field.narrow { width: 80px; }
-.offset-field:disabled { opacity: 0.5; }
+.state-badge.pin { border-color: var(--pin); color: var(--pin); }
 
-.selection-actions { display: flex; gap: 8px; }
-
-.selection-file { display: flex; align-items: flex-start; gap: 14px; }
+/* The photo card: its preview on the left, what it says and its actions on the right. */
+.photo-card-body { display: flex; align-items: stretch; gap: 14px; flex: 1; min-height: 0; }
+.photo-card-info { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
 
 /*
  * On the axis a photo is a film-strip frame; here it is large enough to recognise the
@@ -779,7 +872,54 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   height: 140px;
   font-size: 12px;
 }
-.selection-file .file-detail { flex: 1; min-width: 0; }
+
+
+/* What §4.2 settled on, beside the field that overrides it — a readout, not a control. */
+.utc-resolved {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: help;
+}
+.offset-field {
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+}
+.offset-field.narrow { width: 80px; }
+.offset-field.compact { width: auto; font-size: 12px; line-height: 16px; padding: 2px 6px; }
+/* A value shown in a field's shape but not typed into. */
+.offset-field.readonly {
+  display: block;
+  background: var(--panel);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.offset-field:disabled { opacity: 0.5; }
+
+.selection-actions { display: flex; gap: 8px; }
+
+/* The corrected time with its edit button, and the field it turns into. */
+.corrected-time { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.corrected-input { width: 170px; font-size: 12px; padding: 1px 4px; }
+.edit-button {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+}
+.edit-button:hover:not(:disabled) { border-color: var(--muted); color: var(--fg); }
+.edit-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.edit-button.confirm { border-color: var(--known); color: var(--known); }
 
 .file-detail {
   margin: 4px 0 0;
@@ -790,7 +930,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .file-detail dt { color: var(--muted); }
 .file-detail dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.file-detail dd.pin-action { grid-column: 2; font-family: inherit; margin-top: 4px; }
 .file-detail em { font-style: normal; color: var(--muted); }
 
 /* ---- persist dialog (SPEC §9.1) ---- */

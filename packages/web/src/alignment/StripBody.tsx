@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { FileId, FileRecord, TimelineFile } from '@geotagger/shared';
 import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
 
@@ -16,7 +17,7 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  * Height of a lane row. Everything vertical below is derived from it, so a frame
  * fills the strip it sits in rather than floating in its top half.
  */
-const LANE_ROW_PX = 116;
+const LANE_ROW_PX = 136;
 /**
  * What a frame has to clear inside the row: `.strip-hit` sits 4 px in and draws a
  * 1 px border, and a selected frame paints a 2 px ring outside itself. Leaving room
@@ -69,6 +70,8 @@ export function StripBody({
   fileById,
   selectedFileIds,
   pinnedFileIds,
+  activeFileId,
+  onTogglePin,
   onSelectFile,
   onSetTrueTime,
 }: {
@@ -82,6 +85,10 @@ export function StripBody({
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
   pinnedFileIds: readonly FileId[];
+  /** The photo the photo card describes; its thumbnail carries the pin button. */
+  activeFileId: FileId | null;
+  /** Null while the strip is locked, which hides the pin button. */
+  onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
   onSetTrueTime: (fileId: FileId) => void;
 }) {
@@ -108,6 +115,8 @@ export function StripBody({
       fileById={fileById}
       selectedFileIds={selectedFileIds}
       pinnedFileIds={pinnedFileIds}
+      activeFileId={activeFileId}
+      onTogglePin={onTogglePin}
       onSelectFile={onSelectFile}
       onSetTrueTime={onSetTrueTime}
     />
@@ -127,6 +136,8 @@ function Thumbnails({
   fileById,
   selectedFileIds,
   pinnedFileIds,
+  activeFileId,
+  onTogglePin,
   onSelectFile,
   onSetTrueTime,
 }: {
@@ -138,6 +149,8 @@ function Thumbnails({
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
   pinnedFileIds: readonly FileId[];
+  activeFileId: FileId | null;
+  onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
   onSetTrueTime: (fileId: FileId) => void;
 }) {
@@ -166,28 +179,69 @@ function Thumbnails({
     <div className="strip-body" style={{ height: LANE_ROW_PX }}>
       {clusters.map((c) => {
         const record = fileById.get(c.fileId);
+        const left = c.x - THUMB_PX / 2;
+        const pinned = pinnedFileIds.includes(c.fileId);
         return (
-          <button
-            type="button"
-            key={c.fileId}
-            className={`shot${c.selected ? ' selected' : ''}`}
-            style={{ left: c.x - THUMB_PX / 2, top: THUMB_TOP_PX, width: THUMB_PX, height: THUMB_PX }}
-            title={record?.filename ?? ''}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}
-            onContextMenu={(e) => {
-              // Right-click offers "set true time" (SPEC §4.3).
-              e.preventDefault();
-              onSelectFile(c.fileId, false);
-              onSetTrueTime(c.fileId);
-            }}
-          >
-            <img src={`/api/files/${c.fileId}/thumb`} alt="" loading="lazy" draggable={false} />
-            {c.pinned && <span className="pin-badge">pinned</span>}
-            {c.count > 1 && <span className="stack-count">{c.count}</span>}
-          </button>
+          <Fragment key={c.fileId}>
+            <button
+              type="button"
+              className={`shot${c.selected ? ' selected' : ''}`}
+              style={{ left, top: THUMB_TOP_PX, width: THUMB_PX, height: THUMB_PX }}
+              title={record?.filename ?? ''}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}
+              onContextMenu={(e) => {
+                // Right-click offers "set true time" (SPEC §4.3).
+                e.preventDefault();
+                onSelectFile(c.fileId, false);
+                onSetTrueTime(c.fileId);
+              }}
+            >
+              <img src={`/api/files/${c.fileId}/thumb`} alt="" loading="lazy" draggable={false} />
+              {c.pinned && <span className="pin-badge">pinned</span>}
+              {c.count > 1 && <span className="stack-count">{c.count}</span>}
+            </button>
+            {/* A sibling, not a child: a button cannot sit inside the thumbnail's button. */}
+            {c.fileId === activeFileId && onTogglePin !== null && (
+              <button
+                type="button"
+                className={`shot-pin keeps-mark${pinned ? ' on' : ''}`}
+                style={{ left: left + PIN_INSET_PX, top: THUMB_TOP_PX + THUMB_PX - PIN_BUTTON_PX - PIN_INSET_PX }}
+                aria-label={pinned ? 'Unpin' : 'Pin'}
+                aria-pressed={pinned}
+                title={
+                  pinned
+                    ? 'Unpin (p): this photo may move with its strip again'
+                    : "Pin (p): this photo's time is right. One pin turns the strip's moves into stretches about it; two fix it."
+                }
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onTogglePin(c.fileId)}
+              >
+                <PinIcon />
+              </button>
+            )}
+          </Fragment>
         );
       })}
     </div>
+  );
+}
+
+const PIN_BUTTON_PX = 24;
+const PIN_INSET_PX = 4;
+
+/** A pushpin: outlined, and filled once the photo is pinned (by CSS on the button). */
+function PinIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        className="pin-head"
+        d="M9 3h6l-1 6 3.5 3.5h-11L10 9z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path d="M12 12.5V21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }

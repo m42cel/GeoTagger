@@ -7,7 +7,16 @@ import type {
   StripsResponse,
   TimelineResponse,
 } from '@geotagger/shared';
-import { driftAllowed, formatDrift, MINUTE_MS, naiveToMs, originId, shiftSecondsAt, stretchAbout } from '@geotagger/shared';
+import {
+  driftAllowed,
+  formatDrift,
+  MINUTE_MS,
+  naiveToMs,
+  originId,
+  rebaseCorrection,
+  shiftSecondsAt,
+  stretchAbout,
+} from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import { buildTimeline, type Timeline } from '../time/timeline.js';
 import { buildUtcOffsetRules } from '../time/utc-offset.js';
@@ -196,6 +205,42 @@ export class StripService {
     this.requireShiftable(id, 'reset');
     this.pushUndo();
     this.store.setStripCorrection(id, { offsetSeconds: 0, drift: 0, driftOriginMs: null });
+    this.settleLanes(id);
+  }
+
+  /**
+   * Back to zero offset, keeping the stretch. Refused with a pin for the same reason as
+   * `reset`.
+   */
+  resetOffset(id: number): void {
+    const strip = this.requireShiftable(id, 'reset');
+    this.pushUndo();
+    this.store.setStripCorrection(id, { offsetSeconds: 0, drift: strip.drift, driftOriginMs: strip.driftOriginMs });
+    this.settleLanes(id);
+  }
+
+  /**
+   * Straightens a stretched strip back to a plain offset (SPEC §4.3). With one pin, the
+   * pinned photo stays exactly where it is and the rest of the strip straightens about
+   * it; with none, the strip keeps the shift it had where it was stretched about. Two
+   * pins refuse it, since one of them would have to move.
+   */
+  resetDrift(id: number): void {
+    const strip = this.requireUnlocked(id);
+    if (strip.pinnedFileIds.length > 1) {
+      throw new StripOperationError(
+        'fully_pinned',
+        `${strip.label} has two pinned photos; straightening it would move one of them. Unpin one first.`,
+      );
+    }
+    let base = correctionOf(strip);
+    const pinId = strip.pinnedFileIds[0];
+    if (pinId !== undefined) {
+      const pinRawMs = this.timeline().byId.get(pinId)?.rawCaptureMs ?? null;
+      if (pinRawMs !== null) base = rebaseCorrection(base, pinRawMs);
+    }
+    this.pushUndo();
+    this.store.setStripCorrection(id, { offsetSeconds: base.offsetSeconds, drift: 0, driftOriginMs: null });
     this.settleLanes(id);
   }
 

@@ -61,7 +61,8 @@ export const api = {
     post('/api/strips/merge', { leftStripId, rightStripId }),
   setLane: (stripId: number, lane: number) => post(`/api/strips/${stripId}/lane`, { lane }),
   setLocked: (stripId: number, locked: boolean) => post(`/api/strips/${stripId}/lock`, { locked }),
-  resetStrip: (stripId: number) => post(`/api/strips/${stripId}/reset`, {}),
+  resetStrip: (stripId: number, part: 'offset' | 'drift' | 'all' = 'all') =>
+    post(`/api/strips/${stripId}/reset`, { part }),
   resetAll: () => post('/api/strips/reset-all', {}),
   undoStrips: () => post('/api/strips/undo', {}),
   setStripUtcOffset: (stripId: number, utcOffsetMinutes: number | null) =>

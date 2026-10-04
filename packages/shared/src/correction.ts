@@ -77,13 +77,13 @@ export function driftAllowed(drift: number): boolean {
 
 /**
  * A drift as the alignment view writes it, in whichever unit reads naturally:
- * `+14 s/day`, `-2.5 s/day`, `+6.5 min/day`, `+1.2 h/day`, `0`.
+ * `+14 s/day`, `-2.5 s/day`, `+6.5 min/day`, `+1.2 h/day`, `0 s/day`.
  */
 export function formatDrift(drift: number): string {
   const perDay = (drift * DAY_MS) / 1000;
   const abs = Math.abs(perDay);
   const [value, unit] = abs >= 3600 ? [perDay / 3600, 'h'] : abs >= 60 ? [perDay / 60, 'min'] : [perDay, 's'];
   const rounded = Math.abs(value) >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
-  if (rounded === 0) return '0';
+  if (rounded === 0) return '0 s/day';
   return `${rounded > 0 ? '+' : ''}${rounded} ${unit}/day`;
 }

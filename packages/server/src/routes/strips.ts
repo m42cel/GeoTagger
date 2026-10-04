@@ -7,6 +7,7 @@ import type {
   MergeRequest,
   PinRequest,
   RegroupRequest,
+  ResetRequest,
   SetOffsetRequest,
   SetTrueTimeRequest,
   StretchRequest,
@@ -98,10 +99,16 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
     return timeline();
   });
 
-  app.post<{ Params: { id: string } }>('/api/strips/:id/reset', async (req, reply) => {
+  /** Resets the offset, the stretch, or both (the default) — SPEC §4.3. */
+  app.post<{ Params: { id: string }; Body: ResetRequest }>('/api/strips/:id/reset', async (req, reply) => {
     const id = parseId(req.params.id);
     if (id === null) return badRequest(reply, 'A strip id is needed.');
-    sessions.require().strips.reset(id);
+    const part = req.body?.part ?? 'all';
+    const strips = sessions.require().strips;
+    if (part === 'offset') strips.resetOffset(id);
+    else if (part === 'drift') strips.resetDrift(id);
+    else if (part === 'all') strips.reset(id);
+    else return badRequest(reply, `Unknown part to reset: ${String(part)}`);
     return timeline();
   });
 

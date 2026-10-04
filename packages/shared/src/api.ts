@@ -146,6 +146,11 @@ export interface LaneRequest {
   lane: number;
 }
 
+export interface ResetRequest {
+  /** What to reset: the offset, the stretch, or both. Omitted means both. */
+  part?: 'offset' | 'drift' | 'all';
+}
+
 export interface LockRequest {
   locked: boolean;
 }
