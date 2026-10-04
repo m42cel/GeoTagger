@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSnap, nudgeSeconds, sampleInstants, snapToleranceMs } from './snap.js';
+import { computeSnap, computeStretchSnap, nudgeSeconds, sampleInstants, snapToleranceMs } from './snap.js';
 import { naiveToMs } from './time.js';
 
 const at = (iso: string) => naiveToMs(iso) as number;
@@ -122,5 +122,41 @@ describe('snapToleranceMs', () => {
   it('scales with the zoom but never reaches zero', () => {
     expect(snapToleranceMs(1000, 6)).toBe(6000);
     expect(snapToleranceMs(0)).toBeGreaterThan(0);
+  });
+});
+
+describe('computeStretchSnap', () => {
+  // Pinned at 10:00, the handle at 16:00; a photo in another lane sits at 14:00:20.
+  const pivot = at('2024-07-12T10:00:00');
+  const handle = at('2024-07-12T16:00:00');
+  const target = at('2024-07-12T14:00:20');
+  const input = {
+    candidateDrift: 0,
+    pivotRawMs: pivot,
+    handleRawMs: handle,
+    targetMs: [target],
+    toleranceMs: 60_000,
+    enabled: true,
+  };
+
+  it('lands a stretched file exactly on a photo of another lane', () => {
+    const raw = at('2024-07-12T14:00:00');
+    const snap = computeStretchSnap({ ...input, moving: [{ rawMs: raw, ms: raw }] });
+    expect(snap.snapped).toBe(true);
+    // 20 s over the 4 h from the pin.
+    expect(snap.drift * (raw - pivot)).toBeCloseTo(20_000, 6);
+  });
+
+  it('judges the pull at the handle, so a file beside the pin cannot yank the far end', () => {
+    // Twenty seconds off, but only a minute from the pin: landing it would move the
+    // handle by two hours.
+    const raw = at('2024-07-12T10:01:00');
+    const snap = computeStretchSnap({ ...input, targetMs: [at('2024-07-12T10:01:20')], moving: [{ rawMs: raw, ms: raw }] });
+    expect(snap.snapped).toBe(false);
+  });
+
+  it('does nothing when disabled', () => {
+    const raw = at('2024-07-12T14:00:00');
+    expect(computeStretchSnap({ ...input, enabled: false, moving: [{ rawMs: raw, ms: raw }] }).snapped).toBe(false);
   });
 });

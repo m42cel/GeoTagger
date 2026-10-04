@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { FolderStore, contentSig, signatureOf, type ScannedFile } from './store.js';
+import { SCHEMA_VERSION } from './schema.js';
 
 let folder: string;
 let store: FolderStore;
@@ -510,6 +511,12 @@ describe('schema 6 → 7 — file ids move from INTEGER to UUIDv7 TEXT', () => {
       expect(assignments[b.id]).toBeDefined();
       expect(assignments[c.id]).toBeUndefined();
       expect(migrated.stripMemberIds(assignments[a.id] as number).sort()).toEqual([a.id, b.id].sort());
+      // The pin flag schema 8 adds to `strip_files` is there after the rebuild, unset,
+      // and so is the strip's drift.
+      migrated.setPinned([a.id], true);
+      const migratedStrip = migrated.listStrips()[0];
+      expect(migratedStrip?.pinnedFileIds).toEqual([a.id]);
+      expect(migratedStrip?.drift).toBe(0);
 
       // The confirmed position on a, and the pending drag on b.
       expect(migrated.listConfirmedPositions().get(a.id)).toEqual({ lat: 41.9, lon: 12.5 });
@@ -528,7 +535,7 @@ describe('schema 6 → 7 — file ids move from INTEGER to UUIDv7 TEXT', () => {
 
       // Foreign keys are consistent after the rebuild.
       expect(migrated.db.pragma('foreign_key_check')).toEqual([]);
-      expect(migrated.getMeta('schema_version')).toBe('7');
+      expect(migrated.getMeta('schema_version')).toBe(String(SCHEMA_VERSION));
       // Old thumbnails are keyed by the retired integer ids and can never be found
       // again, so every file is back to pending and will regenerate on next access.
       expect(files.every((f) => f.thumbState === 'pending')).toBe(true);
@@ -549,7 +556,7 @@ describe('schema 6 → 7 — file ids move from INTEGER to UUIDv7 TEXT', () => {
     try {
       const idsAfter = second.listFiles().map((f) => f.id).sort();
       expect(idsAfter).toEqual(idsBefore);
-      expect(second.getMeta('schema_version')).toBe('7');
+      expect(second.getMeta('schema_version')).toBe(String(SCHEMA_VERSION));
     } finally {
       second.close();
       fs.rmSync(dir, { recursive: true, force: true });

@@ -35,9 +35,9 @@ export function msToNaive(ms: number): string {
  * The absolute instant a file sits at, in epoch ms.
  *
  * The raw reading is a wall clock in the file's own zone (UTC for video), so the
- * resolved offset is subtracted to reach UTC, and the strip's correction — one
- * constant for every file in the strip (SPEC §4.3) — is added on top. This is
- * `effective(f) = t_f + offset + utc_offset_resolution` from §4.3, with the sign of
+ * resolved offset is subtracted to reach UTC, and the strip's correction at this file
+ * (`shiftSecondsAt`, SPEC §4.3) is added on top. This is
+ * `effective(f) = t_f + shift(f) + utc_offset_resolution` from §4.3, with the sign of
  * the last term made explicit.
  */
 export function effectiveMs(
@@ -49,14 +49,14 @@ export function effectiveMs(
 }
 
 /**
- * An offset as the alignment view writes it: `+1h 02m 12s`, `-45m 00s`, `0`.
+ * An offset as the alignment view writes it: `+1h 02m 12s`, `-45m 00s`, `0 s`.
  *
  * Minutes and seconds are zero-padded once a larger unit is present so a live readout
  * during a drag does not jitter in width as the digits change.
  */
 export function formatOffset(seconds: number): string {
   const rounded = Math.round(seconds);
-  if (rounded === 0) return '0';
+  if (rounded === 0) return '0 s';
   const sign = rounded < 0 ? '-' : '+';
   const abs = Math.abs(rounded);
   const h = Math.floor(abs / 3600);

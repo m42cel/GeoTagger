@@ -24,8 +24,20 @@ export interface StripRecord {
    * came from the same strip, which is what merging is allowed between.
    */
   parentStripId: number | null;
-  /** Clock correction in seconds, applied to every file in the strip alike. */
+  /**
+   * Clock correction in seconds. With `drift` 0 it applies to every file in the strip
+   * alike; otherwise it is the shift at `driftOriginMs` (see `ClockCorrection`).
+   */
   offsetSeconds: number;
+  /** Seconds gained per second of raw time; 0 unless the strip has been stretched. */
+  drift: number;
+  /** Raw instant, epoch ms, at which the drift term is zero; null while drift is 0. */
+  driftOriginMs: number | null;
+  /**
+   * Files pinned as having the right time (SPEC §4.3). One turns the strip from shifting
+   * to stretching about that file; two fix it.
+   */
+  pinnedFileIds: FileId[];
   locked: boolean;
   /** A UTC offset typed in for this strip, overriding what §4.2 would infer. */
   utcOffsetOverrideMinutes: number | null;
@@ -73,7 +85,10 @@ export interface TimelineFile {
   rawCaptureMs: number | null;
   utcOffsetMinutes: number;
   utcOffsetSource: UtcOffsetSource;
-  /** The clock correction its strip applies to it, in seconds. */
+  /**
+   * The clock correction its strip applies to it, in seconds — the strip's offset, or
+   * that plus the drift evaluated at this file's raw reading.
+   */
   offsetSeconds: number;
   /** Where it lands on the absolute timeline. Null when undated. */
   effectiveMs: number | null;

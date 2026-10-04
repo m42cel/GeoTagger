@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FileId, FileRecord } from '@geotagger/shared';
+import type { FileRecord } from '@geotagger/shared';
 
 /**
  * The last two photos clicked in the filmstrips, stacked for a direct visual
@@ -10,12 +10,14 @@ import type { FileId, FileRecord } from '@geotagger/shared';
  * Between the two panes sit the two align buttons (SPEC §6.2, issue #5): rather than
  * zooming far in on one reference photo, then the other, then back out to drag the
  * strips together by hand, a click shifts one strip's offset so the two photos
- * already on screen land on the same instant.
+ * already on screen land on the same instant. A strip with a pinned photo is stretched
+ * rather than shifted, and its button says `stretch` (SPEC §4.3).
  */
 export function PreviewPane({
-  topFileId,
-  bottomFileId,
-  fileById,
+  top,
+  bottom,
+  topVerb,
+  bottomVerb,
   onAlignTopToBottom,
   topAlignDisabled,
   topAlignTitle,
@@ -23,9 +25,10 @@ export function PreviewPane({
   bottomAlignDisabled,
   bottomAlignTitle,
 }: {
-  topFileId: FileId | null;
-  bottomFileId: FileId | null;
-  fileById: Map<FileId, FileRecord>;
+  top: FileRecord | null;
+  bottom: FileRecord | null;
+  topVerb: 'align' | 'stretch';
+  bottomVerb: 'align' | 'stretch';
   onAlignTopToBottom: () => void;
   topAlignDisabled: boolean;
   topAlignTitle: string;
@@ -35,22 +38,28 @@ export function PreviewPane({
 }) {
   return (
     <div className="preview-pane">
-      <PreviewSlot file={topFileId === null ? null : (fileById.get(topFileId) ?? null)} />
+      <PreviewSlot file={top} />
       <div className="preview-align">
-        <button type="button" className="ghost" disabled={topAlignDisabled} title={topAlignTitle} onClick={onAlignTopToBottom}>
-          ↓ align top to bottom
+        <button
+          type="button"
+          className={`ghost${topVerb === 'stretch' ? ' stretch' : ''}`}
+          disabled={topAlignDisabled}
+          title={topAlignTitle}
+          onClick={onAlignTopToBottom}
+        >
+          ↓ {topVerb} top to bottom
         </button>
         <button
           type="button"
-          className="ghost"
+          className={`ghost${bottomVerb === 'stretch' ? ' stretch' : ''}`}
           disabled={bottomAlignDisabled}
           title={bottomAlignTitle}
           onClick={onAlignBottomToTop}
         >
-          ↑ align bottom to top
+          ↑ {bottomVerb} bottom to top
         </button>
       </div>
-      <PreviewSlot file={bottomFileId === null ? null : (fileById.get(bottomFileId) ?? null)} />
+      <PreviewSlot file={bottom} />
     </div>
   );
 }

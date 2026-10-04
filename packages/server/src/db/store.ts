@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import type {
   CaptureTimeSource,
+  ClockCorrection,
   DeviceRecord,
   FileId,
   FileRecord,
@@ -453,6 +454,7 @@ export class FolderStore {
       .prepare<[], {
         id: number; lane: number; ordinal: number; label: string; grouping_source: string;
         parent_strip_id: number | null; offset_seconds: number;
+        drift: number; drift_origin_ms: number | null;
         locked: number; utc_offset_override_minutes: number | null;
         created_at: number; file_count: number;
         first_capture: string | null; last_capture: string | null;
@@ -467,6 +469,7 @@ export class FolderStore {
          ORDER BY s.lane, s.ordinal`,
       )
       .all();
+    const pins = this.pinnedFileIdsByStrip();
     return rows.map((r) => ({
       id: r.id,
       lane: r.lane,
@@ -475,6 +478,9 @@ export class FolderStore {
       groupingSource: r.grouping_source as GroupingMode,
       parentStripId: r.parent_strip_id,
       offsetSeconds: r.offset_seconds,
+      drift: r.drift,
+      driftOriginMs: r.drift_origin_ms,
+      pinnedFileIds: pins.get(r.id) ?? [],
       locked: r.locked !== 0,
       utcOffsetOverrideMinutes: r.utc_offset_override_minutes,
       createdAt: r.created_at,
@@ -486,6 +492,21 @@ export class FolderStore {
       firstEffectiveMs: null,
       lastEffectiveMs: null,
     }));
+  }
+
+  private pinnedFileIdsByStrip(): Map<number, FileId[]> {
+    const rows = this.db
+      .prepare<[], { strip_id: number; file_id: FileId }>(
+        'SELECT strip_id, file_id FROM strip_files WHERE pinned = 1 ORDER BY file_id',
+      )
+      .all();
+    const out = new Map<number, FileId[]>();
+    for (const r of rows) {
+      const list = out.get(r.strip_id);
+      if (list) list.push(r.file_id);
+      else out.set(r.strip_id, [r.file_id]);
+    }
+    return out;
   }
 
   getStrip(id: number): StripRecord | null {
@@ -532,6 +553,27 @@ export class FolderStore {
     this.db.prepare('UPDATE strips SET offset_seconds = ? WHERE id = ?').run(Math.round(seconds), id);
   }
 
+  /**
+   * Writes a whole correction, offset included, unrounded: a stretch puts the offset at
+   * the pinned file's exact shift, and rounding it would move the one file a pin
+   * promises to hold still. The column's INTEGER affinity keeps a fractional value as
+   * REAL rather than truncating it.
+   */
+  setStripCorrection(id: number, correction: ClockCorrection): void {
+    this.db
+      .prepare('UPDATE strips SET offset_seconds = ?, drift = ?, drift_origin_ms = ? WHERE id = ?')
+      .run(correction.offsetSeconds, correction.drift, correction.driftOriginMs, id);
+  }
+
+  /** Pins or unpins files in whatever strip they are in (SPEC §4.3). */
+  setPinned(fileIds: readonly FileId[], pinned: boolean): void {
+    const stmt = this.db.prepare('UPDATE strip_files SET pinned = ? WHERE file_id = ?');
+    const tx = this.db.transaction(() => {
+      for (const fileId of fileIds) stmt.run(pinned ? 1 : 0, fileId);
+    });
+    tx();
+  }
+
   setStripLocked(id: number, locked: boolean): void {
     this.db.prepare('UPDATE strips SET locked = ? WHERE id = ?').run(locked ? 1 : 0, id);
   }
@@ -569,7 +611,7 @@ export class FolderStore {
       ordinal: number;
       groupingSource: GroupingMode;
       parentStripId?: number | null;
-      offsetSeconds?: number;
+      correction?: ClockCorrection;
       locked?: boolean;
       utcOffsetOverrideMinutes?: number | null;
     },
@@ -578,9 +620,9 @@ export class FolderStore {
     const info = this.db
       .prepare(
         `INSERT INTO strips (lane, ordinal, label, grouping_source, parent_strip_id,
-                             offset_seconds, locked,
+                             offset_seconds, drift, drift_origin_ms, locked,
                              utc_offset_override_minutes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         strip.lane,
@@ -588,7 +630,11 @@ export class FolderStore {
         strip.label,
         strip.groupingSource,
         strip.parentStripId ?? null,
-        Math.round(strip.offsetSeconds ?? 0),
+        // Unrounded for the reason `setStripCorrection` gives: a cut copies the parent's
+        // correction exactly, and nothing may jump at the moment of cutting.
+        strip.correction?.offsetSeconds ?? 0,
+        strip.correction?.drift ?? 0,
+        strip.correction?.driftOriginMs ?? null,
         strip.locked === true ? 1 : 0,
         strip.utcOffsetOverrideMinutes ?? null,
         Date.now(),
@@ -639,7 +685,7 @@ export class FolderStore {
     return JSON.stringify({
       groupingMode: this.groupingMode,
       strips: this.db.prepare('SELECT * FROM strips ORDER BY id').all(),
-      members: this.db.prepare('SELECT strip_id, file_id FROM strip_files ORDER BY file_id').all(),
+      members: this.db.prepare('SELECT strip_id, file_id, pinned FROM strip_files ORDER BY file_id').all(),
     });
   }
 
@@ -647,20 +693,20 @@ export class FolderStore {
     const parsed = JSON.parse(snapshot) as {
       groupingMode: GroupingMode;
       strips: Record<string, unknown>[];
-      members: { strip_id: number; file_id: FileId }[];
+      members: { strip_id: number; file_id: FileId; pinned: number }[];
     };
     const tx = this.db.transaction(() => {
       this.db.exec('DELETE FROM strip_files');
       this.db.exec('DELETE FROM strips');
       const insertStrip = this.db.prepare(
         `INSERT INTO strips (id, lane, ordinal, label, grouping_source, parent_strip_id,
-                             offset_seconds, locked,
+                             offset_seconds, drift, drift_origin_ms, locked,
                              utc_offset_override_minutes, created_at)
          VALUES (@id, @lane, @ordinal, @label, @grouping_source, @parent_strip_id,
-                 @offset_seconds, @locked,
+                 @offset_seconds, @drift, @drift_origin_ms, @locked,
                  @utc_offset_override_minutes, @created_at)`,
       );
-      const insertMember = this.db.prepare('INSERT INTO strip_files (strip_id, file_id) VALUES (?, ?)');
+      const insertMember = this.db.prepare('INSERT INTO strip_files (strip_id, file_id, pinned) VALUES (?, ?, ?)');
       // Origin references point at other rows in this same set, so every strip has to
       // exist before any of them is linked up.
       for (const strip of parsed.strips) insertStrip.run({ ...strip, parent_strip_id: null });
@@ -669,7 +715,7 @@ export class FolderStore {
         const parent = strip['parent_strip_id'];
         if (typeof parent === 'number') relink.run(parent, strip['id']);
       }
-      for (const m of parsed.members) insertMember.run(m.strip_id, m.file_id);
+      for (const m of parsed.members) insertMember.run(m.strip_id, m.file_id, m.pinned);
       this.groupingMode = parsed.groupingMode;
     });
     tx();

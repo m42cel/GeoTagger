@@ -139,7 +139,7 @@ describe('offsets and locking (SPEC §4.3)', () => {
     expect(() => service.cut(sony.id, at('2024-07-12T09:30:00'))).toThrow(/locked/i);
     expect(() => service.moveToLane(sony.id, 3)).toThrow(/locked/i);
     expect(() => service.setUtcOffsetOverride(sony.id, 60)).toThrow(/locked/i);
-    expect(() => service.pinTrueTime(phoneFile, '2024-07-12T09:00:00')).not.toThrow();
+    expect(() => service.setTrueTime(phoneFile, '2024-07-12T09:00:00')).not.toThrow();
   });
 
   it('leaves a locked strip fully readable, so it stays a snap target', () => {
@@ -251,36 +251,202 @@ describe('cutting, merging and lanes (SPEC §4.3)', () => {
   });
 });
 
-describe('pin true time (SPEC §4.3)', () => {
-  it('shifts the whole strip so the pinned file lands on the time given', () => {
+describe('set true time (SPEC §4.3)', () => {
+  it('shifts the whole strip so the file lands on the time given', () => {
     const first = addFile('sony/DSC_1.JPG', '2024-07-12T08:00:00');
     addFile('sony/DSC_2.JPG', '2024-07-12T12:00:00');
     store.folderUtcOffsetMinutes = 0;
     service.regroup('device');
 
-    service.pinTrueTime(first, '2024-07-12T09:15:00');
+    service.setTrueTime(first, '2024-07-12T09:15:00');
     const timeline = service.timeline();
     expect(timeline.byId.get(first)?.effectiveMs).toBe(at('2024-07-12T09:15:00'));
     // Everything else in the strip moved with it, including the files after it.
     expect(timeline.files[1]?.effectiveMs).toBe(at('2024-07-12T13:15:00'));
   });
 
-  it("reads the time given in the pinned file's own offset, not the trip's dominant one", () => {
+  it("reads the time given in the file's own offset, not the trip's dominant one", () => {
     addFile('phone/IMG_1.JPG', '2024-07-12T09:00:00', { device: 'phone', utcOffsetMinutes: -360 });
     addFile('phone/IMG_2.JPG', '2024-07-12T10:00:00', { device: 'phone', utcOffsetMinutes: -360 });
     const late = addFile('sony/DSC_1.JPG', '2024-07-12T15:00:00', { device: 'sony', utcOffsetMinutes: -420 });
     service.regroup('device');
     expect(service.timeline().displayUtcOffsetMinutes).toBe(-360);
 
-    service.pinTrueTime(late, '2024-07-12T16:00:00');
+    service.setTrueTime(late, '2024-07-12T16:00:00');
     expect(service.timeline().byId.get(late)?.effectiveMs).toBe(at('2024-07-12T23:00:00'));
   });
 
-  it('refuses to pin a file in a locked strip', () => {
+  it('refuses to move a file in a locked strip', () => {
     const first = addFile('sony/DSC_1.JPG', '2024-07-12T08:00:00');
     service.regroup('device');
     service.setLocked(stripFor('sony').id, true);
-    expect(() => service.pinTrueTime(first, '2024-07-12T09:15:00')).toThrow(/locked/i);
+    expect(() => service.setTrueTime(first, '2024-07-12T09:15:00')).toThrow(/locked/i);
+  });
+});
+
+describe('pinning and stretching (SPEC §4.3)', () => {
+  // Five photos two hours apart on a camera that gained a minute over the eight hours;
+  // a phone beside it knows the right time.
+  let sonyFiles: FileId[];
+  let sony: StripRecord;
+  const effective = (id: FileId): number => service.timeline().byId.get(id)?.effectiveMs as number;
+
+  beforeEach(() => {
+    store.folderUtcOffsetMinutes = 0;
+    addFile('phone/IMG_1.JPG', '2024-07-12T08:00:00', { device: 'phone' });
+    sonyFiles = [8, 10, 12, 14, 16].map((h) => addFile(`sony/DSC_${h}.JPG`, `2024-07-12T${String(h).padStart(2, '0')}:00:00`));
+    service.regroup('device');
+    sony = stripFor('sony');
+  });
+
+  it('never moves anything by pinning or unpinning', () => {
+    service.setOffset(sony.id, 120);
+    const before = sonyFiles.map(effective);
+    service.setPinned(sonyFiles[1] as FileId, true);
+    expect(sonyFiles.map(effective)).toEqual(before);
+    expect(stripFor('sony').pinnedFileIds).toEqual([sonyFiles[1]]);
+    service.setPinned(sonyFiles[1] as FileId, false);
+    expect(sonyFiles.map(effective)).toEqual(before);
+    expect(stripFor('sony').pinnedFileIds).toEqual([]);
+  });
+
+  it('holds the pin exactly, lands the stretched file exactly, and scales and extrapolates the rest', () => {
+    const [f8, f10, f12, f14, f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setOffset(sony.id, 30);
+    service.setPinned(f10, true);
+    const pinBefore = effective(f10);
+
+    // 16:00 on the camera was really 16:01:30 (+30 s offset already, +60 s more).
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:30'));
+
+    expect(effective(f10)).toBe(pinBefore);
+    expect(effective(f16)).toBe(at('2024-07-12T16:01:30'));
+    // A minute over six hours from the pin: 10 s per hour, either side of it.
+    expect(effective(f12)).toBeCloseTo(at('2024-07-12T12:00:50'), -1);
+    expect(effective(f14)).toBeCloseTo(at('2024-07-12T14:01:10'), -1);
+    expect(effective(f8)).toBeCloseTo(at('2024-07-12T08:00:10'), -1);
+    expect(stripFor('sony').drift).toBeCloseTo(60 / (6 * 3600), 10);
+  });
+
+  it('carries the per-file shift into the timeline line the write plan reads', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    const line = (id: FileId) => service.timeline().byId.get(id);
+    expect(line(f10)?.offsetSeconds).toBe(0);
+    expect(line(f16)?.offsetSeconds).toBeCloseTo(60, 6);
+  });
+
+  it('refuses shifts on a pinned strip, and stretches once there are two pins', () => {
+    const [f8, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    expect(() => service.stretch(sony.id, f16, at('2024-07-12T16:01:00'))).toThrow(/no pinned photo/i);
+
+    service.setPinned(f10, true);
+    expect(() => service.setOffset(sony.id, 60)).toThrow(/pinned/i);
+    expect(() => service.reset(sony.id)).toThrow(/pinned/i);
+    expect(() => service.stretch(sony.id, f10, at('2024-07-12T10:05:00'))).toThrow(/pinned/i);
+
+    service.setPinned(f8, true);
+    expect(() => service.stretch(sony.id, f16, at('2024-07-12T16:01:00'))).toThrow(/two pinned/i);
+  });
+
+  it('refuses a stretch no clock could need', () => {
+    const [, f10, f12] = sonyFiles as [FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    expect(() => service.stretch(sony.id, f12, at('2024-07-12T13:00:00'))).toThrow(/h\/day.*cutting the strip/);
+  });
+
+  it('stretches about the pin when a true time is set on a pinned strip', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    const pinBefore = effective(f10);
+    service.setTrueTime(f16, '2024-07-12T15:59:00');
+    expect(effective(f10)).toBe(pinBefore);
+    expect(effective(f16)).toBe(at('2024-07-12T15:59:00'));
+    // Setting a true time does not pin the file.
+    expect(stripFor('sony').pinnedFileIds).toEqual([f10]);
+  });
+
+  it('cuts a stretched strip without anything jumping, pins going with their files', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    const before = sonyFiles.map(effective);
+
+    const { leftId, rightId } = service.cut(sony.id, at('2024-07-12T13:00:00'));
+    expect(sonyFiles.map(effective)).toEqual(before);
+    const strips = service.strips().strips;
+    expect(strips.find((s) => s.id === leftId)?.pinnedFileIds).toEqual([f10]);
+    expect(strips.find((s) => s.id === rightId)?.pinnedFileIds).toEqual([]);
+
+    // Untouched since the cut, the two corrections still agree: merging moves nothing.
+    service.merge(leftId, rightId);
+    expect(sonyFiles.map(effective)).toEqual(before);
+  });
+
+  it('refuses a merge that would move a pinned photo of the later segment', () => {
+    const [, , , f14] = sonyFiles as [FileId, FileId, FileId, FileId];
+    const { leftId, rightId } = service.cut(sony.id, at('2024-07-12T13:00:00'));
+    service.setOffset(rightId, 90);
+    service.setPinned(f14, true);
+    expect(() => service.merge(leftId, rightId)).toThrow(/pinned/i);
+  });
+
+  it('undoes a pin and a stretch', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    const before = sonyFiles.map(effective);
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    service.undo();
+    expect(sonyFiles.map(effective)).toEqual(before);
+    expect(stripFor('sony').pinnedFileIds).toEqual([f10]);
+    service.undo();
+    expect(stripFor('sony').pinnedFileIds).toEqual([]);
+  });
+
+  it('resets the offset and the stretch separately', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setOffset(sony.id, 30);
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:30'));
+    const pinBefore = effective(f10);
+
+    // With the pin: the offset reset is refused, the stretch reset keeps the pin in place.
+    expect(() => service.resetOffset(sony.id)).toThrow(/pinned/i);
+    service.resetDrift(sony.id);
+    expect(stripFor('sony').drift).toBe(0);
+    expect(effective(f10)).toBe(pinBefore);
+    expect(effective(f16)).toBe(at('2024-07-12T16:00:30'));
+
+    // Without it, the offset goes back to zero on its own.
+    service.setPinned(f10, false);
+    service.resetOffset(sony.id);
+    expect(effective(f10)).toBe(at('2024-07-12T10:00:00'));
+  });
+
+  it('keeps the stretch when only the offset is reset', () => {
+    const [, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    service.setPinned(f10, false);
+    const drift = stripFor('sony').drift;
+    service.resetOffset(sony.id);
+    expect(stripFor('sony').drift).toBe(drift);
+  });
+
+  it('refuses to straighten a strip two pins fix', () => {
+    const [f8, f10, , , f16] = sonyFiles as [FileId, FileId, FileId, FileId, FileId];
+    service.setPinned(f10, true);
+    service.stretch(sony.id, f16, at('2024-07-12T16:01:00'));
+    service.setPinned(f8, true);
+    expect(() => service.resetDrift(sony.id)).toThrow(/two pinned/i);
+  });
+
+  it('drops pins on files moved into a hand-made strip', () => {
+    const [, f10] = sonyFiles as [FileId, FileId];
+    service.setPinned(f10, true);
+    service.regroup('manual', { fileIds: [f10], label: 'Picked' });
+    expect(stripFor('Picked').pinnedFileIds).toEqual([]);
   });
 });
 

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { generateFileId } from './uuid.js';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * The per-folder edit store (SPEC §8.2).
@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS strips (
   grouping_source       TEXT NOT NULL,
   parent_strip_id       INTEGER REFERENCES strips(id),
   offset_seconds        INTEGER NOT NULL DEFAULT 0,
+  drift                 REAL    NOT NULL DEFAULT 0,
+  drift_origin_ms       INTEGER,
   locked                INTEGER NOT NULL DEFAULT 0,
   utc_offset_override_minutes INTEGER,
   created_at            INTEGER NOT NULL
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS strips (
 CREATE TABLE IF NOT EXISTS strip_files (
   strip_id INTEGER NOT NULL REFERENCES strips(id) ON DELETE CASCADE,
   file_id  TEXT    NOT NULL REFERENCES files(id)  ON DELETE CASCADE,
+  pinned   INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (file_id)
 );
 
@@ -154,6 +157,8 @@ function migrate(db: Database.Database): boolean {
   addColumnIfMissing(db, 'edits', 'pending_lat', 'REAL');
   addColumnIfMissing(db, 'edits', 'pending_lon', 'REAL');
   addColumnIfMissing(db, 'persisted', 'written_tags_json', 'TEXT');
+  addColumnIfMissing(db, 'strips', 'drift', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'strips', 'drift_origin_ms', 'INTEGER');
   // Schema 5 recorded a whole write as `wrote_gps`/`wrote_time`/`applied_json`; 6 records
   // a value per tag in `written_tags_json` instead (SPEC §9.1). The retired columns held
   // values of a file's last write, not anything that predates GeoTagger, so there is
@@ -162,7 +167,11 @@ function migrate(db: Database.Database): boolean {
   dropColumnIfExists(db, 'persisted', 'wrote_time');
   dropColumnIfExists(db, 'persisted', 'applied_json');
   collapseOffsetRamp(db);
-  return migrateFileIdsToUuid(db);
+  const migratedIds = migrateFileIdsToUuid(db);
+  // After the file-id rebuild, which recreates `strip_files` with its schema 7 columns:
+  // added before it, the column would be dropped again on the way through.
+  addColumnIfMissing(db, 'strip_files', 'pinned', 'INTEGER NOT NULL DEFAULT 0');
+  return migratedIds;
 }
 
 /**
