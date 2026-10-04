@@ -11,6 +11,12 @@ on:
         required: false
         type: string
 
+# One build per branch at a time, so the last push to main is the one that sets
+# `dev`. A push supersedes whatever is still building; a manual run waits its turn.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
