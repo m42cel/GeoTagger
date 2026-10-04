@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CaptureTimeSource, FileRecord, StripRecord, TimelineFile } from '@geotagger/shared';
 import {
+  formatDrift,
   formatInstant,
   formatOffset,
   formatUtcOffset,
@@ -36,7 +37,8 @@ export function SelectionPanel({
   onMerge,
   onReset,
   onSetUtcOffset,
-  onPin,
+  onSetTrueTime,
+  onTogglePin,
 }: {
   strip: StripRecord | null;
   fileCountLabel: string;
@@ -51,7 +53,8 @@ export function SelectionPanel({
   onMerge: (rightStripId: number) => void;
   onReset: () => void;
   onSetUtcOffset: (minutes: number | null) => void;
-  onPin: () => void;
+  onSetTrueTime: () => void;
+  onTogglePin: () => void;
 }) {
   if (strip === null) {
     return (
@@ -61,19 +64,35 @@ export function SelectionPanel({
     );
   }
 
+  // One pin turns a shift into a stretch, and two fix the strip (SPEC §4.3): either
+  // way the offset can no longer be typed in or reset.
+  const pinned = strip.pinnedFileIds.length > 0;
+  const pinnedTitle = pinned ? 'A photo of this strip is pinned. Unpin it to shift or reset the strip.' : undefined;
+  const selectedPinned = selectedFile !== null && strip.pinnedFileIds.includes(selectedFile.id);
+
   return (
     <div className="selection-panel">
       <div className="selection-head">
         <strong>{strip.label}</strong>
         <span className="muted">{fileCountLabel}</span>
         {strip.locked && <span className="badge locked">locked</span>}
+        {pinned && (
+          <span className="badge" title={pinnedTitle}>
+            {strip.pinnedFileIds.length === 1 ? '1 pin · stretch with the handles' : `${strip.pinnedFileIds.length} pins · fixed`}
+          </span>
+        )}
       </div>
 
       <div className="selection-fields">
-        <label>
+        <label title={pinnedTitle}>
           offset
-          <OffsetField value={strip.offsetSeconds} disabled={strip.locked} onCommit={onSetOffset} />
+          <OffsetField value={strip.offsetSeconds} disabled={strip.locked || pinned} onCommit={onSetOffset} />
         </label>
+        {strip.drift !== 0 && (
+          <span className="muted" title="How fast this camera's clock ran, as corrected by stretching (SPEC §4.3)">
+            drift {formatDrift(strip.drift)}
+          </span>
+        )}
         <label>
           UTC
           <UtcField
@@ -113,7 +132,7 @@ export function SelectionPanel({
         >
           merge
         </button>
-        <button type="button" className="ghost" disabled={strip.locked} onClick={onReset}>
+        <button type="button" className="ghost" disabled={strip.locked || pinned} title={pinnedTitle} onClick={onReset}>
           reset
         </button>
       </div>
@@ -147,8 +166,33 @@ export function SelectionPanel({
               </>
             )}
             <dd className="pin-action">
-              <button type="button" className="ghost" disabled={strip.locked} onClick={onPin}>
+              <button
+                type="button"
+                className="ghost"
+                disabled={strip.locked || selectedPinned || strip.pinnedFileIds.length > 1}
+                title={
+                  selectedPinned
+                    ? 'This photo is pinned. Unpin it to change its time.'
+                    : strip.pinnedFileIds.length === 1
+                      ? 'The strip has a pinned photo, so it stretches about that photo rather than shifting.'
+                      : undefined
+                }
+                onClick={onSetTrueTime}
+              >
                 set true time…
+              </button>{' '}
+              <button
+                type="button"
+                className="ghost"
+                disabled={strip.locked}
+                title={
+                  selectedPinned
+                    ? 'Unpin: this photo may move with its strip again'
+                    : "Pin: this photo's time is right. One pin turns the strip's moves into stretches about it; two fix it."
+                }
+                onClick={onTogglePin}
+              >
+                {selectedPinned ? 'unpin' : 'pin'}
               </button>
             </dd>
           </dl>

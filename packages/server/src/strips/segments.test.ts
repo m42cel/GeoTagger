@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { naiveToMs } from '@geotagger/shared';
-import { planCut, planMerge, planPin, type SegmentMember } from './segments.js';
+import { naiveToMs, shiftSecondsAt, type ClockCorrection } from '@geotagger/shared';
+import { planCut, planMerge, planTrueTime, type SegmentMember } from './segments.js';
 
 const at = (iso: string) => naiveToMs(iso) as number;
 
 /** Five files an hour apart, under a strip carrying one constant correction. */
-function members(offsetSeconds: number): { strip: { offsetSeconds: number }; list: SegmentMember[] } {
+function members(offsetSeconds: number): { strip: ClockCorrection; list: SegmentMember[] } {
   const raws = [
     at('2024-07-12T10:00:00'),
     at('2024-07-12T11:00:00'),
@@ -14,7 +14,7 @@ function members(offsetSeconds: number): { strip: { offsetSeconds: number }; lis
     at('2024-07-12T14:00:00'),
   ];
   return {
-    strip: { offsetSeconds },
+    strip: { offsetSeconds, drift: 0, driftOriginMs: null },
     list: raws.map((raw, i) => ({ fileId: `f${i + 1}`, effectiveMs: raw + offsetSeconds * 1000 })),
   };
 }
@@ -32,8 +32,17 @@ describe('planCut', () => {
   it('gives both halves the offset unchanged, so nothing jumps', () => {
     const { strip, list } = members(3600);
     const cut = planCut(strip, list, at('2024-07-12T13:30:00')) as NonNullable<ReturnType<typeof planCut>>;
-    expect(cut.left.offsetSeconds).toBe(3600);
-    expect(cut.right.offsetSeconds).toBe(3600);
+    expect(cut.left.correction.offsetSeconds).toBe(3600);
+    expect(cut.right.correction.offsetSeconds).toBe(3600);
+  });
+
+  it('gives both halves the drift and its origin too, so a stretched strip does not jump either', () => {
+    const stretched: ClockCorrection = { offsetSeconds: 30, drift: 1e-4, driftOriginMs: at('2024-07-12T12:00:00') };
+    const { list } = members(0);
+    const cut = planCut(stretched, list, at('2024-07-12T12:30:00')) as NonNullable<ReturnType<typeof planCut>>;
+    const late = at('2024-07-12T14:00:00');
+    expect(shiftSecondsAt(cut.right.correction, late)).toBe(shiftSecondsAt(stretched, late));
+    expect(cut.left.correction).toEqual(stretched);
   });
 
   it('refuses a cut that would leave one side empty', () => {
@@ -52,9 +61,12 @@ describe('planCut', () => {
 
 describe('planMerge', () => {
   it('takes the left segment’s offset for the whole result', () => {
-    const merged = planMerge({ fileIds: ['f1', 'f2', 'f3'], offsetSeconds: 100 }, { fileIds: ['f4', 'f5'] });
+    const merged = planMerge(
+      { fileIds: ['f1', 'f2', 'f3'], correction: { offsetSeconds: 100, drift: 0, driftOriginMs: null } },
+      { fileIds: ['f4', 'f5'] },
+    );
     expect(merged.fileIds).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
-    expect(merged.offsetSeconds).toBe(100);
+    expect(merged.correction.offsetSeconds).toBe(100);
   });
 
   it('round-trips a cut back to where it started', () => {
@@ -62,20 +74,20 @@ describe('planMerge', () => {
     const cut = planCut(strip, list, at('2024-07-12T12:30:00')) as NonNullable<ReturnType<typeof planCut>>;
     const merged = planMerge(cut.left, cut.right);
     expect(merged.fileIds).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
-    expect(merged.offsetSeconds).toBe(3600);
+    expect(merged.correction.offsetSeconds).toBe(3600);
   });
 });
 
-describe('planPin', () => {
-  it('shifts the whole strip so the pinned file lands on its true time', () => {
-    expect(planPin({ offsetSeconds: 0 }, at('2024-07-12T12:00:00'), at('2024-07-12T14:32:10'))).toBe(9130);
+describe('planTrueTime', () => {
+  it('shifts the whole strip so the file lands on its true time', () => {
+    expect(planTrueTime({ offsetSeconds: 0 }, at('2024-07-12T12:00:00'), at('2024-07-12T14:32:10'))).toBe(9130);
   });
 
-  it('corrects the files before the pinned one as well as after it', () => {
+  it('corrects the files before that one as well as after it', () => {
     const { strip, list } = members(0);
     const middle = list[2] as SegmentMember;
-    const pinned = planPin(strip, middle.effectiveMs as number, at('2024-07-12T13:00:00'));
+    const offset = planTrueTime(strip, middle.effectiveMs as number, at('2024-07-12T13:00:00'));
     const first = list[0] as SegmentMember;
-    expect((first.effectiveMs as number) + pinned * 1000).toBe(at('2024-07-12T11:00:00'));
+    expect((first.effectiveMs as number) + offset * 1000).toBe(at('2024-07-12T11:00:00'));
   });
 });

@@ -64,27 +64,37 @@ export function buildStripFiles(files: readonly TimelineFile[]): Map<number, Str
 
 export function StripBody({
   stripFiles,
+  stretchedInstants,
   scale,
   fileById,
   selectedFileIds,
+  pinnedFileIds,
   onSelectFile,
-  onPinFile,
+  onSetTrueTime,
 }: {
   stripFiles: StripFiles | undefined;
+  /**
+   * Where the files are drawn while a stretch is being dragged — same order as
+   * `stripFiles.instants` — or undefined to draw them where they are.
+   */
+  stretchedInstants?: readonly number[];
   scale: TimeScale;
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
+  pinnedFileIds: readonly FileId[];
   onSelectFile: (fileId: FileId, additive: boolean) => void;
-  onPinFile: (fileId: FileId) => void;
+  onSetTrueTime: (fileId: FileId) => void;
 }) {
   if (!stripFiles || stripFiles.instants.length === 0) {
     return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
   }
 
-  // A correction is one constant across the strip, so the whole element is translated
-  // during a drag and these instants never move under it: the visible slice is found
+  // A move is one constant across the strip, so the whole element is translated during
+  // a body drag and these instants never move under it; a stretch moves each file by a
+  // different amount, so it passes the files' new instants in instead. Either way they
+  // stay ascending — a stretch never reverses a clock — and the visible slice is found
   // by binary search rather than by scanning the whole strip.
-  const positions = stripFiles.instants;
+  const positions = stretchedInstants ?? stripFiles.instants;
   const from = Math.max(0, lowerBound(positions, msAt(scale, -THUMB_PX)) - 1);
   const to = Math.min(positions.length, lowerBound(positions, msAt(scale, scale.widthPx + THUMB_PX)) + 1);
 
@@ -97,8 +107,9 @@ export function StripBody({
       scale={scale}
       fileById={fileById}
       selectedFileIds={selectedFileIds}
+      pinnedFileIds={pinnedFileIds}
       onSelectFile={onSelectFile}
-      onPinFile={onPinFile}
+      onSetTrueTime={onSetTrueTime}
     />
   );
 }
@@ -115,8 +126,9 @@ function Thumbnails({
   scale,
   fileById,
   selectedFileIds,
+  pinnedFileIds,
   onSelectFile,
-  onPinFile,
+  onSetTrueTime,
 }: {
   positions: readonly number[];
   files: readonly TimelineFile[];
@@ -125,16 +137,20 @@ function Thumbnails({
   scale: TimeScale;
   fileById: Map<FileId, FileRecord>;
   selectedFileIds: ReadonlySet<FileId>;
+  pinnedFileIds: readonly FileId[];
   onSelectFile: (fileId: FileId, additive: boolean) => void;
-  onPinFile: (fileId: FileId) => void;
+  onSetTrueTime: (fileId: FileId) => void;
 }) {
-  const clusters: { fileId: FileId; x: number; count: number; selected: boolean }[] = [];
+  const clusters: { fileId: FileId; x: number; count: number; selected: boolean; pinned: boolean }[] = [];
   for (let i = from; i < to; i += 1) {
     const x = xOf(scale, positions[i] as number);
     const file = files[i] as TimelineFile;
+    const pinned = pinnedFileIds.includes(file.id);
     const last = clusters[clusters.length - 1];
     if (last && x - last.x < THUMB_PX) {
       last.count += 1;
+      // A pin is a reference point; a stack hiding one still says it holds one.
+      if (pinned) last.pinned = true;
       // A selected file always represents its own stack, so selection stays visible
       // as the axis is zoomed out.
       if (selectedFileIds.has(file.id)) {
@@ -143,7 +159,7 @@ function Thumbnails({
       }
       continue;
     }
-    clusters.push({ fileId: file.id, x, count: 1, selected: selectedFileIds.has(file.id) });
+    clusters.push({ fileId: file.id, x, count: 1, selected: selectedFileIds.has(file.id), pinned });
   }
 
   return (
@@ -163,10 +179,11 @@ function Thumbnails({
               // Right-click offers "set true time" (SPEC §4.3).
               e.preventDefault();
               onSelectFile(c.fileId, false);
-              onPinFile(c.fileId);
+              onSetTrueTime(c.fileId);
             }}
           >
             <img src={`/api/files/${c.fileId}/thumb`} alt="" loading="lazy" draggable={false} />
+            {c.pinned && <span className="pin-badge">pinned</span>}
             {c.count > 1 && <span className="stack-count">{c.count}</span>}
           </button>
         );

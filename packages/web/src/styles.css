@@ -8,6 +8,8 @@
   --accent: #2f6fd0;
   --error: #b42318;
   --weak: #b45309;
+  /* Pinned photos and stretching (SPEC §4.3): a clear red-orange, apart from the warnings above. */
+  --pin: #e8590c;
   /*
    * Map marker border colours (SPEC §6.5). Fixed rather than themed like the rest of
    * this block — they sit on map imagery, not the app background, and have to read
@@ -29,6 +31,7 @@
     --accent: #6ea8ff;
     --error: #ff8a80;
     --weak: #f0b429;
+    --pin: #ff7a45;
   }
 }
 
@@ -374,14 +377,14 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * photo itself is landscape or portrait either.
  */
 .preview-pane {
-  flex: 0 0 340px;
+  flex: 0 0 400px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .preview-slot {
-  width: 340px;
-  height: 260px;
+  width: 400px;
+  height: 305px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -394,6 +397,9 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 /* The align-to-preview buttons (SPEC §6.2), sitting between the two panes they act on. */
 .preview-align { display: flex; gap: 8px; justify-content: center; }
+.preview-align button { flex: 1; white-space: nowrap; }
+/* A stretch spreads a correction across the whole strip; it should not pass for a shift. */
+.preview-align .stretch:not(:disabled) { border-color: var(--pin); color: var(--pin); }
 
 .lane-headers { border-right: 1px solid var(--line); }
 
@@ -480,6 +486,27 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   cursor: grab;
 }
 .strip-hit:active { cursor: grabbing; }
+/* A pinned strip's body does not move (SPEC §4.3); only its handles do. */
+.strip-layer.pinned .strip-hit { cursor: default; }
+
+/*
+ * The stretch handles of a selected one-pin strip, at its two ends — shown only on
+ * selection, so a strip is never stretched by a stray grab.
+ */
+.stretch-handle {
+  position: absolute;
+  pointer-events: auto;
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: ew-resize;
+  z-index: 3;
+}
+.stretch-handle:hover { background: color-mix(in srgb, var(--accent) 15%, var(--bg)); }
 
 /* Spans the whole row: the frames inside it are centred by their own offset. */
 .strip-body { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
@@ -502,6 +529,27 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * does, and left the strip looking like a row of stamps rather than a film strip.
  */
 .shot img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--bg); }
+
+/*
+ * A frosted pill, so it reads on a bright beach and a dark interior alike without
+ * covering more of the photo than it needs to.
+ */
+.pin-badge {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--pin);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(3px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  color: var(--pin);
+  pointer-events: none;
+}
 
 .stack-count {
   position: absolute;

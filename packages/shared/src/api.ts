@@ -150,10 +150,22 @@ export interface LockRequest {
   locked: boolean;
 }
 
-export interface PinTrueTimeRequest {
+export interface SetTrueTimeRequest {
   fileId: FileId;
   /** The real wall clock of that one file, naive ISO, in the display offset. */
   trueLocalIso: string;
+}
+
+export interface PinRequest {
+  fileId: FileId;
+  pinned: boolean;
+}
+
+export interface StretchRequest {
+  /** The file to move; the strip's one pinned file stays where it is. */
+  fileId: FileId;
+  /** Where that file should land, as an absolute instant on the shared axis. */
+  targetEffectiveMs: number;
 }
 
 export interface StripUtcOffsetRequest {

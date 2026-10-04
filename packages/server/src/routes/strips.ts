@@ -5,9 +5,11 @@ import type {
   LaneRequest,
   LockRequest,
   MergeRequest,
-  PinTrueTimeRequest,
+  PinRequest,
   RegroupRequest,
   SetOffsetRequest,
+  SetTrueTimeRequest,
+  StretchRequest,
   StripUtcOffsetRequest,
   StripsResponse,
   TimelineResponse,
@@ -116,14 +118,37 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
     },
   );
 
-  /** Set true time (SPEC §4.3): shifts the file's whole strip so it lands there. */
-  app.post<{ Body: PinTrueTimeRequest }>('/api/strips/pin-true-time', async (req, reply) => {
+  /**
+   * Set true time (SPEC §4.3): shifts the file's whole strip so it lands there, or
+   * stretches it about its pinned photo when it has one.
+   */
+  app.post<{ Body: SetTrueTimeRequest }>('/api/strips/set-true-time', async (req, reply) => {
     const { fileId, trueLocalIso } = req.body ?? {};
     if (typeof fileId !== 'string' || typeof trueLocalIso !== 'string') {
       return badRequest(reply, 'A file and a true time are needed.');
     }
-    const session = sessions.require();
-    session.strips.pinTrueTime(fileId, trueLocalIso);
+    sessions.require().strips.setTrueTime(fileId, trueLocalIso);
+    return timeline();
+  });
+
+  /** Pin or unpin one photo as having the right time (SPEC §4.3). */
+  app.post<{ Body: PinRequest }>('/api/strips/pin', async (req, reply) => {
+    const { fileId, pinned } = req.body ?? {};
+    if (typeof fileId !== 'string' || typeof pinned !== 'boolean') {
+      return badRequest(reply, 'A file and whether to pin it are needed.');
+    }
+    sessions.require().strips.setPinned(fileId, pinned);
+    return timeline();
+  });
+
+  /** Stretch a strip about its pinned photo so one file lands on an instant (SPEC §4.3). */
+  app.post<{ Params: { id: string }; Body: StretchRequest }>('/api/strips/:id/stretch', async (req, reply) => {
+    const id = parseId(req.params.id);
+    const { fileId, targetEffectiveMs } = req.body ?? {};
+    if (id === null || typeof fileId !== 'string' || typeof targetEffectiveMs !== 'number' || !Number.isFinite(targetEffectiveMs)) {
+      return badRequest(reply, 'A file and the instant it should land on are needed.');
+    }
+    sessions.require().strips.stretch(id, fileId, targetEffectiveMs);
     return timeline();
   });
 

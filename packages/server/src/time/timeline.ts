@@ -1,5 +1,5 @@
 import type { FileId, FileRecord, StripRecord, TimelineFile, UtcOffsetRule } from '@geotagger/shared';
-import { effectiveMs, naiveToMs } from '@geotagger/shared';
+import { effectiveMs, naiveToMs, shiftSecondsAt } from '@geotagger/shared';
 import { displayOffsetFor, dominantOffsetMinutes, resolveUtcOffset } from './utc-offset.js';
 
 /**
@@ -43,7 +43,10 @@ export function buildTimeline(input: TimelineInput): Timeline {
     const stripId = input.assignments[file.id] ?? null;
     const strip = stripId === null ? null : stripsById.get(stripId) ?? null;
     const rawCaptureMs = naiveToMs(file.captureTimeRaw);
-    const offsetSeconds = strip?.offsetSeconds ?? 0;
+    // Evaluated per file: a stretched strip shifts each file by a different amount
+    // (SPEC §4.3), and this is the one place that amount is worked out.
+    const offsetSeconds =
+      strip === null ? 0 : rawCaptureMs === null ? strip.offsetSeconds : shiftSecondsAt(strip, rawCaptureMs);
 
     const correctedNaiveMs = rawCaptureMs === null ? null : rawCaptureMs + offsetSeconds * 1000;
     const resolved = resolveUtcOffset(file, correctedNaiveMs, input.rules, {

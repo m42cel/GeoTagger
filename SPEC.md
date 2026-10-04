@@ -235,11 +235,18 @@ definite number of seconds.
 
 #### The correction itself
 
-A strip carries **one offset**, applied to every file in it alike:
+A strip carries **one correction**, applied to every file in it alike. Usually it is a plain
+offset; a strip whose clock ran fast or slow also carries a **drift** (see *Pinning and
+stretching* below):
 
 ```
-effective(f) = t_f + offset + utc_offset_resolution
+shift(f)     = offset + drift · (t_f − drift_origin)
+effective(f) = t_f + shift(f) + utc_offset_resolution
 ```
+
+`t_f` is the file's raw wall-clock reading, so the line is laid along the camera's own clock;
+`drift_origin` is a raw instant at which the drift term is zero. With `drift = 0` this is the
+plain offset, which is what every strip has until it is stretched.
 
 ```
 ┌◀────────────────────▶┐   grab body → the whole strip shifts
@@ -247,29 +254,32 @@ effective(f) = t_f + offset + utc_offset_resolution
 └──────────────────────┘   offset +1h 02m 12s
 ```
 
-One constant per strip is the entire model. A clock that was wrong by different amounts at
-different times is handled by cutting the strip, not by deforming it: each segment is a strip in
-its own right with an offset of its own. Gradual drift within one segment is deferred — see
-below.
+One linear correction per strip is the entire model. A clock that was wrong by different amounts
+at different times — reset, a battery swapped, a border crossed — is handled by cutting the strip,
+not by deforming it: each segment is a strip in its own right with a correction of its own. Drift
+is only for a clock that ran at the wrong *rate* throughout.
 
 #### Locking and reset
 
 Every strip carries two always-visible controls in its lane header, independent of selection.
 
-**Lock** freezes a strip: no body drag, no cut, no merge, no lane move, no keyboard nudge. Its
-purpose is the device whose clock is already correct — typically a phone — which should never
-move by accident while you are dragging the strips around it.
+**Lock** freezes a strip: no body drag, no stretch, no cut, no merge, no lane move, no keyboard
+nudge, no pinning. Its purpose is the device whose clock is already correct — typically a phone —
+which should never move by accident while you are dragging the strips around it. Lock is about
+the whole strip; *pinning* (below) holds single photos and changes which gesture the strip
+answers to.
 
 A locked strip remains fully functional in every other respect: it is still selectable and
 inspectable, and crucially it is **still a snap target**, so other strips continue to align
 against it. Locking protects it from being changed; it does not remove it from the work.
 
-**Reset** returns a strip to zero offset in one click. It does not undo cuts — segments are
-structure, not correction, and merging them is a separate action. Reset is refused on a locked
-strip, and like every other change it is undoable.
+**Reset** returns a strip to zero offset and zero drift in one click. It does not undo cuts —
+segments are structure, not correction, and merging them is a separate action. Reset is refused
+on a locked strip and on a strip with a pinned photo — it would move a photo the user has said is
+right — and like every other change it is undoable.
 
 A **reset all** control in the view toolbar rebuilds every strip from the current grouping mode,
-discarding cuts, offsets and locks together, with a confirmation.
+discarding cuts, offsets, drift, pins and locks together, with a confirmation.
 
 #### Cutting — more than one offset
 
@@ -277,14 +287,16 @@ A strip can be **cut** at any point on the axis, producing two independently dra
 This handles a camera whose clock changed partway through the trip — a timezone border crossed,
 a battery removed, a manual correction made mid-holiday.
 
-- The cut point splits membership by effective time; both segments inherit the parent's offset,
-  so nothing jumps at the moment of cutting.
+- The cut point splits membership by effective time; both segments inherit the parent's whole
+  correction — offset, drift and its origin — so nothing jumps at the moment of cutting. Pinned
+  photos go with the segment they fall in.
 - Segments stay in the same lane. If dragging makes two segments overlap in time, the moved
   segment is **automatically promoted to its own lane** — because strips in one lane must stay
   ordered. A segment can also be dragged vertically into another lane deliberately.
 - Empty lanes collapse automatically.
 - Two adjacent segments of the same origin can be **merged** again; the result takes the left
-  segment's offset.
+  segment's correction. A merge that would move a pinned photo of the right segment — because
+  the two corrections have since diverged — is refused.
 
 ```
 before cut   SONY │■■■■■■■■■■■■│
@@ -296,34 +308,64 @@ drag the right segment left, past the first:
              SONY │   ■■■■■■■│        ← promoted to a new lane
 ```
 
-#### Pinning a known time
+#### Setting a known time
 
 Right-clicking a photo offers **set true time**: enter the real time of that one photo (from a
 clock in the shot, a departure board, a receipt) and its whole strip shifts so that photo lands
 there. This is the precision path when no other device was present to align against, and it
 applies in both directions — an anchor found in the middle of a bad batch corrects the files
-before it as well as after it.
+before it as well as after it. On a strip with one pinned photo it stretches instead, exactly
+like the align buttons of §6.2. Setting the true time does not pin the photo.
 
-#### Deferred — gradual clock drift
+#### Pinning and stretching — gradual clock drift
 
-An earlier design let a selected strip be **stretched** by handles at its two ends, ramping the
-offset linearly across it. That is exactly linear clock drift, but it is not worth what it cost:
-modern camera clocks do not drift noticeably over the length of a trip, so the gesture is niche —
-and it sat close enough to the strip body that it was easy to start a stretch when a move was
-meant. A gesture that silently smears a correction across hundreds of files is a bad one to hit
-by accident.
+A clock that runs at the wrong rate is a line, not a constant: it can be right at one sunset and
+a minute out at the next. Correcting it needs **two reference points** — two photos whose correct
+times are known — each held exactly in place, with everything between them scaled and everything
+outside them extrapolated along the same line. Stretching from a strip's end without a reference
+does not work: it holds the *other end* fixed, while the point the user actually aligned is
+usually somewhere in the middle and slides away the moment the strip is stretched.
 
-It may come back as a later feature, and if it does, the **reference-point problem has to be
-solved first**. Stretching from one end holds the *other end* fixed, but the point the user has
-actually aligned is usually somewhere in the middle — a shared sunset, a pinned true time — and
-that point slides away from its reference the moment the strip is stretched from either end. The
-honest form of the feature is a linear stretch **between two reference points**: two files whose
-correct times are known, each held exactly in place, with everything between them scaled and
-everything outside them extrapolated along the same line.
+So the reference points are explicit. Any photo can be **pinned** — "this photo's time is right
+now" — and the number of pinned photos in a strip decides which gesture the strip answers to:
 
-**The exact interaction has to be worked out and recorded here before any of it is
-implemented** — how the two reference points are chosen, how they are shown, and how the whole
-gesture is kept plainly distinct from a move.
+| Pinned photos | Body drag, nudge, offset field | Stretch handles | Align / set true time |
+| --- | --- | --- | --- |
+| none | shift the whole strip | hidden | shift |
+| one | refused | shown, pivot on the pin | **stretch** about the pin |
+| two or more | refused | hidden | refused |
+
+- **One pin** holds that photo still and turns the strip into a lever. Handles appear at both
+  ends of the strip while it is selected — a handle sitting on the pinned photo itself is not
+  shown — and dragging one ramps the correction linearly about the pin. Because the body no longer moves, a handle cannot
+  be mistaken for a move: there is no move to mistake it for. Without a pin there are no handles
+  at all, so a stretch is only ever reached on purpose.
+- The align buttons (§6.2) and set true time, applied to a photo of a one-pin strip, **stretch**
+  the strip about its pin so that photo lands where it should, rather than shifting it. The button
+  says so — `stretch` instead of `align` — so nobody is surprised by the difference. Neither pins
+  the photo it just placed: pinning is always the user's own click, so a second pin is a
+  deliberate "this one is right too", never a side effect.
+- **Two pins** determine the line completely. The strip can no longer be moved or stretched;
+  unpinning one of the two is how it is changed again.
+- Pinning and unpinning never move anything. The correction is stored on the strip in its own
+  right (§8.2); pins only decide which gestures change it.
+- A pin only holds against clock corrections. A UTC offset typed in for the strip (§4.2) still
+  applies, since a timezone is a different question from a clock.
+- While stretching, the readout shows the drift as a rate (`+14 s/day`) beside the pinned file's
+  unchanged offset. Snapping pulls towards the photos of other lanes as it does for a move; the
+  whole-minute and whole-hour snaps do not apply, since drift is never a whole unit. `Alt`
+  disables it.
+- A drift beyond ±5 % (≈ ±72 min/day) is refused: no clock is that wrong, and a stretch that far
+  is a handle grabbed a pixel from its pin.
+
+```
+one pin (▼) — handles at the ends, body fixed:
+          ◀▶                 ▼                     ◀▶
+          │■  ■■  ■   ■■■  ■ ■ ■■   ■  ■■■  ■   ■│      drift +14 s/day
+
+stretched onto a second reference and that photo pinned too — the strip is now fixed:
+          │■  ■■  ■   ■■■  ■ ▼ ■■   ■  ■■▼  ■   ■│
+```
 
 ### 4.4 How strips are built
 
@@ -511,8 +553,9 @@ No map. A shared, zoomable time axis with one lane per strip.
                                   09:00    12:00    15:00  18:00
 
  selected: SONY ILCE-7M4 · 896 files · 12–21 Jul
-   offset  [ +1h 02m 12s ]   UTC [ inherited ]   resolves to +02:00 · inherited from GPS
+   offset  [ +1h 02m 12s ]   drift +14 s/day   UTC [ inherited ]   resolves to +02:00 · inherited from GPS
    [ ✂ cut at cursor ]  [ merge ]  [ reset ]
+   IMG_4471.JPG   [ set true time… ]  [ pin ]
 ```
 
 **The UTC offset periods of §4.2 are drawn as a ribbon** between the lanes and the axis. It sits
@@ -559,6 +602,12 @@ shifts the upper strip so its pane's photo lands on the lower pane's photo's tim
 bottom to top** does the reverse. Each is disabled unless both panes hold a photo with a known
 time, and again if the strip it would move is locked — the other pane's strip being locked does
 not stop it. The view recentres on the now-shared instant, keeping the current zoom.
+
+The pins of §4.3 change what a button does to the strip it would move. With one pinned photo in
+that strip the button reads **stretch top to bottom** (or bottom to top) and stretches the strip
+about its pin instead of shifting it; it is disabled when the pane's photo *is* the pin, or when
+the strip already has two. A photo is pinned from the selection panel, beside **set true time**,
+and pinned photos carry a `pinned` badge on their thumbnails in the lanes.
 
 ### 6.3 Map view
 
@@ -743,8 +792,11 @@ devices(id, make, model, serial, label, group_id)
 device_groups(id, label)
 
 strips(id, lane, ordinal, label, grouping_source, parent_strip_id,
-       offset_seconds, locked, created_at)
-strip_files(strip_id, file_id)        -- every file belongs to exactly one strip
+       offset_seconds, drift, drift_origin_ms, locked, created_at)
+       -- shift(f) = offset_seconds + drift · (raw_f − drift_origin_ms) / 1000  (§4.3)
+       -- drift: seconds gained per second of raw time, 0 unless stretched
+       -- drift_origin_ms: a raw instant, NULL while drift is 0
+strip_files(strip_id, file_id, pinned) -- every file belongs to exactly one strip
 
 utc_offset_rules(id, from_utc, to_utc, offset_minutes, source)
 
@@ -762,6 +814,13 @@ oplog(id, ts, file_id, action, before_json, after_json, ok, error)
 
 Unconfirmed estimates are not stored — they are derived. Dragged and confirmed positions are
 stored in `edits` (§5.6).
+
+The same holds for time: a file's clock correction is never stored per file. The strip stores
+its correction as a function, and each file's shift is evaluated from it wherever a time is
+needed — the alignment view, interpolation, the write plan — so a stretch reaches all of them at
+once. A pin is an explicit flag on the file's strip membership rather than anything inferred
+from the correction, so pinning or unpinning never moves a photo, and a cut carries each pin
+into the segment its photo falls in.
 
 ### 8.3 Change detection
 
@@ -999,7 +1058,10 @@ POST   /api/strips/:id/cut             split at a timestamp
 POST   /api/strips/merge               merge two adjacent segments
 POST   /api/strips/:id/lane            move to another lane
 POST   /api/strips/:id/lock            lock / unlock
-POST   /api/strips/:id/reset           zero the offset
+POST   /api/strips/:id/reset           zero the offset and drift
+POST   /api/strips/:id/stretch         stretch about the pin so a file lands on an instant
+POST   /api/strips/pin                 pin / unpin a file
+POST   /api/strips/set-true-time       shift (or stretch) so a file lands on a true time
 POST   /api/strips/reset-all           rebuild every strip from the grouping mode
 POST   /api/persist                    write, with progress stream
 GET    /api/oplog
@@ -1076,12 +1138,17 @@ Focused on the areas where a mistake is silent and expensive:
 - **Timestamp parsing** — every tag variant in §4.1, filename patterns, QuickTime UTC
   conversion, missing and malformed values, mtime fallback.
 - **Strip maths** — constant offsets, cutting at a point (both segments keep the parent's
-  offset, nothing jumps), merging back, degenerate strips with one file or identical timestamps,
+  correction, nothing jumps), merging back, degenerate strips with one file or identical timestamps,
   UTC offset inheritance.
 - **Lane management** — overlap detection after a drag, automatic promotion to a new lane,
   collapse of emptied lanes.
 - **Locking** — a locked strip rejects drag, cut, merge, lane move, nudge and reset, while
   remaining a valid snap target for others.
+- **Pinning and stretching** — a stretch leaves the pinned file exactly in place and lands the
+  stretched file exactly on its target; files between scale and files beyond extrapolate; a
+  one-pin strip refuses shifts, a two-pin strip refuses stretches too; pinning never moves a file;
+  cut and merge carry the correction and the pins without anything jumping; the per-file shift
+  reaches the write plan.
 - **Snapping** — snaps to neighbouring photo times and to whole minutes and hours; the modifier
   disables it.
 - **Interpolation** — great-circle positions, the reachability bound including the documented
@@ -1137,7 +1204,7 @@ form a complete, shippable application with no map in it at all.
 | Phase | Scope |
 | --- | --- |
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
-| **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, pin-true-time, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
+| **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, set true time, pinning and stretching, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
 | **3 — Editing** | Drag (including from the tray, §6.4), confirm, revert, reset, multi-select confirm, status filters (unconfirmed, app-modified — unpersisted waits for phase 4, see §6.3). Extends phase 2's detail panel with the confirm/revert/reset controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert, the map view's "unpersisted" filter (§6.3). *Feature-complete release.* |
@@ -1160,7 +1227,8 @@ form a complete, shippable application with no map in it at all.
 | Per-strip lock | A single designated reference lane | Any strip may need protecting once it is correct, not just one |
 | Drag-to-align strips on a shared axis | Selecting files and typing an offset | Aligning activity patterns is a visual task; one gesture replaces grouping, selection and numeric entry |
 | Proportional time axis | Evenly spaced thumbnails | A drag must correspond to a definite number of seconds, or the metaphor breaks |
-| One constant offset per strip | Stretch handles for linear drift | Modern camera clocks barely drift, and a handle beside the strip body was too easy to grab when a move was meant; deferred to §4.3 with its UI unresolved |
+| Linear drift only about a pinned photo | Free stretch handles at the strip's ends | An end handle holds the wrong point fixed — the aligned photo is usually mid-strip — and sat beside the body where a move was meant; with a pin, the body cannot move, so the handles cannot be mistaken for it |
+| Correction stored per strip, pins as flags | A shift stored per file, or a line derived from the pins | A per-file shift loses that the correction is one line; deriving it from pins would make unpinning move photos |
 | Cut in place, auto-promote on overlap | Every cut opens a new lane | Keeps vertical space compact until overlap actually requires separation |
 | Automatic detection stays advisory | One-click auto-align | The user knows which device is wrong; the app cannot |
 | UTC offset inherited from GPS-bearing files | Derived from a file's own interpolated position | That would be circular for exactly the files that need it |

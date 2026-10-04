@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ClockCorrection,
   FileId,
   FileRecord,
   GroupingMode,
@@ -9,7 +10,13 @@ import type {
 } from '@geotagger/shared';
 import {
   computeSnap,
+  computeStretchSnap,
+  formatDrift,
   formatOffset,
+  MAX_DRIFT,
+  rebaseCorrection,
+  shiftSecondsAt,
+  stretchAbout,
   msToNaive,
   nudgeSeconds,
   originId,
@@ -20,14 +27,21 @@ import {
 } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
-import { alignBottomToTop, alignDisabledReason, alignTopToBottom, type AlignPreviewSlot } from './align-preview.js';
+import {
+  alignBottomToTop,
+  alignDisabledReason,
+  alignTopToBottom,
+  alignVerb,
+  type AlignPreviewAction,
+  type AlignPreviewSlot,
+} from './align-preview.js';
 import { PreviewPane } from './PreviewPane.js';
 import { SelectionPanel, type StripUtcSummary } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import { ZoneRibbon } from './ZoneRibbon.js';
-import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX } from './StripBody.js';
+import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX, type StripFiles } from './StripBody.js';
 import {
   clampToViewport,
   endMs,
@@ -77,8 +91,33 @@ type Drag =
       targetLane: number;
       snap: SnapKind;
     }
+  | {
+      /**
+       * Dragging a stretch handle of a one-pin strip (SPEC §4.3): the pin stays put and
+       * the file under the handle follows the pointer, everything else in proportion.
+       */
+      kind: 'stretch';
+      stripId: number;
+      pointerId: number;
+      startX: number;
+      handle: StretchHandle;
+      /** The strip's correction rebased onto the pin, so only `drift` changes. */
+      base: ClockCorrection;
+      drift: number;
+      snapped: boolean;
+    }
   | { kind: 'pan'; pointerId: number; startX: number; startMs: number }
   | null;
+
+/** One end of a one-pin strip, where a stretch handle sits. */
+interface StretchHandle {
+  side: 'start' | 'end';
+  fileId: FileId;
+  rawMs: number;
+  /** Where the file sits now, before the drag. */
+  effectiveMs: number;
+  pivotRawMs: number;
+}
 
 export function AlignmentView({
   onBack,
@@ -134,6 +173,8 @@ export function AlignmentView({
     targetLane: number;
     shiftPx: number;
   } | null>(null);
+  /** The same for a dropped stretch: drawn at its new drift until the save lands. */
+  const [pendingStretch, setPendingStretch] = useState<{ stripId: number; correction: ClockCorrection } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const widthObserverRef = useRef<ResizeObserver | null>(null);
@@ -274,7 +315,14 @@ export function AlignmentView({
     if (!line || line.effectiveMs === null || line.stripId === null) return null;
     const strip = timeline.strips.find((s) => s.id === line.stripId);
     if (!strip) return null;
-    return { stripId: strip.id, effectiveMs: line.effectiveMs, offsetSeconds: strip.offsetSeconds, locked: strip.locked };
+    return {
+      stripId: strip.id,
+      fileId,
+      effectiveMs: line.effectiveMs,
+      offsetSeconds: strip.offsetSeconds,
+      locked: strip.locked,
+      pinnedFileIds: strip.pinnedFileIds,
+    };
   };
   const topPreviewSlot = useMemo(() => previewSlotFor(previewSlots[0]), [previewSlots, timeline]);
   const bottomPreviewSlot = useMemo(() => previewSlotFor(previewSlots[1]), [previewSlots, timeline]);
@@ -286,25 +334,28 @@ export function AlignmentView({
     () => alignBottomToTop(topPreviewSlot, bottomPreviewSlot),
     [topPreviewSlot, bottomPreviewSlot],
   );
-  const alignTopTitle =
-    alignTopAction !== null
-      ? 'Shift the top strip so this photo lines up with the bottom one'
-      : (alignDisabledReason(topPreviewSlot, bottomPreviewSlot, 'top') ?? '');
-  const alignBottomTitle =
-    alignBottomAction !== null
-      ? 'Shift the bottom strip so this photo lines up with the top one'
-      : (alignDisabledReason(topPreviewSlot, bottomPreviewSlot, 'bottom') ?? '');
+  const alignTitle = (action: AlignPreviewAction | null, moving: 'top' | 'bottom'): string => {
+    const other = moving === 'top' ? 'bottom' : 'top';
+    if (action === null) return alignDisabledReason(topPreviewSlot, bottomPreviewSlot, moving) ?? '';
+    return action.kind === 'stretch'
+      ? `Stretch the ${moving} strip about its pinned photo so this photo lines up with the ${other} one`
+      : `Shift the ${moving} strip so this photo lines up with the ${other} one`;
+  };
 
   /**
    * Runs an align-buttons action: sets the moved strip's offset through the normal
-   * `setOffset` path (so undo covers it exactly like a drag or the offset field), then
+   * `setOffset` path (so undo covers it exactly like a drag or the offset field), or
+   * stretches it about its pin when it has one (SPEC §4.3), then
    * recentres the view on the instant the two preview photos now share, keeping the
    * current zoom.
    */
-  const applyAlign = (action: ReturnType<typeof alignTopToBottom>): void => {
+  const applyAlign = (action: AlignPreviewAction | null): void => {
     if (action === null) return;
-    api
-      .setOffset(action.stripId, action.offsetSeconds)
+    const call =
+      action.kind === 'stretch'
+        ? api.stretch(action.stripId, action.fileId, action.alignedMs)
+        : api.setOffset(action.stripId, action.offsetSeconds);
+    call
       .then((next) => {
         setTimeline(next);
         const span = scale.msPerPx * scale.widthPx;
@@ -314,14 +365,26 @@ export function AlignmentView({
   };
 
   /** Instants of every file outside the dragged strip: what snapping pulls towards. */
+  const draggedStripId = drag?.kind === 'body' || drag?.kind === 'stretch' ? drag.stripId : null;
   const snapTargets = useMemo(() => {
-    if (drag?.kind !== 'body') return [];
+    if (draggedStripId === null) return [];
     const out: number[] = [];
     for (const f of timeline?.files ?? []) {
-      if (f.stripId !== drag.stripId && f.effectiveMs !== null) out.push(f.effectiveMs);
+      if (f.stripId !== draggedStripId && f.effectiveMs !== null) out.push(f.effectiveMs);
     }
     return out.sort((a, b) => a - b);
-  }, [drag?.kind === 'body' ? drag.stripId : null, timeline]);
+  }, [draggedStripId, timeline]);
+
+  /** Where a stretched strip's files are drawn mid-drag or mid-save; see `StripBody`. */
+  const stretchPreview = useMemo((): { stripId: number; instants: number[] } | null => {
+    const shown =
+      drag?.kind === 'stretch'
+        ? { stripId: drag.stripId, correction: { ...drag.base, drift: drag.drift } }
+        : pendingStretch;
+    if (shown === null) return null;
+    const files = stripFiles.get(shown.stripId);
+    return files ? { stripId: shown.stripId, instants: restretched(files, shown.correction) } : null;
+  }, [drag, pendingStretch, stripFiles]);
 
   // ---- dragging ----------------------------------------------------------
 
@@ -332,7 +395,9 @@ export function AlignmentView({
     // works if the canvas has focus — which a click on a plain element does not
     // reliably give it.
     canvasRef.current?.focus();
-    if (strip.locked || pendingMove?.stripId === strip.id) return;
+    // A pinned strip's body stays put; one pin moves it by its stretch handles instead
+    // (SPEC §4.3).
+    if (strip.locked || strip.pinnedFileIds.length > 0 || pendingMove?.stripId === strip.id) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({
       kind: 'body',
@@ -349,6 +414,24 @@ export function AlignmentView({
     });
   };
 
+  const startStretch = (e: React.PointerEvent, strip: StripRecord, handle: StretchHandle): void => {
+    e.stopPropagation();
+    setSelectedStripId(strip.id);
+    canvasRef.current?.focus();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const base = rebaseCorrection(strip, handle.pivotRawMs);
+    setDrag({
+      kind: 'stretch',
+      stripId: strip.id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      handle,
+      base,
+      drift: base.drift,
+      snapped: false,
+    });
+  };
+
   const onPointerMove = (e: React.PointerEvent): void => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) setCursorMs(msAt(scale, e.clientX - rect.left));
@@ -359,6 +442,29 @@ export function AlignmentView({
 
     if (drag.kind === 'pan') {
       setScale((s) => ({ ...s, startMs: drag.startMs - dx * s.msPerPx }));
+      return;
+    }
+
+    if (drag.kind === 'stretch') {
+      // The file under the handle follows the pointer; the pin does not move.
+      const { handle, base } = drag;
+      const candidate = stretchAbout(base, handle.pivotRawMs, handle.rawMs, (dx * scale.msPerPx) / 1000);
+      if (candidate === null) return;
+      const files = stripFiles.get(drag.stripId);
+      const moving = files === undefined ? [] : sampleStretched(files, candidate, 200);
+      const snap = computeStretchSnap({
+        candidateDrift: candidate.drift,
+        pivotRawMs: handle.pivotRawMs,
+        handleRawMs: handle.rawMs,
+        moving,
+        targetMs: snapTargets,
+        toleranceMs: snapToleranceMs(scale.msPerPx),
+        enabled: !snapDisabled && !e.altKey,
+      });
+      // Held inside what the server accepts, so the preview never shows a stretch that
+      // would be refused on drop.
+      const drift = Math.max(-MAX_DRIFT, Math.min(MAX_DRIFT, snap.drift));
+      setDrag({ ...drag, drift, snapped: snap.snapped && drift === snap.drift });
       return;
     }
 
@@ -390,6 +496,25 @@ export function AlignmentView({
     const finished = drag;
     setDrag(null);
     if (finished.kind === 'pan') return;
+
+    if (finished.kind === 'stretch') {
+      if (finished.drift === finished.base.drift) return;
+      const correction = { ...finished.base, drift: finished.drift };
+      const { handle } = finished;
+      const targetMs = handle.effectiveMs + (shiftSecondsAt(correction, handle.rawMs) - shiftSecondsAt(finished.base, handle.rawMs)) * 1000;
+      setPendingStretch({ stripId: finished.stripId, correction });
+      api
+        .stretch(finished.stripId, handle.fileId, targetMs)
+        .then((next) => {
+          setTimeline(next);
+          setPendingStretch(null);
+        })
+        .catch((err: unknown) => {
+          setError(errorText(err));
+          setPendingStretch(null);
+        });
+      return;
+    }
 
     const moved = Math.round(finished.deltaSeconds) !== 0;
     const laneChanged = finished.targetLane !== finished.lane;
@@ -446,6 +571,8 @@ export function AlignmentView({
 
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
+    // A pinned strip does not shift (SPEC §4.3).
+    if (selectedStrip.pinnedFileIds.length > 0) return;
     const step = nudgeSeconds({ shift: e.shiftKey, ctrlOrMeta: e.ctrlKey || e.metaKey });
     const delta = e.key === 'ArrowLeft' ? -step : step;
     run(api.setOffset(selectedStrip.id, selectedStrip.offsetSeconds + delta));
@@ -512,16 +639,20 @@ export function AlignmentView({
     setSelectedFileIds(new Set());
   };
 
-  const pin = (fileId: FileId): void => {
+  const setTrueTime = (fileId: FileId): void => {
     const line = timeline?.files.find((f) => f.id === fileId);
     if (!line || line.effectiveMs === null || timeline === null) return;
+    const strip = timeline.strips.find((s) => s.id === line.stripId);
     const current = msToNaive(line.effectiveMs + line.utcOffsetMinutes * MINUTE_MS).replace('T', ' ');
     const answer = window.prompt(
-      `What time was ${fileById.get(fileId)?.filename ?? 'this file'} really taken?\nIts whole strip will shift so it lands there.`,
+      `What time was ${fileById.get(fileId)?.filename ?? 'this file'} really taken?\n` +
+        (strip !== undefined && strip.pinnedFileIds.length > 0
+          ? 'Its strip will stretch about the pinned photo so it lands there.'
+          : 'Its whole strip will shift so it lands there.'),
       current,
     );
     if (answer === null) return;
-    run(api.pinTrueTime(fileId, answer.trim().replace(' ', 'T')));
+    run(api.setTrueTime(fileId, answer.trim().replace(' ', 'T')));
   };
 
   const mergeTargetId = useMemo(() => nextSegmentId(timeline?.strips ?? [], selectedStrip), [timeline, selectedStrip]);
@@ -689,6 +820,10 @@ export function AlignmentView({
               <div className="lane-row" key={laneIndex} style={{ height: STRIP_LANE_ROW_PX }}>
                 {lane.map((strip) => {
                   const dragging = drag?.kind === 'body' && drag.stripId === strip.id ? drag : null;
+                  const stretched = stretchPreview?.stripId === strip.id ? stretchPreview.instants : undefined;
+                  // Only on the selected strip, so a stray grab never starts a stretch.
+                  const handles =
+                    selectedStripId === strip.id ? stretchHandles(strip, stripFiles.get(strip.id), timeline.files) : [];
                   const pending = pendingMove?.stripId === strip.id ? pendingMove : null;
                   const active = dragging ?? pending;
                   const shiftPx = active?.shiftPx ?? 0;
@@ -696,22 +831,35 @@ export function AlignmentView({
                   return (
                     <div
                       key={strip.id}
-                      className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${pending ? ' pending' : ''}`}
+                      className={`strip-layer${selectedStripId === strip.id ? ' selected' : ''}${strip.locked ? ' locked' : ''}${strip.pinnedFileIds.length > 0 ? ' pinned' : ''}${pending ? ' pending' : ''}`}
                       style={{ transform: `translate(${shiftPx}px, ${laneShift}px)` }}
                     >
                       <div
                         className="strip-hit"
-                        style={hitStyle(strip, scale)}
+                        style={hitStyle(strip, scale, stretched)}
                         onPointerDown={(e) => startBodyDrag(e, strip)}
                         onClick={() => setSelectedStripId(strip.id)}
                       />
+                      {pendingStretch === null &&
+                        handles.map((handle) => (
+                          <button
+                            type="button"
+                            key={handle.side}
+                            className="stretch-handle"
+                            style={handleStyle(handle, scale, stretched)}
+                            title="Stretch about the pinned photo (Alt: no snapping)"
+                            onPointerDown={(e) => startStretch(e, strip, handle)}
+                          />
+                        ))}
                       <StripBody
                         stripFiles={stripFiles.get(strip.id)}
+                        stretchedInstants={stretched}
                         scale={scale}
                         fileById={fileById}
                         selectedFileIds={selectedFileIds}
+                        pinnedFileIds={strip.pinnedFileIds}
                         onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
-                        onPinFile={pin}
+                        onSetTrueTime={setTrueTime}
                       />
                     </div>
                   );
@@ -721,6 +869,16 @@ export function AlignmentView({
 
             {markMs !== null && <div className="cut-marker" style={{ left: xOf(scale, markMs) }} />}
             {cursorMs !== null && <div className="cursor-line" style={{ left: xOf(scale, cursorMs) }} />}
+
+            {drag?.kind === 'stretch' && (
+              <div
+                className="drag-readout"
+                style={{ left: clamp(xOf(scale, cursorMs ?? scale.startMs), 90, scale.widthPx - 90) }}
+              >
+                drift {formatDrift(drag.drift)}
+                {drag.snapped && <em> snapped to a photo</em>}
+              </div>
+            )}
 
             {drag?.kind === 'body' && (
               <div
@@ -755,15 +913,16 @@ export function AlignmentView({
         </div>
 
         <PreviewPane
-          topFileId={previewSlots[0]}
-          bottomFileId={previewSlots[1]}
-          fileById={fileById}
+          top={previewSlots[0] === null ? null : (fileById.get(previewSlots[0]) ?? null)}
+          bottom={previewSlots[1] === null ? null : (fileById.get(previewSlots[1]) ?? null)}
+          topVerb={alignVerb(topPreviewSlot)}
+          bottomVerb={alignVerb(bottomPreviewSlot)}
           onAlignTopToBottom={() => applyAlign(alignTopAction)}
           topAlignDisabled={alignTopAction === null}
-          topAlignTitle={alignTopTitle}
+          topAlignTitle={alignTitle(alignTopAction, 'top')}
           onAlignBottomToTop={() => applyAlign(alignBottomAction)}
           bottomAlignDisabled={alignBottomAction === null}
-          bottomAlignTitle={alignBottomTitle}
+          bottomAlignTitle={alignTitle(alignBottomAction, 'bottom')}
         />
       </div>
 
@@ -780,7 +939,12 @@ export function AlignmentView({
         onReset={() => selectedStrip && run(api.resetStrip(selectedStrip.id))}
         utcSummary={utcSummary}
         onSetUtcOffset={(minutes) => selectedStrip && run(api.setStripUtcOffset(selectedStrip.id, minutes))}
-        onPin={() => selectedFileId !== null && pin(selectedFileId)}
+        onSetTrueTime={() => selectedFileId !== null && setTrueTime(selectedFileId)}
+        onTogglePin={() =>
+          selectedFileId !== null &&
+          selectedStrip !== null &&
+          run(api.setPinned(selectedFileId, !selectedStrip.pinnedFileIds.includes(selectedFileId)))
+        }
       />
     </section>
   );
@@ -790,13 +954,74 @@ function clamp(v: number, lo: number, hi: number): number {
   return hi < lo ? lo : v < lo ? lo : v > hi ? hi : v;
 }
 
-function hitStyle(strip: StripRecord, scale: TimeScale): React.CSSProperties {
-  if (strip.firstEffectiveMs === null || strip.lastEffectiveMs === null) {
+function hitStyle(strip: StripRecord, scale: TimeScale, stretched?: readonly number[]): React.CSSProperties {
+  const first = stretched?.[0] ?? strip.firstEffectiveMs;
+  const last = stretched?.[stretched.length - 1] ?? strip.lastEffectiveMs;
+  if (first === null || last === null) {
     return { display: 'none' };
   }
-  const left = clampToViewport(xOf(scale, strip.firstEffectiveMs), scale.widthPx) - STRIP_PAD_PX;
-  const right = clampToViewport(xOf(scale, strip.lastEffectiveMs), scale.widthPx) + STRIP_PAD_PX;
+  const left = clampToViewport(xOf(scale, first), scale.widthPx) - STRIP_PAD_PX;
+  const right = clampToViewport(xOf(scale, last), scale.widthPx) + STRIP_PAD_PX;
   return { left, width: Math.max(8, right - left) };
+}
+
+const HANDLE_PX = 8;
+
+/**
+ * The stretch handles a strip shows: one at each end, but only on a strip with exactly
+ * one pinned photo, and never on the pin itself (SPEC §4.3).
+ */
+function stretchHandles(
+  strip: StripRecord,
+  files: StripFiles | undefined,
+  lines: readonly TimelineFile[],
+): StretchHandle[] {
+  if (strip.locked || strip.pinnedFileIds.length !== 1 || files === undefined) return [];
+  const pinId = strip.pinnedFileIds[0];
+  const pivotRawMs = lines.find((f) => f.id === pinId)?.rawCaptureMs ?? null;
+  if (pivotRawMs === null) return [];
+  const ends: [StretchHandle['side'], TimelineFile | undefined][] = [
+    ['start', files.files[0]],
+    ['end', files.files[files.files.length - 1]],
+  ];
+  const out: StretchHandle[] = [];
+  for (const [side, file] of ends) {
+    if (file === undefined || file.id === pinId || file.rawCaptureMs === null || file.effectiveMs === null) continue;
+    if (file.rawCaptureMs === pivotRawMs) continue;
+    out.push({ side, fileId: file.id, rawMs: file.rawCaptureMs, effectiveMs: file.effectiveMs, pivotRawMs });
+  }
+  return out;
+}
+
+/** A handle sits just outside its end file's frame, inside the strip's padding. */
+function handleStyle(handle: StretchHandle, scale: TimeScale, stretched?: readonly number[]): React.CSSProperties {
+  const ms = stretched === undefined ? handle.effectiveMs : handle.side === 'start' ? stretched[0] : stretched[stretched.length - 1];
+  const x = xOf(scale, ms ?? handle.effectiveMs);
+  return { left: handle.side === 'start' ? x - STRIP_PAD_PX : x + STRIP_PAD_PX - HANDLE_PX };
+}
+
+/**
+ * Where a strip's files land under a different correction, in the same order: each
+ * moves by the change in its own shift, its UTC offset left as it was.
+ */
+function restretched(files: StripFiles, correction: ClockCorrection): number[] {
+  return files.files.map((f) =>
+    f.rawCaptureMs === null
+      ? (f.effectiveMs as number)
+      : (f.effectiveMs as number) + (shiftSecondsAt(correction, f.rawCaptureMs) - f.offsetSeconds) * 1000,
+  );
+}
+
+/** An even sample of a strip's files under a candidate stretch, for snapping. */
+function sampleStretched(files: StripFiles, correction: ClockCorrection, max: number): { rawMs: number; ms: number }[] {
+  const step = Math.max(1, files.files.length / max);
+  const out: { rawMs: number; ms: number }[] = [];
+  for (let i = 0; i < files.files.length; i += step) {
+    const f = files.files[Math.floor(i)] as TimelineFile;
+    if (f.rawCaptureMs === null || f.effectiveMs === null) continue;
+    out.push({ rawMs: f.rawCaptureMs, ms: f.effectiveMs + (shiftSecondsAt(correction, f.rawCaptureMs) - f.offsetSeconds) * 1000 });
+  }
+  return out;
 }
 
 function boundsOf(timeline: TimelineResponse | null): { fromMs: number; toMs: number } | null {
