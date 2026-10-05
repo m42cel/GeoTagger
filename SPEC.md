@@ -42,7 +42,7 @@ locally on the Mac against a local folder.
 | Frontend | TypeScript + React | Shares the domain model with the backend |
 | Map | Leaflet, raster tiles | Mature draggable-HTML-marker, polyline, circle and clustering ecosystem; trivial file-based tile caching |
 | Metadata | ExifTool via `exiftool-vendored` | Keeps ExifTool alive in `-stay_open` mode; normalises timestamp and GPS representations |
-| Images | `sharp` (libvips), with ExifTool preview extraction first | Preview extraction avoids full decodes on weak CPUs |
+| Images | `vipsthumbnail` (system libvips), with ExifTool preview extraction first | Preview extraction and libvips' shrink-on-load avoid full decodes on weak CPUs |
 | Video | `ffmpeg` (frame grab), ExifTool (metadata) | |
 | Persistence | SQLite (`better-sqlite3`) | Per-folder edit store and file index |
 | Packaging | Docker image, linux/arm64 + linux/amd64 | NAS deployment; all native dependencies baked in |
@@ -1059,9 +1059,9 @@ containers that ExifTool can only partially support. Everything else stays in pl
    the camera's (§9.3).
 5. Generate thumbnails in the background, lowest-cost path first:
    - extract an embedded preview (`-b -PreviewImage` / `-ThumbnailImage`) when present;
-   - otherwise decode and downscale with `sharp`;
-   - HEIC falls back to ffmpeg if the bundled libvips cannot decode it (to be verified at build
-     time — see §14);
+   - otherwise render the file with `vipsthumbnail` from the system libvips, which decodes a
+     JPEG at reduced size and uses a HEIC's own embedded thumbnail when it is large enough;
+   - ffmpeg as the last resort for a still libvips cannot read (see §14);
    - video: ffmpeg frame grab at ~10% of duration, clamped to 1–5 s.
 6. Two cached tiers: `thumb` 160 px (eager) and `preview` 1280 px (on demand).
 
@@ -1154,7 +1154,7 @@ services:
     restart: unless-stopped
 ```
 
-Image: `node:26-bookworm-slim` plus `exiftool` (and perl), `ffmpeg`, `libheif`. Built for
+Image: `node:26-trixie-slim` plus `exiftool` (and perl), `ffmpeg`, `libvips-tools` and libheif's HEVC plugin. Built for
 `linux/arm64` and `linux/amd64`.
 
 Local use:
@@ -1205,6 +1205,10 @@ Focused on the areas where a mistake is silent and expensive:
    The designed mitigation holds — embedded preview extraction first, ffmpeg as fallback — but
    it needs **ffmpeg 7.1**, which decodes HEIF stills; bookworm's 5.1 does not. The image base
    is therefore `node:26-trixie-slim` rather than bookworm.
+   **Revised after phase 2:** sharp's prebuilt libvips needs SSE4.1 and crashes on load on older
+   x86 CPUs, so images are now rendered by Debian's own `vipsthumbnail`, with
+   `libheif-plugin-libde265` for HEIC. ffmpeg 7.1 turned out to decode only the first tile of
+   a tiled HEIC, so it is now only the fallback for what libvips cannot read.
 2. **OSM tile policy** — the default provider forbids bulk downloading, so "pre-download area"
    is disabled for it and PMTiles is the offline route. Terms should be re-checked before
    release.

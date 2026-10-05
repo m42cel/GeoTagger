@@ -21,8 +21,8 @@ Phase 0, the foundation:
 - capture-time resolution by the precedence of SPEC §4.1, with the winning source
   recorded and shown per file
 - device identification, and strip grouping by device or by subfolder
-- thumbnails: embedded-preview extraction first, `sharp` second, ffmpeg for video
-  frames and as the HEIC fallback — all rendered the right way up, including the
+- thumbnails: embedded-preview extraction first, `vipsthumbnail` second, ffmpeg for
+  video frames and as the last resort — all rendered the right way up, including the
   embedded previews that carry no orientation of their own
 - the per-folder SQLite edit store in `.geotagger/`, with size+mtime change detection
 
