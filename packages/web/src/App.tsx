@@ -41,7 +41,10 @@ export function App() {
   return (
     <div className="app">
       <header className="app-bar">
-        <span className="brand">GeoTagger</span>
+        <span className="brand">
+          <img src="/favicon.svg" alt="" />
+          GeoTagger
+        </span>
         {session && (
           <>
             <span className="crumb">{session.relPath === '' ? '(photo root)' : session.relPath}</span>

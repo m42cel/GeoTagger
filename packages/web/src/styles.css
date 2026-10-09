@@ -70,7 +70,8 @@ body {
 }
 
 /* As tall as the bar's button (a line, 5px padding and 1px border each side), so the bar keeps its height when the button appears. */
-.brand { min-height: calc(1lh + 12px); display: inline-flex; align-items: center; font-weight: 650; letter-spacing: 0.01em; }
+.brand { min-height: calc(1lh + 12px); display: inline-flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: 0.01em; }
+.brand img { width: 22px; height: 22px; }
 .crumb { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app-bar .ghost { margin-left: auto; }
 
