@@ -9,7 +9,8 @@ const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
 
 /**
  * The strips a folder was grouped into (SPEC §4.4), as a plain list. Correcting the
- * clocks happens in the alignment view; this is the overview beside the file grid.
+ * clocks happens in the alignment view; this is the overview beside the file grid,
+ * which calls strips "groups".
  */
 export function StripList({
   strips,
@@ -20,11 +21,11 @@ export function StripList({
   devices: DeviceRecord[];
   onRegroup: (mode: GroupingMode) => void;
 }) {
-  if (!strips) return <div className="panel"><h2>Strips</h2><p className="muted">Loading…</p></div>;
+  if (!strips) return <div className="panel"><h2>Groups</h2><p className="muted">Loading…</p></div>;
 
   return (
     <div className="panel">
-      <h2>Strips · {strips.strips.length}</h2>
+      <h2>Groups · {strips.strips.length}</h2>
 
       <div className="modes">
         {MODES.map(({ mode, label, hint }) => (

@@ -220,8 +220,17 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 /* ---- panels ---- */
 
-.panels { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; align-items: start; }
+/*
+ * The panels take the rest of `main`'s height so the file column scrolls in place,
+ * keeping the group list and the selected file's details beside it on screen.
+ * `flex: 1` alone does that because nothing inside has a tall natural height:
+ * `.file-scroll-inner` is positioned out of the flow, so the grid never pushes `.app`
+ * past the viewport.
+ */
+.panels { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; align-items: start; flex: 1; min-height: 0; }
 @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+
+.side-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 
@@ -253,6 +262,26 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .devices summary { cursor: pointer; color: var(--muted); }
 
 /* ---- file grid ---- */
+
+.file-column { align-self: stretch; display: flex; flex-direction: column; min-height: 0; }
+.file-scroll { position: relative; flex: 1; min-height: 240px; }
+.file-scroll-inner { position: absolute; inset: 0; overflow-y: auto; }
+
+.file-group + .file-group { margin-top: 12px; }
+.file-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.file-group-head .chevron { margin-left: auto; flex: none; color: var(--muted); }
+.file-group-head:hover .chevron { color: inherit; }
+.file-group .grid { margin-top: 12px; }
 
 .grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 
@@ -301,16 +330,14 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .badge.kind { left: 10px; }
 
 .detail {
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
+  margin: 0;
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: 110px minmax(0, 1fr);
   gap: 4px 12px;
   font-size: 13px;
 }
 .detail dt { color: var(--muted); }
-.detail dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.detail dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .detail em { font-style: normal; color: var(--muted); }
 
 /* ---- startup question (SPEC §6.1) ---- */
