@@ -37,7 +37,7 @@ import {
 } from './align-preview.js';
 import { PreviewPane } from './PreviewPane.js';
 import { LaneHeader } from './LaneHeader.js';
-import { SelectionPanel } from './SelectionPanel.js';
+import { parseLocalTime, SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
@@ -53,10 +53,13 @@ import {
   scaleForZoom,
   xOf,
   zoomAbout,
+  ZOOM_SPANS,
   type TimeScale,
   type ZoomLevel,
 } from './scale.js';
 import { nextWheelAxis, normaliseWheelDelta, wheelZoomFactor, type WheelGestureState } from './wheel-gesture.js';
+import { countOf } from '../plural.js';
+import { useDialog } from '../Dialog.js';
 
 /**
  * The alignment view (SPEC §4.3, §6.2).
@@ -121,15 +124,19 @@ interface StretchHandle {
 }
 
 export function AlignmentView({
+  focusFileId,
   onBack,
   onOpenPersist,
   onOpenMap,
 }: {
+  /** A file to open on: centred at the hour zoom, and selected. */
+  focusFileId: FileId | null;
   onBack: () => void;
   onOpenPersist: () => void;
   onOpenMap: () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
+  const { dialog, confirm, prompt } = useDialog();
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -261,12 +268,21 @@ export function AlignmentView({
 
   const bounds = useMemo(() => boundsOf(timeline), [timeline]);
 
-  // The first render with real data fits the whole trip; after that the user's zoom
-  // is theirs to keep, and reloading strips must not throw it away.
+  // The first render with real data fits the whole trip, or centres on the focus file;
+  // after that the user's zoom is theirs to keep, and reloading strips must not throw
+  // it away.
   useEffect(() => {
     if (fittedRef.current || bounds === null || scale.widthPx < 50) return;
     fittedRef.current = true;
-    setScale((s) => scaleForSpan(bounds, s.widthPx));
+    const focus = timeline?.files.find((f) => f.id === focusFileId);
+    const focusMs = focus?.effectiveMs ?? null;
+    if (focusMs === null) {
+      setScale((s) => scaleForSpan(bounds, s.widthPx));
+    } else {
+      const span = ZOOM_SPANS.hour;
+      setScale((s) => ({ ...s, msPerPx: span / s.widthPx, startMs: focusMs - span / 2 }));
+    }
+    if (focus && focus.stripId !== null) selectFile(focus.id, focus.stripId, false);
   }, [bounds, scale.widthPx]);
 
   const stripFiles = useMemo(() => buildStripFiles(timeline?.files ?? []), [timeline]);
@@ -601,16 +617,27 @@ export function AlignmentView({
 
   // ---- actions -----------------------------------------------------------
 
-  const regroup = (mode: GroupingMode): void => {
+  const regroup = async (mode: GroupingMode): Promise<void> => {
     if (
       (timeline?.strips.length ?? 0) > 0 &&
-      !window.confirm(
-        'Switching grouping mode rebuilds every strip from scratch, discarding cuts and clock offsets. Continue?',
-      )
+      !(await confirm({
+        title: 'Switch grouping mode?',
+        message: 'Every strip is rebuilt from scratch, discarding cuts and clock offsets. Undo brings them back.',
+        confirmLabel: 'Rebuild strips',
+      }))
     ) {
       return;
     }
     run(api.regroup(mode));
+  };
+
+  const resetAll = async (): Promise<void> => {
+    const ok = await confirm({
+      title: 'Reset all strips?',
+      message: 'Every strip is rebuilt from the grouping mode, discarding cuts, offsets and locks. Undo brings them back.',
+      confirmLabel: 'Reset all',
+    });
+    if (ok) run(api.resetAll());
   };
 
   /** Dragging the empty background pans the axis; strips stop this from firing. */
@@ -651,29 +678,36 @@ export function AlignmentView({
     });
   };
 
-  const makeStripFromSelection = (): void => {
+  const makeStripFromSelection = async (): Promise<void> => {
     const ids = [...selectedFileIds];
     if (ids.length === 0) return;
-    const label = window.prompt(`Name this strip of ${ids.length} file${ids.length === 1 ? '' : 's'}`, 'Selection');
+    const label = await prompt({
+      title: `Name this strip of ${countOf(ids.length, 'file')}`,
+      initial: 'Selection',
+      confirmLabel: 'Make strip',
+    });
     if (label === null) return;
     run(api.stripFromSelection(ids, label));
     setSelectedFileIds(new Set());
   };
 
-  const setTrueTime = (fileId: FileId): void => {
+  const setTrueTime = async (fileId: FileId): Promise<void> => {
     const line = timeline?.files.find((f) => f.id === fileId);
     if (!line || line.effectiveMs === null || timeline === null) return;
     const strip = timeline.strips.find((s) => s.id === line.stripId);
     const current = msToNaive(line.effectiveMs + line.utcOffsetMinutes * MINUTE_MS).replace('T', ' ');
-    const answer = window.prompt(
-      `What time was ${fileById.get(fileId)?.filename ?? 'this file'} really taken?\n` +
-        (strip !== undefined && strip.pinnedFileIds.length > 0
+    const answer = await prompt({
+      title: `What time was ${fileById.get(fileId)?.filename ?? 'this file'} really taken?`,
+      message:
+        strip !== undefined && strip.pinnedFileIds.length > 0
           ? 'Its strip will stretch about the pinned photo so it lands there.'
-          : 'Its whole strip will shift so it lands there.'),
-      current,
-    );
+          : 'Its whole strip will shift so it lands there.',
+      initial: current,
+      confirmLabel: 'Set time',
+      validate: (value) => (parseLocalTime(value) === null ? 'Enter a time like 2024-07-12 15:34:22.' : null),
+    });
     if (answer === null) return;
-    run(api.setTrueTime(fileId, answer.trim().replace(' ', 'T')));
+    run(api.setTrueTime(fileId, parseLocalTime(answer) as string));
   };
 
   /** The selected strip's neighbours in its family — what the merge arrows merge with. */
@@ -723,15 +757,16 @@ export function AlignmentView({
   return (
     // Any click or drag is the next action, and dismisses the last one's refusal.
     <section className="alignment" onPointerDownCapture={() => setError(null)}>
+      {dialog}
       <div className="align-toolbar">
         <label>
           grouping
           <select
             value={timeline.groupingMode}
-            onChange={(e) => regroup(e.target.value as GroupingMode)}
+            onChange={(e) => void regroup(e.target.value as GroupingMode)}
           >
-            <option value="device">by device</option>
             <option value="subfolder">by subfolder</option>
+            <option value="device">by device</option>
           </select>
         </label>
 
@@ -776,9 +811,9 @@ export function AlignmentView({
           className="ghost"
           disabled={selectedFileIds.size === 0}
           title="Make one strip out of the files picked with Ctrl-click"
-          onClick={makeStripFromSelection}
+          onClick={() => void makeStripFromSelection()}
         >
-          {selectedFileIds.size === 0 ? 'strip from selection' : `strip from ${selectedFileIds.size} files`}
+          {selectedFileIds.size === 0 ? 'strip from selection' : `strip from ${countOf(selectedFileIds.size, 'file')}`}
         </button>
         <button type="button" className="ghost" disabled={!timeline.canUndo} onClick={() => run(api.undoStrips())}>
           undo
@@ -786,11 +821,7 @@ export function AlignmentView({
         <button
           type="button"
           className="ghost"
-          onClick={() => {
-            if (window.confirm('Rebuild every strip from the grouping mode, discarding cuts, offsets and locks?')) {
-              run(api.resetAll());
-            }
-          }}
+          onClick={() => void resetAll()}
         >
           reset all
         </button>
@@ -801,7 +832,7 @@ export function AlignmentView({
           Back to files
         </button>
         <button type="button" className="ghost" onClick={onOpenPersist}>
-          Persist changes…
+          Persist changes
         </button>
       </div>
 

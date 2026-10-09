@@ -107,7 +107,7 @@ export function DetailPanel({
   );
 }
 
-function DetailPreview({ file }: { file: FileRecord }) {
+export function DetailPreview({ file }: { file: FileRecord }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [file.id]);
 

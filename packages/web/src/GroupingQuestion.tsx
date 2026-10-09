@@ -1,4 +1,6 @@
 import type { DeviceRecord, FileRecord, GroupingMode } from '@geotagger/shared';
+import { countOf } from './plural.js';
+import { previewGroups } from './grouping-preview.js';
 
 /**
  * The initial grouping question of SPEC §4.4, asked once per folder before any strip
@@ -14,9 +16,8 @@ export function GroupingQuestion({
   devices: DeviceRecord[];
   onChoose: (mode: GroupingMode) => void;
 }) {
-  const deviceLabel = new Map(devices.map((d) => [d.id, d.label]));
-  const byDevice = countBy(files, (f) => f.deviceId ?? '');
-  const bySubfolder = countBy(files, subfolderKey);
+  const bySubfolder = previewGroups('subfolder', files, devices);
+  const byDevice = previewGroups('device', files, devices);
 
   return (
     <div className="question-card">
@@ -29,12 +30,12 @@ export function GroupingQuestion({
 
       <div className="grouping-options">
         <section>
-          <h2>{bySubfolder.size} subfolder{bySubfolder.size === 1 ? '' : 's'} found</h2>
+          <h2>{bySubfolder.length} subfolder{bySubfolder.length === 1 ? '' : 's'} found</h2>
           <ul>
-            {[...bySubfolder.entries()].map(([key, count]) => (
-              <li key={key || '(root)'}>
-                {key === '' ? 'Folder root' : key}
-                <span className="muted"> · {count.toLocaleString()} files</span>
+            {bySubfolder.map(({ key, label, count }) => (
+              <li key={key}>
+                {label}
+                <span className="muted"> · {countOf(count, 'file')}</span>
               </li>
             ))}
           </ul>
@@ -46,10 +47,10 @@ export function GroupingQuestion({
         <section>
           <h2>{devices.length} device{devices.length === 1 ? '' : 's'} found</h2>
           <ul>
-            {[...byDevice.entries()].map(([id, count]) => (
-              <li key={id || '(none)'}>
-                {id ? deviceLabel.get(id) ?? 'Unknown camera' : 'No device info'}
-                <span className="muted"> · {count.toLocaleString()} files</span>
+            {byDevice.map(({ key, label, count }) => (
+              <li key={key}>
+                {label}
+                <span className="muted"> · {countOf(count, 'file')}</span>
               </li>
             ))}
           </ul>
@@ -60,19 +61,4 @@ export function GroupingQuestion({
       </div>
     </div>
   );
-}
-
-function countBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const item of items) {
-    const key = keyOf(item);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
-/** The immediate parent directory, relative to the folder root — mirrors the server's grouping key. */
-function subfolderKey(file: FileRecord): string {
-  const i = file.relPath.lastIndexOf('/');
-  return i === -1 ? '' : file.relPath.slice(0, i);
 }

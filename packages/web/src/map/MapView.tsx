@@ -57,7 +57,16 @@ const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution
   },
 };
 
-export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenPersist: () => void }) {
+export function MapView({
+  focusFileId,
+  onBack,
+  onOpenPersist,
+}: {
+  /** A file to open on: zoomed to and selected. */
+  focusFileId: FileId | null;
+  onBack: () => void;
+  onOpenPersist: () => void;
+}) {
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +76,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
   const [showAppModified, setShowAppModified] = useState(true);
   const [showUnpersisted, setShowUnpersisted] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
-  const [selectedId, setSelectedId] = useState<FileId | null>(null);
+  const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
   const [busy, setBusy] = useState(false);
 
@@ -619,8 +628,15 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
 
     if (!didFitRef.current && onMap.length > 0) {
       didFitRef.current = true;
-      const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      // A focus file that has no position, or is filtered out, opens on the whole trip.
+      const focus = markers.find((m) => m.geotaggerFileId === focusFileId);
+      if (focus) {
+        map.setView(focus.getLatLng(), 16, { animate: false });
+        cluster.zoomToShowLayer(focus);
+      } else {
+        const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      }
     }
   }, [visibleOnMap, path, showCircles]);
 
@@ -656,7 +672,7 @@ export function MapView({ onBack, onOpenPersist }: { onBack: () => void; onOpenP
           ← Back
         </button>
         <button type="button" className="ghost" onClick={onOpenPersist}>
-          Persist changes…
+          Persist changes
         </button>
         <div className="chip-group">
           {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((id) => (

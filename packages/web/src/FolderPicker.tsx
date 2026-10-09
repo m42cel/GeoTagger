@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FolderEntry, FolderListing, RecentFolder } from '@geotagger/shared';
 import { api } from './api.js';
 import { errorText } from './App.js';
+import { countOf } from './plural.js';
 
 /**
  * The server-side folder browser of SPEC §6.1, with media counts and a recent list.
@@ -46,7 +47,7 @@ export function FolderPicker({ onOpen }: { onOpen: (relPath: string) => void }) 
                 <button type="button" className="link" onClick={() => onOpen(r.relPath)}>
                   {r.relPath === '' ? '(photo root)' : r.relPath}
                 </button>
-                <span className="muted"> · {r.fileCount.toLocaleString()} files</span>
+                <span className="muted"> · {countOf(r.fileCount, 'file')}</span>
               </li>
             ))}
           </ul>

@@ -41,6 +41,12 @@ export function FolderView({
   // view, which unmounts the grid; a reload starts with every group expanded again.
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<number | null>>(() => new Set());
   const [selectedFileId, setSelectedFileId] = useState<FileId | null>(null);
+  /** The file the map or alignment view opens on, when opened from a file's details. */
+  const [focusFileId, setFocusFileId] = useState<FileId | null>(null);
+  const openView = (next: 'alignment' | 'map', focus: FileId | null = null): void => {
+    setFocusFileId(focus);
+    setView(next);
+  };
 
   // Kept current across renders so the scan-stream effect below — which only resubscribes
   // on a folder change, not on every session update — can still see the latest answer when
@@ -162,7 +168,11 @@ export function FolderView({
             }}
           />
         )}
-        <MapView onBack={() => setView('files')} onOpenPersist={() => setPersisting(true)} />
+        <MapView
+          focusFileId={focusFileId}
+          onBack={() => setView('files')}
+          onOpenPersist={() => setPersisting(true)}
+        />
       </section>
     );
   }
@@ -179,9 +189,10 @@ export function FolderView({
           />
         )}
         <AlignmentView
+          focusFileId={focusFileId}
           onBack={() => setView('files')}
           onOpenPersist={() => setPersisting(true)}
-          onOpenMap={() => setView('map')}
+          onOpenMap={() => openView('map')}
         />
       </section>
     );
@@ -204,14 +215,14 @@ export function FolderView({
       )}
 
       <div className="view-actions">
-        <button type="button" className="primary" onClick={() => setView('map')}>
+        <button type="button" className="primary" onClick={() => openView('map')}>
           Open map
         </button>
-        <button type="button" className="ghost" onClick={() => setView('alignment')}>
+        <button type="button" className="ghost" onClick={() => openView('alignment')}>
           Fix timestamps
         </button>
         <button type="button" className="ghost" onClick={() => setPersisting(true)}>
-          Persist changes…
+          Persist changes
         </button>
       </div>
 
@@ -226,9 +237,14 @@ export function FolderView({
 
       <div className="panels">
         <div className="side-column">
-          <StripList strips={strips} devices={data?.devices ?? []} onRegroup={regroup} />
+          <StripList strips={strips} files={data?.files ?? []} devices={data?.devices ?? []} onRegroup={regroup} />
           {selectedFile && (
-            <FileDetail file={selectedFile} stripId={strips?.assignments[selectedFile.id] ?? null} />
+            <FileDetail
+              file={selectedFile}
+              stripId={strips?.assignments[selectedFile.id] ?? null}
+              onShowInAlignment={() => openView('alignment', selectedFile.id)}
+              onShowOnMap={() => openView('map', selectedFile.id)}
+            />
           )}
         </div>
         <FileGrid

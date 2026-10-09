@@ -1,4 +1,6 @@
 import type { CaptureTimeSource, FileId, FileRecord, StripsResponse } from '@geotagger/shared';
+import { countOf } from './plural.js';
+import { DetailPreview } from './map/DetailPanel.js';
 
 /**
  * The scanned files, with the capture time and — per SPEC §4.1 — the source it came
@@ -37,7 +39,6 @@ export function FileGrid({
 
   return (
     <div className="file-column">
-      <h2>Files · {files.length.toLocaleString()}</h2>
       <div className="file-scroll">
         <div className="file-scroll-inner">
           {groupFiles(files, strips).map(({ stripId, label, files: members }) => {
@@ -51,7 +52,7 @@ export function FileGrid({
                   onClick={() => onToggle(stripId)}
                 >
                   <span className="strip-label">{label}</span>
-                  <span className="muted">{members.length.toLocaleString()} files</span>
+                  <span className="muted">{countOf(members.length, 'file')}</span>
                   <Chevron open={open} />
                 </button>
                 {open && (
@@ -154,35 +155,56 @@ function Tile({ file, selected, onSelect }: { file: FileRecord; selected: boolea
 }
 
 /** The selected file's details, shown below the group list. */
-export function FileDetail({ file, stripId }: { file: FileRecord; stripId: number | null }) {
+export function FileDetail({
+  file,
+  stripId,
+  onShowInAlignment,
+  onShowOnMap,
+}: {
+  file: FileRecord;
+  stripId: number | null;
+  onShowInAlignment: () => void;
+  onShowOnMap: () => void;
+}) {
   return (
-    <dl className="panel detail">
-      <dt>Path</dt>
-      <dd>{file.relPath}</dd>
-      <dt>Capture time</dt>
-      <dd>
-        {formatTime(file.captureTimeRaw)} <em>{SOURCE_LABEL[file.captureTimeSource]}</em>
-      </dd>
-      <dt>UTC offset</dt>
-      <dd>
-        {file.captureUtcOffsetMinutes === null
-          ? 'unknown — inherited in phase 1'
-          : formatOffset(file.captureUtcOffsetMinutes)}
-      </dd>
-      <dt>Camera GPS</dt>
-      <dd>
-        {file.origGpsPresent
-          ? `${file.origLat?.toFixed(5)}, ${file.origLon?.toFixed(5)}`
-          : 'none'}
-      </dd>
-      <dt>Dimensions</dt>
-      <dd>
-        {file.width && file.height ? `${file.width} × ${file.height}` : 'unknown'}
-        {file.durationMs !== null ? ` · ${(file.durationMs / 1000).toFixed(1)} s` : ''}
-      </dd>
-      <dt>Group</dt>
-      <dd>{stripId === null ? 'unassigned' : `#${stripId}`}</dd>
-    </dl>
+    <div className="panel grid-detail">
+      <DetailPreview file={file} />
+      <dl className="detail">
+        <dt>Path</dt>
+        <dd>{file.relPath}</dd>
+        <dt>Capture time</dt>
+        <dd>
+          {formatTime(file.captureTimeRaw)} <em>{SOURCE_LABEL[file.captureTimeSource]}</em>
+        </dd>
+        <dt>UTC offset</dt>
+        <dd>
+          {file.captureUtcOffsetMinutes === null
+            ? 'unknown — inherited in phase 1'
+            : formatOffset(file.captureUtcOffsetMinutes)}
+        </dd>
+        <dt>Camera GPS</dt>
+        <dd>
+          {file.origGpsPresent
+            ? `${file.origLat?.toFixed(5)}, ${file.origLon?.toFixed(5)}`
+            : 'none'}
+        </dd>
+        <dt>Dimensions</dt>
+        <dd>
+          {file.width && file.height ? `${file.width} × ${file.height}` : 'unknown'}
+          {file.durationMs !== null ? ` · ${(file.durationMs / 1000).toFixed(1)} s` : ''}
+        </dd>
+        <dt>Group</dt>
+        <dd>{stripId === null ? 'unassigned' : `#${stripId}`}</dd>
+      </dl>
+      <div className="detail-jumps">
+        <button type="button" className="ghost" onClick={onShowInAlignment}>
+          Show in alignment view
+        </button>
+        <button type="button" className="ghost" onClick={onShowOnMap}>
+          Show on map
+        </button>
+      </div>
+    </div>
   );
 }
 

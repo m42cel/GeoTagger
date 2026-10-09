@@ -69,7 +69,8 @@ body {
   z-index: 2;
 }
 
-.brand { font-weight: 650; letter-spacing: 0.01em; }
+/* As tall as the bar's button (a line, 5px padding and 1px border each side), so the bar keeps its height when the button appears. */
+.brand { min-height: calc(1lh + 12px); display: inline-flex; align-items: center; font-weight: 650; letter-spacing: 0.01em; }
 .crumb { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app-bar .ghost { margin-left: auto; }
 
@@ -162,7 +163,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .picker { max-width: 860px; }
 .recent { margin-bottom: 20px; }
-.recent ul, .folder-list, .strips, .devices ul { list-style: none; margin: 0; padding: 0; }
+.recent ul, .folder-list, .strips { list-style: none; margin: 0; padding: 0; }
 .recent li { padding: 3px 0; }
 
 .browser { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -227,39 +228,32 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
  * `.file-scroll-inner` is positioned out of the flow, so the grid never pushes `.app`
  * past the viewport.
  */
-.panels { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; align-items: start; flex: 1; min-height: 0; }
+.panels { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; gap: 16px; align-items: start; flex: 1; min-height: 0; }
 @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
 
 .side-column { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
 
-.modes { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-.mode { background: var(--bg); border: 1px solid var(--line); color: inherit; padding: 5px 10px; }
-.mode.active { border-color: var(--accent); color: var(--accent); }
-.mode:disabled { opacity: 0.45; cursor: not-allowed; }
+/* The active mode's real groups beside a preview of what the other mode would build. */
+.mode-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mode-column { min-width: 0; }
+.mode-column + .mode-column { border-left: 1px solid var(--line); padding-left: 14px; }
+.mode-column:not(.active) .strips { opacity: 0.6; }
+.mode { background: var(--bg); border: 1px solid var(--line); color: inherit; padding: 5px 10px; margin-bottom: 2px; }
+/* The active mode's button is disabled but keeps its accent, marking which mode is in use. */
+.mode.active { border-color: var(--accent); color: var(--accent); cursor: default; }
 
 .strips li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 8px;
-  padding: 7px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 0;
   border-bottom: 1px solid var(--line);
 }
 .strips li:last-child { border-bottom: none; }
-.lane {
-  grid-row: span 2;
-  align-self: center;
-  font-size: 11px;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 2px 6px;
-}
-.strip-label { font-weight: 550; }
+.strip-label { font-weight: 550; overflow-wrap: anywhere; }
 
-.devices { margin-top: 12px; }
-.devices summary { cursor: pointer; color: var(--muted); }
 
 /* ---- file grid ---- */
 
@@ -329,16 +323,22 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .badge.gps { right: 10px; }
 .badge.kind { left: 10px; }
 
+.grid-detail { container-type: inline-size; }
+/* A square at most, so a portrait preview gets no more room than a landscape one. */
+.detail-jumps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.grid-detail .detail-preview { max-height: 100cqw; margin-bottom: 12px; }
+
 .detail {
   margin: 0;
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 4px 12px;
   font-size: 13px;
 }
 .detail dt { color: var(--muted); }
 .detail dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.detail em { font-style: normal; color: var(--muted); }
+/* The source after a capture time is a word, not a value, so it drops the monospace to keep the line short. */
+.detail em { font-style: normal; color: var(--muted); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 /* ---- startup question (SPEC §6.1) ---- */
 
@@ -984,6 +984,21 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 .modal.persist-modal { width: min(1200px, 100%); }
+
+.modal.dialog-modal { width: min(440px, 100%); }
+.dialog-message { margin: 8px 0 0; color: var(--muted); }
+.dialog-input {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+}
+.dialog-error { margin: 6px 0 0; font-size: 13px; }
 
 .persist-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .persist-toggles { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
