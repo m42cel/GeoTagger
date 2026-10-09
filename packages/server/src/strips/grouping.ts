@@ -51,7 +51,7 @@ export function buildStrips(
   return built.map((s, i) => ({ label: s.label, lane: i, ordinal: 0, fileIds: s.fileIds }));
 }
 
-export const UNKNOWN_DEVICE_LABEL = 'Unknown camera';
+export const UNKNOWN_DEVICE_LABEL = 'Unknown device';
 export const ROOT_FOLDER_LABEL = 'Folder root';
 
 function deviceKey(file: FileRecord): string {

@@ -252,6 +252,6 @@ export function deviceLabel(make: string | null, model: string | null, serial: s
   const parts: string[] = [];
   if (make && !(model?.toLowerCase().startsWith(make.toLowerCase()))) parts.push(make);
   if (model) parts.push(model);
-  if (parts.length === 0) return serial ? `Unknown camera (${serial})` : 'Unknown camera';
+  if (parts.length === 0) return serial ? `Unknown device (${serial})` : 'Unknown device';
   return parts.join(' ');
 }
