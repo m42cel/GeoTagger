@@ -118,9 +118,9 @@ export class StripService {
    * Rebuilds every strip from a grouping mode, discarding cuts, offsets and locks.
    * The UI warns first; this is also what "reset all" runs.
    */
-  regroup(mode: GroupingMode, options: { fileIds?: readonly FileId[]; label?: string } = {}): void {
+  regroup(mode: GroupingMode): void {
     this.pushUndo();
-    this.rebuild(mode, options);
+    this.rebuild(mode);
   }
 
   /**
@@ -132,25 +132,21 @@ export class StripService {
     this.rebuild(mode);
   }
 
-  private rebuild(mode: GroupingMode, options: { fileIds?: readonly FileId[]; label?: string } = {}): void {
-    if (mode === 'manual') {
-      this.makeManualStrip(options.fileIds ?? [], options.label);
-      return;
-    }
+  private rebuild(mode: GroupingMode): void {
     const built = buildStrips(mode, this.store.listFiles(), this.store.listDevices());
     this.store.replaceStrips(mode, built);
   }
 
   /**
-   * Makes one strip out of a hand-picked selection (SPEC §4.4, "Manual").
+   * Makes one strip out of a hand-picked selection (SPEC §4.4), in any grouping mode.
    *
    * The files come out of whatever strips they were in, so a camera whose EXIF names
    * no device can be assembled by hand; strips left empty are removed, and the lanes
    * are settled again around the new one.
    */
-  private makeManualStrip(fileIds: readonly FileId[], label?: string): void {
-    this.store.groupingMode = 'manual';
+  stripFromSelection(fileIds: readonly FileId[], label?: string): void {
     if (fileIds.length === 0) return;
+    this.pushUndo();
     this.store.transact(() => {
       // A pin vouches for a file's time under its strip's correction; the new strip
       // starts from none, so the promise does not survive the move.
@@ -246,8 +242,7 @@ export class StripService {
 
   /** Rebuilds every strip from the current grouping mode, discarding everything. */
   resetAll(): void {
-    const mode = this.store.groupingMode;
-    this.regroup(mode === 'manual' ? 'subfolder' : mode);
+    this.regroup(this.store.groupingMode);
   }
 
   setUtcOffsetOverride(id: number, minutes: number | null): void {

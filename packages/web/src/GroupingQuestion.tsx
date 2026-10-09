@@ -12,7 +12,7 @@ export function GroupingQuestion({
 }: {
   files: FileRecord[];
   devices: DeviceRecord[];
-  onChoose: (mode: Exclude<GroupingMode, 'manual'>) => void;
+  onChoose: (mode: GroupingMode) => void;
 }) {
   const deviceLabel = new Map(devices.map((d) => [d.id, d.label]));
   const byDevice = countBy(files, (f) => f.deviceId ?? '');

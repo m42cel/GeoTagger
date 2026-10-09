@@ -15,12 +15,9 @@ export interface BuiltStrip {
  * produces one strip per device or per subfolder, holding that group's files in
  * capture order. Each strip gets its own lane, because two devices shooting on the
  * same trip overlap in time and strips within a lane may not (SPEC §3).
- *
- * `manual` yields nothing on its own — the user builds those strips by selecting
- * files — so it is handled by the caller rather than here.
  */
 export function buildStrips(
-  mode: Exclude<GroupingMode, 'manual'>,
+  mode: GroupingMode,
   files: FileRecord[],
   devices: DeviceRecord[],
 ): BuiltStrip[] {

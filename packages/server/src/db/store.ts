@@ -9,6 +9,7 @@ import type {
   FileId,
   FileRecord,
   GroupingMode,
+  StripSource,
   MediaKind,
   OplogEntry,
   StripRecord,
@@ -234,8 +235,9 @@ export class FolderStore {
     return this.getMeta('folder_id') ?? '';
   }
 
+  /** A folder last opened while `manual` was still a mode reads as the default. */
   get groupingMode(): GroupingMode {
-    return (this.getMeta('grouping_mode') as GroupingMode | null) ?? 'subfolder';
+    return this.getMeta('grouping_mode') === 'device' ? 'device' : 'subfolder';
   }
 
   set groupingMode(mode: GroupingMode) {
@@ -475,7 +477,7 @@ export class FolderStore {
       lane: r.lane,
       ordinal: r.ordinal,
       label: r.label,
-      groupingSource: r.grouping_source as GroupingMode,
+      groupingSource: r.grouping_source as StripSource,
       parentStripId: r.parent_strip_id,
       offsetSeconds: r.offset_seconds,
       drift: r.drift,
@@ -602,14 +604,14 @@ export class FolderStore {
    *
    * `strip_files` has `file_id` as its primary key — every file belongs to exactly
    * one strip (SPEC §8.2) — so the insert replaces whatever membership existed, which
-   * is what cutting, merging and manual grouping all need.
+   * is what cutting, merging and making a strip from a selection all need.
    */
   createStrip(
     strip: {
       label: string;
       lane: number;
       ordinal: number;
-      groupingSource: GroupingMode;
+      groupingSource: StripSource;
       parentStripId?: number | null;
       correction?: ClockCorrection;
       locked?: boolean;

@@ -651,12 +651,12 @@ export function AlignmentView({
     });
   };
 
-  const makeManualStrip = (): void => {
+  const makeStripFromSelection = (): void => {
     const ids = [...selectedFileIds];
     if (ids.length === 0) return;
     const label = window.prompt(`Name this strip of ${ids.length} file${ids.length === 1 ? '' : 's'}`, 'Selection');
     if (label === null) return;
-    run(api.regroup('manual', ids, label));
+    run(api.stripFromSelection(ids, label));
     setSelectedFileIds(new Set());
   };
 
@@ -732,7 +732,6 @@ export function AlignmentView({
           >
             <option value="device">by device</option>
             <option value="subfolder">by subfolder</option>
-            <option value="manual">manual</option>
           </select>
         </label>
 
@@ -777,7 +776,7 @@ export function AlignmentView({
           className="ghost"
           disabled={selectedFileIds.size === 0}
           title="Make one strip out of the files picked with Ctrl-click"
-          onClick={makeManualStrip}
+          onClick={makeStripFromSelection}
         >
           {selectedFileIds.size === 0 ? 'strip from selection' : `strip from ${selectedFileIds.size} files`}
         </button>

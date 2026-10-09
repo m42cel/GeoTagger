@@ -1,7 +1,10 @@
 import type { FileId } from './media.js';
 
 /** How the initial strips are formed (SPEC §4.4). */
-export type GroupingMode = 'device' | 'subfolder' | 'manual';
+export type GroupingMode = 'device' | 'subfolder';
+
+/** Where a strip came from: a grouping mode, or a hand-picked selection. */
+export type StripSource = GroupingMode | 'manual';
 
 /**
  * A contiguous set of files sharing one clock correction (SPEC §3).
@@ -15,7 +18,7 @@ export interface StripRecord {
   lane: number;
   ordinal: number;
   label: string;
-  groupingSource: GroupingMode;
+  groupingSource: StripSource;
   /**
    * The strip this one was cut from, or null for an uncut strip.
    *

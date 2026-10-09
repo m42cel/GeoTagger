@@ -445,7 +445,7 @@ describe('pinning and stretching (SPEC §4.3)', () => {
   it('drops pins on files moved into a hand-made strip', () => {
     const [, f10] = sonyFiles as [FileId, FileId];
     service.setPinned(f10, true);
-    service.regroup('manual', { fileIds: [f10], label: 'Picked' });
+    service.stripFromSelection([f10], 'Picked');
     expect(stripFor('Picked').pinnedFileIds).toEqual([]);
   });
 });
@@ -475,10 +475,11 @@ describe('grouping (SPEC §4.4)', () => {
   it('makes a strip out of a hand-picked selection', () => {
     service.regroup('device');
     const ids = store.listFiles().map((f) => f.id);
-    service.regroup('manual', { fileIds: [ids[0] as FileId, ids[2] as FileId], label: 'Borrowed camera' });
-    const strips = service.strips().strips;
+    service.stripFromSelection([ids[0] as FileId, ids[2] as FileId], 'Borrowed camera');
+    const { strips, groupingMode } = service.strips();
     expect(strips.find((s) => s.label === 'Borrowed camera')?.fileCount).toBe(2);
     expect(strips.reduce((n, s) => n + s.fileCount, 0)).toBe(3);
+    expect(groupingMode).toBe('device');
   });
 
   it('puts everything back with reset all, and undo restores the work', () => {

@@ -98,7 +98,7 @@ export function FolderView({
   }, []);
 
   const chooseGrouping = useCallback(
-    (mode: Exclude<GroupingMode, 'manual'>) => {
+    (mode: GroupingMode) => {
       api
         .answerGroupingQuestion(mode)
         .then((s) => {

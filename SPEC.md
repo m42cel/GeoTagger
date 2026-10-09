@@ -395,10 +395,13 @@ is not made blind:
 | --- | --- |
 | **By subfolder** (default) | Directory structure — useful when files were already sorted by camera or by person |
 | **By device** | `Make` / `Model` / `SerialNumber` from EXIF |
-| **Manual** | Select files and make a strip from them — not offered at startup, only from the alignment view |
 
-Strips can also be split and merged by hand regardless of mode, for cameras with missing or
-unhelpful EXIF identification.
+Strips can also be split and merged by hand regardless of mode, and a strip can be made from a
+hand-picked selection of files in the alignment view, for cameras with missing or unhelpful EXIF
+identification. Making one does not change the grouping mode.
+
+A rescan that finds new, changed or missing files rebuilds the strips from the grouping mode, so
+it discards hand-made strips along with cuts and offsets.
 
 Switching grouping mode rebuilds the strips from scratch, discarding cuts and offsets. The user
 is warned, and the change is undoable.
@@ -539,7 +542,6 @@ Consequences:
    [ Group by subfolder ]
    ```
 
-   Manual grouping is not offered here — it is built by hand afterwards, in the alignment view.
    The answer is recorded, so reopening the folder later does not ask again; the mode can still be
    changed at any time from the alignment view's grouping control (§4.4), which rebuilds the strips
    from scratch and warns before doing so.
@@ -1086,7 +1088,8 @@ POST   /api/edits/bulk                 multi-select confirm
 GET    /api/devices                    device groups
 POST   /api/devices/regroup            split / merge
 GET    /api/strips                     lanes, strips, offsets
-POST   /api/strips/regroup             rebuild from device / subfolder / manual
+POST   /api/strips/regroup             rebuild from device / subfolder
+POST   /api/strips/from-selection      make one strip from picked files
 POST   /api/strips/:id/offset          set the strip's offset
 POST   /api/strips/:id/cut             split at a timestamp
 POST   /api/strips/merge               merge two adjacent segments

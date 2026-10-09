@@ -4,7 +4,6 @@ import { formatOffset } from '@geotagger/shared';
 const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
   { mode: 'subfolder', label: 'By subfolder', hint: 'Useful when already sorted by camera or person' },
   { mode: 'device', label: 'By device', hint: 'Make, model and serial from EXIF' },
-  { mode: 'manual', label: 'Manual', hint: 'Pick the files in the alignment view and make a strip from them' },
 ];
 
 /**
@@ -34,9 +33,6 @@ export function StripList({
             type="button"
             className={`mode${strips.groupingMode === mode ? ' active' : ''}`}
             title={hint}
-            // A manual strip is made from a selection, and the selection is made on
-            // the time axis — there is nothing to select here.
-            disabled={mode === 'manual' && strips.groupingMode !== 'manual'}
             onClick={() => {
               // Switching mode rebuilds from scratch, discarding cuts and offsets
               // (SPEC §4.4), so the user is warned before it happens.
