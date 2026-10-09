@@ -1,10 +1,18 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { FFMPEG_BIN, orientationFilter, pruneStaleThumbTiers, thumbPath, TIER_SIZE } from './generator.js';
+import {
+  FFMPEG_BIN,
+  orientationFilter,
+  pruneStaleThumbTiers,
+  thumbPath,
+  TIER_SIZE,
+  VIPSTHUMBNAIL_BIN,
+  vipsThumbnail,
+} from './generator.js';
 
 const JPEG = { quality: 100, chromaSubsampling: '4:4:4' } as const;
 
@@ -119,6 +127,41 @@ describe('orientationFilter', () => {
       const out = await ffmpegOrient(src, orientationFilter(value));
       expect(await quadrants(out)).toBe('RGBW');
     }
+  });
+});
+
+/** The Docker image installs it; a development machine may not have libvips at all. */
+const hasVips = !spawnSync(VIPSTHUMBNAIL_BIN, ['--version']).error;
+
+describe.skipIf(!hasVips)('vipsThumbnail', () => {
+  async function render(src: Buffer, size: number): Promise<Buffer> {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'geotagger-vips-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'in.jpg'), src);
+      await vipsThumbnail(path.join(dir, 'in.jpg'), path.join(dir, 'out.jpg'), size);
+      return fs.readFileSync(path.join(dir, 'out.jpg'));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('fits the long edge to the tier and applies the file\'s own orientation', async () => {
+    const src = await sharp(await probe())
+      .resize(600, 400, { kernel: 'nearest' })
+      .withMetadata({ orientation: 6 })
+      .jpeg(JPEG)
+      .toBuffer();
+    const out = await render(src, 256);
+    const { width, height, orientation } = await sharp(out).metadata();
+    expect([width, height]).toEqual([171, 256]);
+    expect(orientation ?? 1).toBe(1);
+    expect(await quadrants(out)).toBe('BRWG');
+  });
+
+  it('never enlarges an image smaller than the tier', async () => {
+    const out = await render(await probe(), 256);
+    const { width, height } = await sharp(out).metadata();
+    expect([width, height]).toEqual([120, 120]);
   });
 });
 

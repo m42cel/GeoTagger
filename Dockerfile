@@ -40,19 +40,20 @@ RUN npm prune --omit=dev
 FROM node:26-trixie-slim AS runtime
 WORKDIR /app
 
-# perl   — ExifTool is a Perl program
-# ffmpeg — thumbnail resizing (see packages/server/src/thumbs/generator.ts), video
-#          frame grabs, and the HEIC decoder (see below)
+# perl           — ExifTool is a Perl program
+# libvips-tools  — vipsthumbnail, which renders image thumbnails (see
+#                  packages/server/src/thumbs/generator.ts)
+# libheif-plugin-libde265 — the HEVC decoder libvips needs for HEIC; Debian ships it
+#                  as a separate plugin that --no-install-recommends would leave out
+# ffmpeg         — video frame grabs, and the fallback for any still libvips cannot read
 #
-# SPEC §14 risk 1, resolved: HEIC needs an HEVC decoder, which is why thumbnailing
-# goes through ffmpeg rather than a bundled libvips (whose own HEIC support is
-# typically built without one for licensing reasons). Debian trixie's ffmpeg 7.1
-# decodes HEVC — bookworm's 5.1 cannot, which is why the base is trixie.
-# Embedded-preview extraction still runs first and handles most HEIC files without
-# decoding anything.
+# Debian's libvips rather than the one sharp bundles: sharp's prebuilt binary is
+# compiled for SSE4.1 and dies with SIGILL on older x86 CPUs, while Debian's targets
+# the plain x86-64 baseline. ffmpeg stays on trixie's 7.1, which decodes HEIF stills —
+# bookworm's 5.1 cannot.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      perl ffmpeg ca-certificates tini \
+      perl libvips-tools libheif-plugin-libde265 ffmpeg ca-certificates tini \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
@@ -76,8 +77,8 @@ COPY --from=builder /app/packages/web/dist         ./packages/web/dist
 VOLUME ["/photos", "/cache"]
 EXPOSE 8080
 
-# tini reaps the ExifTool and ffmpeg children, which would otherwise accumulate as
-# zombies under PID 1 across a long scan.
+# tini reaps the ExifTool, vipsthumbnail and ffmpeg children, which would otherwise
+# accumulate as zombies under PID 1 across a long scan.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "packages/server/dist/cli.js"]
 

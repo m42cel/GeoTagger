@@ -87,10 +87,11 @@ export function pruneAllThumbTiers(thumbsDir: string): void {
 /**
  * Renders one thumbnail, taking the lowest-cost path that works (SPEC §10.1 step 5).
  *
- * The order matters on a weak ARM CPU: an embedded preview is a JPEG already in the
- * file and costs a read plus a downscale, while decoding a 48-megapixel HEIC costs
- * seconds. ffmpeg is the last resort for images because the bundled libvips may lack
- * HEVC-based HEIC support (SPEC §14 risk 1).
+ * The order matters on a weak CPU: an embedded preview is a JPEG already in the file
+ * and costs a read plus a downscale. Failing that, vipsthumbnail renders the file
+ * itself without a full decode where the format allows it — a JPEG is decoded at a
+ * fraction of its size, and a HEIC's own embedded thumbnail is used when it is big
+ * enough. ffmpeg is the last resort, for whatever the system libvips cannot read.
  */
 export async function generateThumb(
   absPath: string,
@@ -102,35 +103,37 @@ export async function generateThumb(
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const size = TIER_SIZE[tier];
 
-  const embedded = file.kind === 'video' ? null : await extractEmbeddedPreview(absPath, size);
-  const source =
-    file.kind === 'video'
-      ? await grabVideoFrame(absPath, file.durationMs)
-      : (embedded ?? (await readWhole(absPath)));
+  // ffmpeg applies a video's display matrix itself, so the frame needs no orientation.
+  if (file.kind === 'video') {
+    await downscale(await grabVideoFrame(absPath, file.durationMs), target, size, null);
+    return target;
+  }
 
   // An embedded preview is a bare JPEG with no EXIF of its own, so nothing in it says
-  // which way up it goes — the orientation lives on the parent file. ffmpeg already
-  // applies a video's display matrix, and a whole image carries its own tag, so the
-  // parent's orientation is needed for exactly the embedded-preview case.
-  const fallbackOrientation = embedded ? file.orientation : null;
+  // which way up it goes — the orientation lives on the parent file.
+  const embedded = await extractEmbeddedPreview(absPath, size);
+  if (embedded) {
+    try {
+      await downscale(embedded, target, size, file.orientation);
+      return target;
+    } catch {
+      // a broken preview; render the file itself
+    }
+  }
 
   try {
-    await downscale(source, target, size, fallbackOrientation);
+    await vipsThumbnail(absPath, target, size);
     return target;
   } catch (err) {
-    if (file.kind === 'video') throw err;
-    // libvips could not decode it — most likely HEIC without HEVC support, which the
-    // bundled libvips may lack for licensing reasons (SPEC §14 risk 1). ffmpeg can
-    // usually still decode it.
     try {
       // ffmpeg does not apply EXIF orientation to a still, so pass the parent's.
       const decoded = await decodeStill(absPath);
       await downscale(decoded, target, size, file.orientation);
       return target;
     } catch (fallbackErr) {
-      // Report both, or a HEIC that neither can decode looks like an ffmpeg problem.
+      // Report both, or an image that neither can decode looks like an ffmpeg problem.
       throw new Error(
-        `could not render ${file.relPath}: libvips said "${message(err)}"; ffmpeg said "${message(fallbackErr)}"`,
+        `could not render ${file.relPath}: vipsthumbnail said "${message(err)}"; ffmpeg said "${message(fallbackErr)}"`,
       );
     }
   }
@@ -141,14 +144,12 @@ function message(err: unknown): string {
 }
 
 /**
- * Resizes to `size` and writes a JPEG, the right way up.
+ * Resizes a decoded frame or an embedded preview to `size` with ffmpeg and writes a
+ * JPEG, the right way up.
  *
- * `-autorotate` (ffmpeg's default) applies the orientation carried by the input
- * buffer itself, which covers a whole image read off disk. When the input has
- * none — an extracted preview, or an ffmpeg-decoded still — `fallbackOrientation`
- * supplies the parent file's value and the transform is applied explicitly. The
- * two never overlap in practice: callers only pass a non-null fallback for a
- * buffer they know carries no tag of its own (see generateThumb).
+ * None of the buffers this sees carries an orientation of its own, so
+ * `fallbackOrientation` supplies the parent file's value and the transform is
+ * applied explicitly.
  *
  * `min(size,i{w,h})` clamps the fit box to the source itself, so
  * force_original_aspect_ratio=decrease — which shrinks to fit but does not
@@ -225,14 +226,43 @@ async function extractEmbeddedPreview(absPath: string, size: number): Promise<Bu
   return null;
 }
 
-async function readWhole(absPath: string): Promise<Buffer> {
-  return fs.promises.readFile(absPath);
+export const VIPSTHUMBNAIL_BIN = process.env.VIPSTHUMBNAIL_PATH ?? 'vipsthumbnail';
+
+/**
+ * Renders an image file straight to `target` with the system libvips.
+ *
+ * Debian's libvips is used rather than the one sharp bundles: sharp's prebuilt
+ * binary needs SSE4.1 and dies with SIGILL on older x86 CPUs, while the
+ * distribution's build targets the plain x86-64 baseline and picks faster code
+ * paths at runtime.
+ *
+ * The `>` on the size only ever shrinks, so a source smaller than the tier is kept
+ * at its own size. vipsthumbnail applies the file's own orientation by default, and
+ * `keep=icc` drops everything but the colour profile, so a wide-gamut iPhone photo
+ * keeps its colours without the thumbnail carrying the original's full EXIF block.
+ */
+export function vipsThumbnail(absPath: string, target: string, size: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(
+      VIPSTHUMBNAIL_BIN,
+      [absPath, '--size', `${size}x${size}>`, '-o', `${target}[Q=85,keep=icc]`],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    let stderr = '';
+    proc.stderr.on('data', (c: Buffer) => {
+      stderr += c.toString();
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`vipsthumbnail failed (exit ${code}): ${stderr.trim().slice(0, 200)}`));
+    });
+  });
 }
 
 /**
- * Decodes a still image ffmpeg understands but libvips does not — in practice HEIC,
- * whose HEVC decoder the bundled libvips lacks (SPEC §14 risk 1). No seeking: a
- * still has one frame, and `-ss` on it only wastes a process.
+ * Decodes a still image ffmpeg understands but the system libvips does not. No
+ * seeking: a still has one frame, and `-ss` on it only wastes a process.
  */
 async function decodeStill(absPath: string): Promise<Buffer> {
   return runFfmpeg([
