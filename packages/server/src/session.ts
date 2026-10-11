@@ -63,8 +63,7 @@ export class Session {
   }
 
   /**
-   * Brings strips up to date after a scan, unless grouping is manual — rebuilding
-   * there would throw away the strips the user built by hand.
+   * Brings strips up to date after a scan.
    *
    * A rebuild is needed not only for files that have no strip yet, but also when a
    * file *changed*: its capture time may have moved, and strips are ordered by their
@@ -84,7 +83,6 @@ export class Session {
 
     if (!this.store.groupingModeAnswered) return;
     const mode = this.store.groupingMode;
-    if (mode === 'manual') return;
     const summary = this.scanner.getStatus().summary;
     const contentMoved = summary !== null && (summary.added > 0 || summary.changed > 0 || summary.missing > 0);
     if (this.store.listStrips().length === 0 || this.store.unassignedFileIds().length > 0 || contentMoved) {

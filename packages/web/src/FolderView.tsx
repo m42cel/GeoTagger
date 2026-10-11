@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  FileId,
   FilesResponse,
   GroupingMode,
   ScanStatus,
@@ -9,7 +10,7 @@ import type {
 import { api, subscribeScan } from './api.js';
 import { errorText } from './App.js';
 import { ScanProgress } from './ScanProgress.js';
-import { FileGrid } from './FileGrid.js';
+import { FileDetail, FileGrid } from './FileGrid.js';
 import { StripList } from './StripList.js';
 import { GroupingQuestion } from './GroupingQuestion.js';
 import { TimestampQuestion } from './TimestampQuestion.js';
@@ -36,6 +37,16 @@ export function FolderView({
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>(() => initialView(session));
   const [persisting, setPersisting] = useState(false);
+  // Held here rather than in the grid so it survives a trip to the map or the alignment
+  // view, which unmounts the grid; a reload starts with every group expanded again.
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<number | null>>(() => new Set());
+  const [selectedFileId, setSelectedFileId] = useState<FileId | null>(null);
+  /** The file the map or alignment view opens on, when opened from a file's details. */
+  const [focusFileId, setFocusFileId] = useState<FileId | null>(null);
+  const openView = (next: 'alignment' | 'map', focus: FileId | null = null): void => {
+    setFocusFileId(focus);
+    setView(next);
+  };
 
   // Kept current across renders so the scan-stream effect below — which only resubscribes
   // on a folder change, not on every session update — can still see the latest answer when
@@ -93,7 +104,7 @@ export function FolderView({
   }, []);
 
   const chooseGrouping = useCallback(
-    (mode: Exclude<GroupingMode, 'manual'>) => {
+    (mode: GroupingMode) => {
       api
         .answerGroupingQuestion(mode)
         .then((s) => {
@@ -157,7 +168,11 @@ export function FolderView({
             }}
           />
         )}
-        <MapView onBack={() => setView('files')} onOpenPersist={() => setPersisting(true)} />
+        <MapView
+          focusFileId={focusFileId}
+          onBack={() => setView('files')}
+          onOpenPersist={() => setPersisting(true)}
+        />
       </section>
     );
   }
@@ -174,13 +189,18 @@ export function FolderView({
           />
         )}
         <AlignmentView
+          focusFileId={focusFileId}
           onBack={() => setView('files')}
           onOpenPersist={() => setPersisting(true)}
-          onOpenMap={() => setView('map')}
+          onOpenMap={() => openView('map')}
         />
       </section>
     );
   }
+
+  // Looked up by id so a refetch after a rescan or a write shows the file's new state,
+  // and a file the rescan dropped simply stops being selected.
+  const selectedFile = data?.files.find((f) => f.id === selectedFileId) ?? null;
 
   return (
     <section className="folder-view">
@@ -195,14 +215,14 @@ export function FolderView({
       )}
 
       <div className="view-actions">
-        <button type="button" className="primary" onClick={() => setView('map')}>
+        <button type="button" className="primary" onClick={() => openView('map')}>
           Open map
         </button>
-        <button type="button" className="ghost" onClick={() => setView('alignment')}>
+        <button type="button" className="ghost" onClick={() => openView('alignment')}>
           Fix timestamps
         </button>
         <button type="button" className="ghost" onClick={() => setPersisting(true)}>
-          Persist changes…
+          Persist changes
         </button>
       </div>
 
@@ -216,8 +236,31 @@ export function FolderView({
       )}
 
       <div className="panels">
-        <StripList strips={strips} devices={data?.devices ?? []} onRegroup={regroup} />
-        <FileGrid files={data?.files ?? []} assignments={strips?.assignments ?? {}} />
+        <div className="side-column">
+          <StripList strips={strips} files={data?.files ?? []} devices={data?.devices ?? []} onRegroup={regroup} />
+          {selectedFile && (
+            <FileDetail
+              file={selectedFile}
+              stripId={strips?.assignments[selectedFile.id] ?? null}
+              onShowInAlignment={() => openView('alignment', selectedFile.id)}
+              onShowOnMap={() => openView('map', selectedFile.id)}
+            />
+          )}
+        </div>
+        <FileGrid
+          files={data?.files ?? []}
+          strips={strips}
+          collapsed={collapsedGroups}
+          onToggle={(stripId) =>
+            setCollapsedGroups((current) => {
+              const next = new Set(current);
+              if (!next.delete(stripId)) next.add(stripId);
+              return next;
+            })
+          }
+          selectedId={selectedFile?.id ?? null}
+          onSelect={setSelectedFileId}
+        />
       </div>
     </section>
   );

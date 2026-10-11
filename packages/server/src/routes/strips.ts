@@ -7,6 +7,7 @@ import type {
   MergeRequest,
   PinRequest,
   RegroupRequest,
+  StripFromSelectionRequest,
   ResetRequest,
   SetOffsetRequest,
   SetTrueTimeRequest,
@@ -34,10 +35,19 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
 
   app.post<{ Body: RegroupRequest }>('/api/strips/regroup', async (req, reply) => {
     const mode = req.body?.mode;
-    if (mode !== 'device' && mode !== 'subfolder' && mode !== 'manual') {
+    if (mode !== 'device' && mode !== 'subfolder') {
       return badRequest(reply, `Unknown grouping mode: ${String(mode)}`);
     }
-    sessions.require().strips.regroup(mode, { fileIds: req.body.fileIds, label: req.body.label });
+    sessions.require().strips.regroup(mode);
+    return timeline();
+  });
+
+  app.post<{ Body: StripFromSelectionRequest }>('/api/strips/from-selection', async (req, reply) => {
+    const fileIds = req.body?.fileIds;
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      return badRequest(reply, 'fileIds must be a non-empty array');
+    }
+    sessions.require().strips.stripFromSelection(fileIds, req.body.label);
     return timeline();
   });
 

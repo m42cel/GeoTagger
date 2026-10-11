@@ -72,7 +72,7 @@ export interface SessionState {
 }
 
 export interface AnswerGroupingQuestionRequest {
-  mode: Exclude<GroupingMode, 'manual'>;
+  mode: GroupingMode;
 }
 
 export interface OpenSessionRequest {
@@ -123,8 +123,10 @@ export interface TimelineResponse extends StripsResponse {
 
 export interface RegroupRequest {
   mode: GroupingMode;
-  /** For `manual`: the files to make one strip from. */
-  fileIds?: FileId[];
+}
+
+export interface StripFromSelectionRequest {
+  fileIds: FileId[];
   label?: string;
 }
 

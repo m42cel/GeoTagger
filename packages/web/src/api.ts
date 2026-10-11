@@ -48,8 +48,9 @@ export const api = {
   close: () => request<{ ok: boolean }>('/api/session/close', { method: 'POST' }),
   files: () => request<FilesResponse>('/api/files'),
   strips: () => request<StripsResponse>('/api/strips'),
-  regroup: (mode: GroupingMode, fileIds?: FileId[], label?: string) =>
-    post('/api/strips/regroup', { mode, fileIds, label }),
+  regroup: (mode: GroupingMode) => post('/api/strips/regroup', { mode }),
+  stripFromSelection: (fileIds: FileId[], label: string) =>
+    post('/api/strips/from-selection', { fileIds, label }),
 
   // ---- alignment view (SPEC §4.3) ----------------------------------------
 

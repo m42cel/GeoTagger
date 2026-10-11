@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { StripRecord } from '@geotagger/shared';
 import { formatDrift, formatOffset, formatUtcOffset, parseOffsetSeconds, parseUtcOffsetMinutes } from '@geotagger/shared';
 import { dateRange } from './SelectionPanel.js';
+import { countOf } from '../plural.js';
 
 /**
  * A lane's header: the strip's correction, editable where it is drawn (SPEC §6.2).
@@ -50,7 +51,7 @@ export function LaneHeader({
       <span className="lane-title">
         <span
           className="lane-label"
-          title={`${strip.label} · ${strip.fileCount.toLocaleString()} files${range === null ? '' : ` · ${range}`}`}
+          title={`${strip.label} · ${countOf(strip.fileCount, 'file')}${range === null ? '' : ` · ${range}`}`}
         >
           {strip.label}
           <em> · {strip.fileCount.toLocaleString()}</em>

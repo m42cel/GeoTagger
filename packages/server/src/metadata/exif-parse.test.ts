@@ -299,6 +299,6 @@ describe('deviceLabel', () => {
     expect(deviceLabel('Apple', 'iPhone 14 Pro', null)).toBe('Apple iPhone 14 Pro');
   });
   it('names a serial-only device rather than leaving it blank', () => {
-    expect(deviceLabel(null, null, 'X1')).toBe('Unknown camera (X1)');
+    expect(deviceLabel(null, null, 'X1')).toBe('Unknown device (X1)');
   });
 });
