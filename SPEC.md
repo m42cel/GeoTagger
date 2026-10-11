@@ -498,6 +498,11 @@ new, live position by a thin line, so it is obvious which marker a ghost belongs
 disappears once the drag is confirmed (the new position becomes the anchor) or reverted (the drag
 is discarded and the old anchor is what the file shows again).
 
+**Dragging an estimated file.** The same holds for a file with no anchor underneath: its estimate is
+still worked out while the drag is pending and shown as the ghost, with its uncertainty circle. It
+is still derived, so unlike an anchor's ghost it moves when the anchors change, always staying on
+the path line. Reverting the drag returns the file to it.
+
 Consequences:
 
 - Confirmed positions survive restarts and rescans without recomputation.
@@ -690,9 +695,10 @@ reset) — those controls don't apply to several files at once, and the confirm/
 selection live in the map's own toolbar, not here. Clicking a thumbnail in the grid exits
 multi-select and shows that one file normally, exactly as clicking it on the map would.
 
-**Ghost:** re-dragging a file that already has camera GPS or a confirmed position leaves a faint
-marker at the old position — still the active anchor for everyone else (§5.5, §5.6) — connected by
-a thin line to the file's new, live position, so it is clear which marker the ghost belongs to.
+**Ghost:** a dragged file leaves a faint marker at its own position, connected by a thin line to the
+drag, so it is clear which marker the ghost belongs to. For camera GPS or a confirmed position that
+is the old position, still the active anchor for everyone else (§5.5, §5.6); for an estimate it is
+the current estimate, carrying the uncertainty circle the dragged marker itself no longer shows.
 
 **Corner badge:** marks a file with changes held in the edit store but not yet written to disk.
 
@@ -740,11 +746,11 @@ what makes it an anchor and places everything else (§5.5).
 | Action | Result |
 | --- | --- |
 | Click thumbnail | Select; detail panel shows large preview, metadata, provenance, uncertainty |
-| Drag thumbnail | Sets its own position; **stays unconfirmed (red)** and does not anchor other files' estimates. Re-dragging an already-anchored file leaves a ghost at the old position (§5.6) |
+| Drag thumbnail | Sets its own position; **stays unconfirmed (red)** and does not anchor other files' estimates. It leaves a ghost at the file's own position — its anchor or its estimate (§5.6) |
 | Checkmark on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
 | Multi-select (shift-click / rubber band) | Confirm the selection together |
-| Revert on selected thumbnail | Cancels a drag in progress, falling back to the anchor underneath it (camera GPS or confirmed), if any. Only available when there is one — a plain interpolated estimate that has never been dragged or confirmed has nothing to revert to |
-| Reset on selected thumbnail | Discards the position entirely — the pending drag and any confirmed anchor alike — back to a derived estimate or no position at all |
+| Revert on selected thumbnail | Cancels a drag in progress, falling back to whatever is underneath it — camera GPS, a confirmed position or the estimate. Available whenever a drag is pending |
+| Reset on selected thumbnail | Discards a confirmed position — and any drag on top of it — back to camera GPS if the file has it, else to a derived estimate or no position at all. Available whenever the position is confirmed |
 | Persist changes | Writes all confirmed changes to files (§9) |
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture

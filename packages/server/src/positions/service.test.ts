@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FileId } from '@geotagger/shared';
+import { shownPosition } from '@geotagger/shared';
 import { FolderStore } from '../db/store.js';
 import { StripService } from '../strips/service.js';
 import { PositionService } from './service.js';
@@ -76,9 +77,9 @@ describe('PositionService.compute', () => {
     const result = positions.compute(store.listFiles());
     const byId = new Map(result.map((p) => [p.fileId, p]));
 
-    expect(byId.get(a)).toMatchObject({ lat: ROME.lat, lon: ROME.lon, source: 'camera-gps', uncertaintyM: null });
-    expect(byId.get(c)).toMatchObject({ lat: MILAN.lat, lon: MILAN.lon, source: 'camera-gps', uncertaintyM: null });
-    const midPos = byId.get(mid)!;
+    expect(byId.get(a)!.base).toEqual({ lat: ROME.lat, lon: ROME.lon, source: 'camera-gps', uncertaintyM: null });
+    expect(byId.get(c)!.base).toEqual({ lat: MILAN.lat, lon: MILAN.lon, source: 'camera-gps', uncertaintyM: null });
+    const midPos = byId.get(mid)!.base!;
     expect(midPos.source).toBe('estimate');
     expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
     expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
@@ -92,7 +93,7 @@ describe('PositionService.compute', () => {
     strips.regroup('device');
 
     const result = positions.compute(store.listFiles());
-    expect(result.every((p) => p.source === 'none')).toBe(true);
+    expect(result.every((p) => p.base === null)).toBe(true);
   });
 
   it('prefers a settled edit-store position over camera GPS, confirmed or not', () => {
@@ -103,7 +104,8 @@ describe('PositionService.compute', () => {
 
     const result = positions.compute(store.listFiles());
     const pos = result.find((p) => p.fileId === dragged)!;
-    expect(pos).toMatchObject({ lat: MILAN.lat, lon: MILAN.lon, source: 'manual', uncertaintyM: null });
+    expect(pos.pending).toEqual({ lat: MILAN.lat, lon: MILAN.lon });
+    expect(shownPosition(pos)).toEqual({ lat: MILAN.lat, lon: MILAN.lon });
   });
 
   it('reports a confirmed edit-store position with source "confirmed"', () => {
@@ -113,7 +115,7 @@ describe('PositionService.compute', () => {
     strips.regroup('device');
 
     const result = positions.compute(store.listFiles());
-    expect(result.find((p) => p.fileId === fileId)).toMatchObject({ source: 'confirmed', uncertaintyM: null });
+    expect(result.find((p) => p.fileId === fileId)!.base).toMatchObject({ source: 'confirmed', uncertaintyM: null });
   });
 
   it('does not let a dragged, unconfirmed file anchor its neighbours (SPEC §5.5)', () => {
@@ -129,8 +131,8 @@ describe('PositionService.compute', () => {
 
     // Only the camera GPS file is a real anchor, so mid — bracketed only by the
     // dragged file until it is confirmed — has nothing to interpolate between.
-    expect(byId.get(mid)).toMatchObject({ source: 'none' });
-    expect(byId.get(dragged)).toMatchObject({ lat: MILAN.lat, lon: MILAN.lon, source: 'manual' });
+    expect(byId.get(mid)!.base).toBeNull();
+    expect(byId.get(dragged)!.pending).toEqual({ lat: MILAN.lat, lon: MILAN.lon });
   });
 
   it('lets that same file anchor its neighbours once confirmed', () => {
@@ -142,7 +144,7 @@ describe('PositionService.compute', () => {
     strips.regroup('device');
 
     const result = positions.compute(store.listFiles());
-    const midPos = result.find((p) => p.fileId === mid)!;
+    const midPos = result.find((p) => p.fileId === mid)!.base!;
     expect(midPos.source).toBe('estimate');
     expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
     expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
@@ -164,14 +166,11 @@ describe('PositionService.compute', () => {
 
     // The re-dragged file shows the new spot but ghosts the old, still-anchoring one.
     expect(byId.get(c)).toMatchObject({
-      lat: TOKYO.lat,
-      lon: TOKYO.lon,
-      source: 'manual',
-      anchorLat: MILAN.lat,
-      anchorLon: MILAN.lon,
+      base: { lat: MILAN.lat, lon: MILAN.lon, source: 'confirmed' },
+      pending: { lat: TOKYO.lat, lon: TOKYO.lon },
     });
     // mid is still interpolated between Rome and Milan — Tokyo has not moved it.
-    const midPos = byId.get(mid)!;
+    const midPos = byId.get(mid)!.base!;
     expect(midPos.source).toBe('estimate');
     expect(midPos.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
     expect(midPos.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));

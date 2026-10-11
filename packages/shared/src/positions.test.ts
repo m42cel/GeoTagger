@@ -3,6 +3,8 @@ import { distanceMeters } from './geo.js';
 import {
   computePositions,
   DEFAULT_INTERPOLATION_PARAMS,
+  isAnchor,
+  shownPosition,
   type InterpolationParams,
   type PositionInput,
 } from './positions.js';
@@ -25,7 +27,7 @@ describe('computePositions — between two anchors (SPEC §5.1, §5.2)', () => {
 
   it('places a file at the fraction of the great circle its time implies', () => {
     const result = computePositions(files);
-    const mid = result.get('f3')!;
+    const mid = result.get('f3')!.base!;
     expect(mid.lat).toBeCloseTo(0.5, 3);
     expect(mid.lon).toBeCloseTo(0, 6);
     expect(mid.source).toBe('estimate');
@@ -36,13 +38,13 @@ describe('computePositions — between two anchors (SPEC §5.1, §5.2)', () => {
     const vRef = kmhToMs(DEFAULT_INTERPOLATION_PARAMS.vCapKmh); // v_implied's 2x exceeds the 200 km/h cap here
     const slack = vRef * 3600 - d;
     const result = computePositions(files);
-    expect(result.get('f3')!.uncertaintyM).toBeCloseTo(Math.min(vRef * 1800, slack / 2), 0);
+    expect(result.get('f3')!.base!.uncertaintyM).toBeCloseTo(Math.min(vRef * 1800, slack / 2), 0);
   });
 
   it('gives a file one minute after A a tight circle even though C is far away', () => {
     const result = computePositions(files);
-    const oneMinuteAfter = result.get('f4')!.uncertaintyM!;
-    const midpoint = result.get('f3')!.uncertaintyM!;
+    const oneMinuteAfter = result.get('f4')!.base!.uncertaintyM!;
+    const midpoint = result.get('f3')!.base!.uncertaintyM!;
     // The whole point of the reachability bound (SPEC §5.2): a photo shortly after an
     // anchor is tightly placed near it, not smeared across the full corridor to C.
     expect(oneMinuteAfter).toBeLessThan(midpoint / 10);
@@ -57,7 +59,7 @@ describe('computePositions — between two anchors (SPEC §5.1, §5.2)', () => {
       { fileId: 'f3', effectiveMs: 500, known: null, pending: null },
     ];
     const result = computePositions(closeFiles);
-    expect(result.get('f3')!.uncertaintyM).toBe(DEFAULT_INTERPOLATION_PARAMS.rMinM);
+    expect(result.get('f3')!.base!.uncertaintyM).toBe(DEFAULT_INTERPOLATION_PARAMS.rMinM);
   });
 
   it('does not throw when the bracketing anchors share the same instant', () => {
@@ -67,7 +69,7 @@ describe('computePositions — between two anchors (SPEC §5.1, §5.2)', () => {
       { fileId: 'f3', effectiveMs: 1000, known: null, pending: null },
     ];
     const result = computePositions(tiedFiles);
-    const est = result.get('f3')!;
+    const est = result.get('f3')!.base!;
     expect(est.lat).toBe(A.lat);
     expect(est.uncertaintyM).toBe(DEFAULT_INTERPOLATION_PARAMS.rMinM);
   });
@@ -83,7 +85,7 @@ describe('computePositions — extrapolation (SPEC §5.3)', () => {
 
   it('continues the implied bearing backward before the first anchor', () => {
     const result = computePositions(files);
-    const before = result.get('f3')!;
+    const before = result.get('f3')!.base!;
     // A to C runs due north; continuing the same line backward from A lands south of it.
     expect(before.lat).toBeLessThan(A.lat);
     expect(before.lon).toBeCloseTo(0, 6);
@@ -92,7 +94,7 @@ describe('computePositions — extrapolation (SPEC §5.3)', () => {
 
   it('continues the implied bearing forward after the last anchor', () => {
     const result = computePositions(files);
-    const after = result.get('f4')!;
+    const after = result.get('f4')!.base!;
     expect(after.lat).toBeGreaterThan(C.lat);
     expect(after.lon).toBeCloseTo(0, 6);
   });
@@ -103,13 +105,13 @@ describe('computePositions — extrapolation (SPEC §5.3)', () => {
       { fileId: 'f5', effectiveMs: HOUR_MS * 10, known: null, pending: null },
     ];
     const result = computePositions(farFuture);
-    expect(result.get('f5')!.uncertaintyM!).toBeGreaterThan(result.get('f4')!.uncertaintyM!);
+    expect(result.get('f5')!.base!.uncertaintyM!).toBeGreaterThan(result.get('f4')!.base!.uncertaintyM!);
   });
 
   it('falls back to the nearest anchor with a very large circle beyond the extrapolation cap', () => {
     const params: InterpolationParams = { ...DEFAULT_INTERPOLATION_PARAMS, extrapolationMaxMinutes: 10 };
     const result = computePositions(files, params);
-    const after = result.get('f4')!; // 30 minutes past the last anchor, beyond the 10-minute cap
+    const after = result.get('f4')!.base!; // 30 minutes past the last anchor, beyond the 10-minute cap
     expect(after.lat).toBe(C.lat);
     expect(after.lon).toBe(C.lon);
     expect(after.uncertaintyM).toBeGreaterThan(10_000);
@@ -123,8 +125,8 @@ describe('computePositions — degenerate cases (SPEC §5.4, resolved with the u
       { fileId: 'f2', effectiveMs: HOUR_MS, known: null, pending: null },
     ];
     const result = computePositions(files);
-    expect(result.get('f1')!.source).toBe('none');
-    expect(result.get('f2')!.source).toBe('none');
+    expect(result.get('f1')!.base).toBeNull();
+    expect(result.get('f2')!.base).toBeNull();
   });
 
   it('treats a single anchor the same as no anchors for everyone else', () => {
@@ -136,8 +138,8 @@ describe('computePositions — degenerate cases (SPEC §5.4, resolved with the u
       { fileId: 'f2', effectiveMs: HOUR_MS, known: null, pending: null },
     ];
     const result = computePositions(files);
-    expect(result.get('f1')!).toMatchObject({ lat: A.lat, lon: A.lon, uncertaintyM: null, source: 'camera-gps' });
-    expect(result.get('f2')!.source).toBe('none');
+    expect(result.get('f1')!.base).toEqual({ lat: A.lat, lon: A.lon, uncertaintyM: null, source: 'camera-gps' });
+    expect(result.get('f2')!.base).toBeNull();
   });
 
   it('sends an undated file to the tray even when anchors exist elsewhere', () => {
@@ -149,7 +151,7 @@ describe('computePositions — degenerate cases (SPEC §5.4, resolved with the u
       { fileId: 'f3', effectiveMs: null, known: null, pending: null },
     ];
     const result = computePositions(files);
-    expect(result.get('f3')!).toMatchObject({ lat: null, lon: null, source: 'none' });
+    expect(result.get('f3')!.base).toBeNull();
   });
 
   it('spreads files sharing an effective timestamp onto the same point, not jittered apart', () => {
@@ -160,34 +162,31 @@ describe('computePositions — degenerate cases (SPEC §5.4, resolved with the u
       { fileId: 'f4', effectiveMs: HOUR_MS / 4, known: null, pending: null },
     ];
     const result = computePositions(files);
-    const { fileId: _a, ...posA } = result.get('f3')!;
-    const { fileId: _b, ...posB } = result.get('f4')!;
-    expect(posA).toEqual(posB);
+    expect(result.get('f3')!.base).toEqual(result.get('f4')!.base);
   });
 });
 
 describe('computePositions — known positions pass through unchanged (SPEC §5.6)', () => {
-  it('keeps camera GPS and confirmed positions as-is, with no uncertainty circle or ghost', () => {
+  it('keeps camera GPS and confirmed positions as-is, with no uncertainty circle', () => {
     const files: PositionInput[] = [
       { fileId: 'f1', effectiveMs: 0, known: { ...A, source: 'camera-gps' }, pending: null },
       { fileId: 'f2', effectiveMs: HOUR_MS, known: { lat: 5, lon: 5, source: 'confirmed' }, pending: null },
     ];
     const result = computePositions(files);
     for (const f of files) {
-      const pos = result.get(f.fileId)!;
-      expect(pos.lat).toBe(f.known!.lat);
-      expect(pos.lon).toBe(f.known!.lon);
-      expect(pos.uncertaintyM).toBeNull();
-      expect(pos.source).toBe(f.known!.source);
-      expect(pos.anchorLat).toBeNull();
-      expect(pos.anchorLon).toBeNull();
+      expect(result.get(f.fileId)).toEqual({
+        fileId: f.fileId,
+        base: { lat: f.known!.lat, lon: f.known!.lon, uncertaintyM: null, source: f.known!.source },
+        pending: null,
+      });
     }
   });
 
-  it('shows a pending drag at its own coordinates, with no uncertainty circle', () => {
+  it('carries a pending drag alongside, and shows the file there', () => {
     const files: PositionInput[] = [{ fileId: 'f1', effectiveMs: 0, known: null, pending: { lat: 8, lon: 9 } }];
-    const result = computePositions(files);
-    expect(result.get('f1')).toMatchObject({ lat: 8, lon: 9, uncertaintyM: null, source: 'manual' });
+    const pos = computePositions(files).get('f1')!;
+    expect(pos.pending).toEqual({ lat: 8, lon: 9 });
+    expect(shownPosition(pos)).toEqual({ lat: 8, lon: 9 });
   });
 });
 
@@ -202,9 +201,10 @@ describe('computePositions — only camera GPS and confirmed positions anchor ot
 
     // Only one real anchor remains (the camera GPS file), so the midpoint file has
     // nothing to interpolate between and goes to the tray, same as the one-anchor case.
-    expect(result.get('f3')).toMatchObject({ source: 'none' });
-    // The dragged file still shows exactly where it was placed.
-    expect(result.get('f2')).toMatchObject({ lat: C.lat, lon: C.lon, source: 'manual' });
+    expect(result.get('f3')!.base).toBeNull();
+    // The dragged file still shows exactly where it was placed, and anchors nothing.
+    expect(shownPosition(result.get('f2')!)).toEqual(C);
+    expect(isAnchor(result.get('f2')!)).toBe(false);
   });
 
   it('lets a confirmed position anchor its neighbours the same way camera GPS does', () => {
@@ -214,13 +214,13 @@ describe('computePositions — only camera GPS and confirmed positions anchor ot
       { fileId: 'f3', effectiveMs: HOUR_MS / 2, known: null, pending: null },
     ];
     const result = computePositions(files);
-    const mid = result.get('f3')!;
+    const mid = result.get('f3')!.base!;
     expect(mid.source).toBe('estimate');
     expect(mid.lat).toBeCloseTo(0.5, 3);
   });
 });
 
-describe('computePositions — a pending drag ghosts its old anchor (SPEC §5.6)', () => {
+describe('computePositions — a pending drag keeps the position underneath it (SPEC §5.6)', () => {
   it('keeps anchoring neighbours from the old position while showing the new, dragged one', () => {
     const NEW_SPOT = { lat: 10, lon: 10 };
     const files: PositionInput[] = [
@@ -231,24 +231,33 @@ describe('computePositions — a pending drag ghosts its old anchor (SPEC §5.6)
     const result = computePositions(files);
 
     const dragged = result.get('f2')!;
-    expect(dragged).toMatchObject({
-      lat: NEW_SPOT.lat,
-      lon: NEW_SPOT.lon,
-      source: 'manual',
-      anchorLat: C.lat,
-      anchorLon: C.lon,
-    });
+    expect(dragged.base).toEqual({ ...C, uncertaintyM: null, source: 'confirmed' });
+    expect(dragged.pending).toEqual(NEW_SPOT);
+    expect(shownPosition(dragged)).toEqual(NEW_SPOT);
+    expect(isAnchor(dragged)).toBe(true);
 
     // The midpoint file is still interpolated between A and C's *old* position — the
     // drag in progress has not moved it, and won't until it is confirmed.
-    const mid = result.get('f3')!;
+    const mid = result.get('f3')!.base!;
     expect(mid.source).toBe('estimate');
     expect(mid.lat).toBeCloseTo(0.5, 3);
   });
 
-  it('reports no ghost for a plain drag with no known position underneath', () => {
+  it('keeps the estimate, with its uncertainty, underneath a drag of an unanchored file', () => {
+    const files: PositionInput[] = [
+      { fileId: 'f1', effectiveMs: 0, known: { ...A, source: 'camera-gps' }, pending: null },
+      { fileId: 'f2', effectiveMs: HOUR_MS, known: { ...C, source: 'camera-gps' }, pending: null },
+      { fileId: 'f3', effectiveMs: HOUR_MS / 2, known: null, pending: { lat: 3, lon: 3 } },
+    ];
+    const dragged = computePositions(files).get('f3')!;
+    expect(dragged.base!.source).toBe('estimate');
+    expect(dragged.base!.lat).toBeCloseTo(0.5, 3);
+    expect(dragged.base!.uncertaintyM).not.toBeNull();
+    expect(dragged.pending).toEqual({ lat: 3, lon: 3 });
+  });
+
+  it('has nothing underneath a drag when no estimate exists', () => {
     const files: PositionInput[] = [{ fileId: 'f1', effectiveMs: 0, known: null, pending: { lat: 3, lon: 3 } }];
-    const result = computePositions(files);
-    expect(result.get('f1')).toMatchObject({ lat: 3, lon: 3, source: 'manual', anchorLat: null, anchorLon: null });
+    expect(computePositions(files).get('f1')).toEqual({ fileId: 'f1', base: null, pending: { lat: 3, lon: 3 } });
   });
 });

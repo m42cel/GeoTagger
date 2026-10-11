@@ -9,17 +9,13 @@ function item(
   source: PositionSource,
   lat: number,
   lon: number,
-  anchor: [number, number] | null = null,
+  pending: [number, number] | null = null,
 ): { position: ComputedPosition; timelineFile: TimelineFile | null } {
   return {
     position: {
       fileId: `f${nextId++}` as FileId,
-      lat,
-      lon,
-      uncertaintyM: null,
-      source,
-      anchorLat: anchor?.[0] ?? null,
-      anchorLon: anchor?.[1] ?? null,
+      base: { lat, lon, uncertaintyM: null, source },
+      pending: pending && { lat: pending[0], lon: pending[1] },
     },
     timelineFile: { effectiveMs } as TimelineFile,
   };
@@ -77,12 +73,12 @@ describe('pathVertices', () => {
     ]);
   });
 
-  it('runs through a re-dragged file’s old anchor, and leaves out a drag with no anchor underneath', () => {
+  it('runs through a re-dragged file’s old anchor, never through a drag', () => {
     expect(
       points([
         item(1000, 'camera-gps', 1, 1),
-        item(1500, 'manual', 9, 9),
-        item(2000, 'manual', 8, 8, [2, 2]),
+        item(1500, 'estimate', 1.5, 1.5, [9, 9]),
+        item(2000, 'confirmed', 2, 2, [8, 8]),
         item(3000, 'camera-gps', 3, 3),
       ]),
     ).toEqual([
@@ -94,12 +90,12 @@ describe('pathVertices', () => {
 
   it('leaves out files with no effective time and is empty without anchors', () => {
     expect(points([item(null, 'camera-gps', 5, 5), item(1000, 'camera-gps', 1, 1)])).toEqual([[1, 1]]);
-    expect(points([item(1000, 'estimate', 1, 1), item(2000, 'manual', 2, 2)])).toEqual([]);
+    expect(points([item(1000, 'estimate', 1, 1), item(2000, 'estimate', 2, 2, [3, 3])])).toEqual([]);
   });
 
   it('names the file each corner belongs to', () => {
     const anchor = item(1000, 'camera-gps', 1, 1);
-    const redragged = item(2000, 'manual', 8, 8, [2, 2]);
+    const redragged = item(2000, 'confirmed', 2, 2, [8, 8]);
     expect(pathVertices([anchor, redragged]).map((v) => v.fileId)).toEqual([anchor.position.fileId, redragged.position.fileId]);
   });
 });

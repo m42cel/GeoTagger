@@ -7,10 +7,21 @@ import { GeodesicLine } from 'leaflet.geodesic';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import type { ComputedPosition, FileId, FileRecord, FilesResponse, TimelineFile, TimelineResponse } from '@geotagger/shared';
+import type {
+  BasePosition,
+  ComputedPosition,
+  FileId,
+  FileRecord,
+  FilesResponse,
+  LatLon,
+  TimelineFile,
+  TimelineResponse,
+} from '@geotagger/shared';
+import { canConfirm, shownPosition } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
+import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
 import { isShown } from './filters.js';
 import { pathVertices } from './path.js';
@@ -200,20 +211,12 @@ export function MapView({
     const timelineById = new Map(timeline.files.map((f) => [f.id, f]));
     return filesResp.files.map((file) => ({
       file,
-      position: positionById.get(file.id) ?? {
-        fileId: file.id,
-        lat: null,
-        lon: null,
-        uncertaintyM: null,
-        source: 'none',
-        anchorLat: null,
-        anchorLon: null,
-      },
+      position: positionById.get(file.id) ?? { fileId: file.id, base: null, pending: null },
       timelineFile: timelineById.get(file.id) ?? null,
     }));
   }, [filesResp, timeline]);
 
-  const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
+  const onMap = useMemo(() => items.filter((i) => shownPosition(i.position) !== null), [items]);
 
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
@@ -225,20 +228,21 @@ export function MapView({
     return onMap.filter((i) => isShown(i, assignments, filters));
   }, [onMap, timeline, hiddenStripIds, showKnown, showInterpolated]);
 
-  const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
+  const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.file.id, i])), [items]);
 
   // Same eligibility as the single-file confirm button (SPEC §6.5): camera GPS and
-  // an already-confirmed position are already anchors, with nothing to confirm.
+  // an already-confirmed position with no drag on top are already anchors, with
+  // nothing to confirm.
   // Filtering here — not just on the server — means the bar can hide the button
   // entirely when the selection has nothing confirmable in it, rather than showing
   // a button that would silently no-op on every selected file.
   const confirmableSelected = useMemo(
     () =>
       [...multiSelected].filter((id) => {
-        const source = itemById.get(id)?.position.source;
-        return source === 'estimate' || source === 'manual';
+        const position = itemById.get(id)?.position;
+        return position !== undefined && canConfirm(position);
       }),
     [multiSelected, itemById],
   );
@@ -462,9 +466,11 @@ export function MapView({
     const markers: MarkerWithFile[] = [];
 
     for (const item of visibleOnMap) {
-      const borderClass = borderClassFor(item.position.source);
+      const { base, pending } = item.position;
+      const shown = shownPosition(item.position) as LatLon;
+      const borderClass = borderClassFor(item.position);
       const size = markerSize(item.file.width, item.file.height, THUMB_SIZE_PX);
-      const marker = L.marker([item.position.lat as number, item.position.lon as number], {
+      const marker = L.marker([shown.lat, shown.lon], {
         icon: thumbIcon(
           item.file.id,
           size,
@@ -479,7 +485,9 @@ export function MapView({
       markerWithFile.geotaggerFileId = item.file.id;
       markerWithFile.geotaggerBorderClass = borderClass;
       markerWithFile.geotaggerSize = size;
-      markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
+      // A dragged file's circle belongs to the estimate it is overriding, drawn on
+      // its ghost below, not to where the drag has put it.
+      markerWithFile.geotaggerUncertaintyM = pending === null ? (base?.uncertaintyM ?? null) : null;
       marker.bindTooltip(item.file.filename);
       // Shift-click toggles multi-select (SPEC §6.5) without touching the detail
       // panel's single selection; a plain click does the opposite — replaces the
@@ -494,20 +502,19 @@ export function MapView({
       // `dragstart`/`drag` (selecting the file, clearing multi-select): that would
       // rebuild the marker layer mid-gesture and abort the drag — see `handleDragEnd`,
       // which does both once the drag has actually finished instead.
-      const startedAt = L.latLng(item.position.lat as number, item.position.lon as number);
+      const startedAt = L.latLng(shown.lat, shown.lon);
 
-      // SPEC §5.6's ghost: re-dragging a file that already has a known position
-      // (camera GPS or confirmed) leaves that old position marked — it is still what
-      // places everyone else — with a thin line to where the file is now. A file
-      // already mid-drag from an *earlier* gesture (source 'manual', `anchorLat` set)
-      // already has this ghost drawn below from server state; this branch instead
-      // covers the *first* drag of an already-known file, where the server hasn't
-      // been told about the pending drag yet — the ghost has to appear locally, the
-      // instant the drag starts, rather than waiting on that round trip.
-      if (item.position.source === 'camera-gps' || item.position.source === 'confirmed') {
+      // SPEC §5.6's ghost: dragging a file leaves its own position marked — an
+      // anchor because it still places everyone else, an estimate because it is
+      // where the track still puts the file — with a thin line to where the file is
+      // now. A file already mid-drag from an *earlier* gesture already has this ghost
+      // drawn below from server state; this branch instead covers the *first* drag,
+      // where the server hasn't been told about it yet — the ghost has to appear
+      // locally, the instant the drag starts, rather than waiting on that round trip.
+      if (pending === null && base !== null) {
         let ghost: { line: L.Polyline; dot: L.CircleMarker } | null = null;
         marker.on('dragstart', () => {
-          ghost = createGhost(ghosts, ghostRendererRef.current, startedAt, startedAt, item.file.filename);
+          ghost = createGhost(ghosts, ghostRendererRef.current, startedAt, startedAt, ghostTooltip(item.file.filename, base));
         });
         marker.on('drag', () => ghost?.line.setLatLngs([startedAt, marker.getLatLng()]));
         marker.on('dragend', () => {
@@ -524,15 +531,15 @@ export function MapView({
       cluster.addLayer(marker);
       markers.push(markerWithFile);
 
-      if (item.position.anchorLat !== null && item.position.anchorLon !== null) {
-        const anchorLatLng = L.latLng(item.position.anchorLat, item.position.anchorLon);
-        const liveLatLng = L.latLng(item.position.lat as number, item.position.lon as number);
-        const ghost = createGhost(ghosts, ghostRendererRef.current, anchorLatLng, liveLatLng, item.file.filename);
+      if (pending !== null && base !== null) {
+        const baseLatLng = L.latLng(base.lat, base.lon);
+        const ghost = createGhost(ghosts, ghostRendererRef.current, baseLatLng, startedAt, ghostTooltip(item.file.filename, base));
+        if (base.uncertaintyM !== null) uncertaintyCircle(baseLatLng, base.uncertaintyM).addTo(ghosts);
         // Follow the marker while it's being re-dragged so the line doesn't point at
         // the file's old (pre-drag) spot until the state update on `dragend` catches
         // up — Leaflet fires 'drag' continuously during the gesture, same as it does
         // for the marker's own live position.
-        marker.on('drag', () => ghost.line.setLatLngs([anchorLatLng, marker.getLatLng()]));
+        marker.on('drag', () => ghost.line.setLatLngs([baseLatLng, marker.getLatLng()]));
       }
     }
 
@@ -561,15 +568,7 @@ export function MapView({
         }
       }
       for (const { center, maxUncertaintyM } of groups.values()) {
-        circles.addLayer(
-          L.circle(center, {
-            radius: maxUncertaintyM,
-            color: '#d1453b',
-            weight: 1,
-            fillOpacity: 0.08,
-            opacity: 0.35,
-          }),
-        );
+        circles.addLayer(uncertaintyCircle(center, maxUncertaintyM));
       }
     };
 
@@ -645,7 +644,12 @@ export function MapView({
         map.setView(focus.getLatLng(), 16, { animate: false });
         cluster.zoomToShowLayer(focus);
       } else {
-        const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
+        const bounds = L.latLngBounds(
+          onMap.map((i) => {
+            const { lat, lon } = shownPosition(i.position) as LatLon;
+            return [lat, lon];
+          }),
+        );
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
       }
     }
@@ -811,12 +815,16 @@ type MarkerWithFile = L.Marker & {
   geotaggerUncertaintyM?: number | null;
 };
 
-/** Green for a known position (camera GPS or confirmed), red for anything derived or not yet confirmed (SPEC §6.5). */
-function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfirmed' {
-  return source === 'camera-gps' || source === 'confirmed' ? 'known' : 'unconfirmed';
+function ghostTooltip(filename: string, base: BasePosition): string {
+  return `${filename} — ${base.source === 'estimate' ? 'estimated position' : 'previous position'}`;
 }
 
-/** SPEC §5.6's ghost: the faint marker at a file's old position plus the thin line to its new one. */
+/** SPEC §5.2's faint circle. */
+function uncertaintyCircle(center: L.LatLng, radiusM: number): L.Circle {
+  return L.circle(center, { radius: radiusM, color: '#d1453b', weight: 1, fillOpacity: 0.08, opacity: 0.35 });
+}
+
+/** SPEC §5.6's ghost: the faint marker at a dragged file's own position plus the thin line to the drag. */
 function createGhost(
   ghosts: L.LayerGroup,
   renderer: L.Renderer | undefined,

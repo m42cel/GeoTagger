@@ -21,7 +21,8 @@ export function isShown(
 ): boolean {
   const stripId = assignments[item.file.id];
   if (stripId !== undefined && filters.hiddenStripIds.has(stripId)) return false;
-  switch (item.position.source) {
+  if (item.position.pending !== null) return true;
+  switch (item.position.base?.source) {
     case 'camera-gps':
     case 'confirmed':
       return filters.showKnown;

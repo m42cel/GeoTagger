@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { ComputedPosition, FileId, PositionSource } from '@geotagger/shared';
 import { isShown, type MapFilters } from './filters.js';
 
-function item(id: string, source: PositionSource): { file: { id: FileId }; position: ComputedPosition } {
+function item(
+  id: string,
+  source: PositionSource,
+  dragged = false,
+): { file: { id: FileId }; position: ComputedPosition } {
   return {
     file: { id: id as FileId },
-    position: { fileId: id as FileId, lat: 1, lon: 1, uncertaintyM: null, source, anchorLat: null, anchorLon: null },
+    position: {
+      fileId: id as FileId,
+      base: { lat: 1, lon: 1, uncertaintyM: null, source },
+      pending: dragged ? { lat: 2, lon: 2 } : null,
+    },
   };
 }
 
@@ -14,8 +22,9 @@ const assignments = { a: 1, b: 2 } as Record<FileId, number>;
 
 describe('isShown', () => {
   it('shows everything with no filter applied', () => {
-    for (const source of ['camera-gps', 'confirmed', 'estimate', 'manual'] as const) {
+    for (const source of ['camera-gps', 'confirmed', 'estimate'] as const) {
       expect(isShown(item('a', source), assignments, all)).toBe(true);
+      expect(isShown(item('a', source, true), assignments, all)).toBe(true);
     }
   });
 
@@ -29,8 +38,9 @@ describe('isShown', () => {
 
   it('keeps a pending drag through the status filter but not through its hidden group', () => {
     const noStatus: MapFilters = { ...all, showKnown: false, showInterpolated: false };
-    expect(isShown(item('a', 'manual'), assignments, noStatus)).toBe(true);
-    expect(isShown(item('a', 'manual'), assignments, { ...all, hiddenStripIds: new Set([1]) })).toBe(false);
+    expect(isShown(item('a', 'estimate', true), assignments, noStatus)).toBe(true);
+    expect(isShown(item('a', 'confirmed', true), assignments, noStatus)).toBe(true);
+    expect(isShown(item('a', 'estimate', true), assignments, { ...all, hiddenStripIds: new Set([1]) })).toBe(false);
   });
 
   it('does not hide a file no strip claims by group', () => {

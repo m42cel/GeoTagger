@@ -1,4 +1,12 @@
-import { distanceMeters, type ComputedPosition, type FileId, type LatLon, type TimelineFile } from '@geotagger/shared';
+import {
+  distanceMeters,
+  isAnchor,
+  type BasePosition,
+  type ComputedPosition,
+  type FileId,
+  type LatLon,
+  type TimelineFile,
+} from '@geotagger/shared';
 
 /** A corner of the path line, and the file it belongs to — hidden by a filter, it gets a ghost dot. */
 export interface PathVertex extends LatLon {
@@ -12,11 +20,11 @@ export interface PathVertex extends LatLon {
  * those points (SPEC §5.1, §5.3), so a geodesic line through them alone passes
  * through every estimate without needing it as a vertex.
  *
+ * Built from each file's own position (`base`), never a drag in progress: a drag
+ * anchors nothing (SPEC §5.5), so the line runs through what is underneath it —
+ * the old anchor of a re-dragged file, or the estimate a dragged one still has.
  * Files with no effective time cannot take a place in that order, so they are left
- * out. A pending drag with no anchor underneath does not anchor its neighbours
- * (SPEC §5.5) and is left out the same way. A file being *re*-dragged still has its
- * old anchor (`anchorLat`/`Lon`, SPEC §5.6's ghost) doing that work, so the line
- * runs through that point rather than toward where it is being dragged to.
+ * out.
  *
  * The tail ends take the farthest file rather than the outermost one in time
  * because, with the extrapolation cap enabled, files beyond it fall back onto the
@@ -27,22 +35,19 @@ export function pathVertices(
 ): PathVertex[] {
   const timed = items
     .filter(
-      (i) =>
-        i.position.lat !== null &&
-        i.position.lon !== null &&
-        (i.position.anchorLat !== null || i.position.source !== 'manual') &&
+      (i): i is { position: ComputedPosition & { base: BasePosition }; timelineFile: TimelineFile } =>
+        i.position.base !== null &&
         i.timelineFile?.effectiveMs !== null &&
         i.timelineFile?.effectiveMs !== undefined,
     )
-    .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number));
+    .sort((a, b) => (a.timelineFile.effectiveMs as number) - (b.timelineFile.effectiveMs as number));
 
   const anchors: PathVertex[] = [];
   let firstAnchorIndex = -1;
   let lastAnchorIndex = -1;
   timed.forEach((i, index) => {
-    const anchor = anchorOf(i.position);
-    if (!anchor) return;
-    anchors.push({ ...anchor, fileId: i.position.fileId });
+    if (!isAnchor(i.position)) return;
+    anchors.push(vertexOf(i.position));
     if (firstAnchorIndex === -1) firstAnchorIndex = index;
     lastAnchorIndex = index;
   });
@@ -55,22 +60,17 @@ export function pathVertices(
   return [...(before ? [before] : []), ...anchors, ...(after ? [after] : [])];
 }
 
-function anchorOf(position: ComputedPosition): LatLon | null {
-  if (position.anchorLat !== null && position.anchorLon !== null) return { lat: position.anchorLat, lon: position.anchorLon };
-  if (position.source === 'camera-gps' || position.source === 'confirmed') {
-    return { lat: position.lat as number, lon: position.lon as number };
-  }
-  return null;
+function vertexOf(position: ComputedPosition & { base: BasePosition }): PathVertex {
+  return { lat: position.base.lat, lon: position.base.lon, fileId: position.fileId };
 }
 
-function farthest(items: readonly { position: ComputedPosition }[], from: LatLon): PathVertex | null {
+function farthest(items: readonly { position: ComputedPosition & { base: BasePosition } }[], from: LatLon): PathVertex | null {
   let best: PathVertex | null = null;
   let bestDistance = 0;
   for (const { position } of items) {
-    const point = { lat: position.lat as number, lon: position.lon as number, fileId: position.fileId };
-    const distance = distanceMeters(from, point);
+    const distance = distanceMeters(from, position.base);
     if (distance > bestDistance) {
-      best = point;
+      best = vertexOf(position);
       bestDistance = distance;
     }
   }

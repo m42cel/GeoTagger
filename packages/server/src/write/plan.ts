@@ -5,7 +5,6 @@ import type {
   PersistPlan,
   PersistPlanEntry,
   PersistTagChange,
-  PositionSource,
   TimelineFile,
 } from '@geotagger/shared';
 import { formatUtcOffset } from '@geotagger/shared';
