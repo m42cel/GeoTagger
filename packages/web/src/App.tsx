@@ -3,6 +3,7 @@ import { APP_VERSION, type SessionState } from '@geotagger/shared';
 import { api } from './api.js';
 import { FolderPicker } from './FolderPicker.js';
 import { FolderView } from './FolderView.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 /**
  * The startup flow of SPEC §6.1: pick a folder, scan it, then work in it.
@@ -79,6 +80,7 @@ export function App() {
       </main>
 
       <footer className="app-footer">
+        <ThemeToggle />
         <span>GeoTagger {APP_VERSION}</span>
         <a href={REPO_URL} target="_blank" rel="noreferrer" aria-label="GeoTagger on GitHub" title="GeoTagger on GitHub">
           <GitHubMark />
