@@ -48,10 +48,18 @@ export function scaleForSpan(bounds: { fromMs: number; toMs: number }, widthPx: 
   return { startMs: bounds.fromMs - pad, msPerPx: span / Math.max(widthPx, 1), widthPx };
 }
 
-/** Re-centres the current view on a span, keeping the viewport width. */
-export function scaleForZoom(scale: TimeScale, level: ZoomLevel, bounds: { fromMs: number; toMs: number }): TimeScale {
+/**
+ * Zooms to a named span, keeping the viewport width, centred on `centreMs` — the
+ * selected photo — or else on what is in the middle of the view now.
+ */
+export function scaleForZoom(
+  scale: TimeScale,
+  level: ZoomLevel,
+  bounds: { fromMs: number; toMs: number },
+  centreMs: number | null = null,
+): TimeScale {
   if (level === 'trip') return scaleForSpan(bounds, scale.widthPx);
-  const centre = msAt(scale, scale.widthPx / 2);
+  const centre = centreMs ?? msAt(scale, scale.widthPx / 2);
   const span = ZOOM_SPANS[level];
   return { ...scale, msPerPx: span / Math.max(scale.widthPx, 1), startMs: centre - span / 2 };
 }
@@ -65,6 +73,38 @@ export function zoomAbout(scale: TimeScale, anchorX: number, factor: number): Ti
   const span = clamp(scale.msPerPx * scale.widthPx * factor, MIN_SPAN_MS, MAX_SPAN_MS);
   const msPerPx = span / Math.max(scale.widthPx, 1);
   return { ...scale, msPerPx, startMs: anchorMs - anchorX * msPerPx };
+}
+
+/**
+ * Zooms in just far enough to split a stack at its widest gap, centred on that gap,
+ * keeping `keepMs` — the photo that was clicked — in view. One step at a time: the parts
+ * may still be stacks, each split again the same way. Photos closer together than the
+ * deepest zoom can tell apart, a burst, stay stacked there.
+ */
+export function zoomToSeparate(
+  scale: TimeScale,
+  instants: readonly number[],
+  keepMs: number,
+  thumbPx: number,
+): TimeScale {
+  let gapAt = -1;
+  let widestMs = -1;
+  for (let i = 1; i < instants.length; i += 1) {
+    const gap = (instants[i] as number) - (instants[i - 1] as number);
+    if (gap > widestMs) {
+      widestMs = gap;
+      gapAt = i;
+    }
+  }
+  if (gapAt < 0) return scale;
+  // A little over a thumbnail apart, so rounding never leaves the two sides touching.
+  const wantedSpan = (widestMs / (thumbPx * 1.05)) * scale.widthPx;
+  const span = clamp(Math.min(wantedSpan, scale.msPerPx * scale.widthPx), MIN_SPAN_MS, MAX_SPAN_MS);
+  const msPerPx = span / Math.max(scale.widthPx, 1);
+  const gapMidMs = ((instants[gapAt - 1] as number) + (instants[gapAt] as number)) / 2;
+  const marginMs = (thumbPx / 2) * msPerPx;
+  const startMs = clamp(gapMidMs - span / 2, keepMs + marginMs - span, keepMs - marginMs);
+  return { ...scale, msPerPx, startMs };
 }
 
 export function panBy(scale: TimeScale, deltaPx: number): TimeScale {

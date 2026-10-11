@@ -618,7 +618,10 @@ shows which one it got and where from.
 **Zoom levels** run from whole trip down to minutes. Strips always render as photo thumbnails,
 at every zoom level: aligning by hand means recognising the same moment on two devices, and an
 abstract density bar cannot be recognised. Colliding thumbnails collapse into a stack with a
-count and separate as you zoom in.
+count and separate as you zoom in. Double-clicking a stack zooms in just far enough to split it at its
+widest gap, centred on that gap but never losing the photo clicked; a part that is still a stack
+splits again the same way, and a burst too tight to separate stops at the deepest zoom. The zoom
+buttons centre on the selected photo, or on the middle of the view while none is selected.
 
 **Rendering is virtualised**: only files inside the visible time window are drawn, so a lane
 holding thousands of files stays responsive.
