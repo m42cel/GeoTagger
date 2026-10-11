@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { APP_VERSION } from '../version.js';
+import { APP_VERSION } from '@geotagger/shared';
 import { Semaphore } from './limiter.js';
 import { getProvider, type TileProvider } from './providers.js';
 

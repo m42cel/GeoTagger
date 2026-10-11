@@ -55,7 +55,7 @@ body {
  * stretches if the view's own root sets `flex: 1` for itself, which just `.map-view`
  * does.
  */
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+.app { position: relative; min-height: 100vh; display: flex; flex-direction: column; }
 
 .app-bar {
   display: flex;
@@ -81,8 +81,23 @@ body {
  * give it. The narrower views (picker, timestamp question, …) already cap themselves
  * well under this, so raising it only gives the alignment view more room.
  */
+/* Tucked into the page's bottom-right corner, over `main`'s bottom padding rather than a row of its own. */
+.app-footer {
+  position: absolute;
+  right: 20px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.app-footer a { color: inherit; display: inline-flex; }
+.app-footer a:hover { color: var(--fg); }
+
 main {
-  padding: 16px;
+  /* The extra room at the bottom is the footer's. */
+  padding: 16px 16px 44px;
   max-width: 1800px;
   margin: 0 auto;
   width: 100%;
