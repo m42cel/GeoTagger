@@ -11,7 +11,7 @@ import type {
   StalePolicy,
 } from '@geotagger/shared';
 import { contentSig, signatureOf, type FolderStore, type PersistedRow } from '../db/store.js';
-import { exiftool, readRawTags } from '../metadata/reader.js';
+import { exiftool, exiftoolWriter, readRawTags } from '../metadata/reader.js';
 import { collectDateCandidates, collectGps } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
 import { GEOTAGGER_GROUP } from './exiftool-config.js';
@@ -221,7 +221,7 @@ async function writeOne(
   const expected = expectedValues(entry);
 
   try {
-    const result = await exiftool().write(absPath, tags, WRITE_ARGS);
+    const result = await exiftoolWriter().write(absPath, tags, WRITE_ARGS);
 
     const verified = await verify(absPath, file, expected);
     if (!verified.ok) {

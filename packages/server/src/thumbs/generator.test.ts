@@ -7,6 +7,7 @@ import sharp from 'sharp';
 import {
   FFMPEG_BIN,
   orientationFilter,
+  pickEmbeddedPreview,
   pruneStaleThumbTiers,
   thumbPath,
   TIER_SIZE,
@@ -218,5 +219,22 @@ describe('the thumbnail cache', () => {
 
   it('says nothing about a folder that has never been scanned', () => {
     expect(() => pruneStaleThumbTiers(path.join(os.tmpdir(), 'geotagger-absent-xyz'))).not.toThrow();
+  });
+});
+
+describe('pickEmbeddedPreview', () => {
+  const b64 = (text: string) => `base64:${Buffer.from(text).toString('base64')}`;
+
+  it('takes the first candidate the file has, in the order asked', () => {
+    const raw = { PreviewImage: b64('preview'), ThumbnailImage: b64('thumb') };
+    expect(pickEmbeddedPreview(raw, ['JpgFromRaw', 'PreviewImage', 'ThumbnailImage'])?.toString()).toBe('preview');
+  });
+
+  it('ignores a tag that was not asked for', () => {
+    expect(pickEmbeddedPreview({ ThumbnailImage: b64('thumb') }, ['JpgFromRaw', 'PreviewImage'])).toBeNull();
+  });
+
+  it('skips values that are not binary data', () => {
+    expect(pickEmbeddedPreview({ PreviewImage: '(Binary data 1234 bytes)', JpgFromRaw: 'base64:' }, ['JpgFromRaw', 'PreviewImage'])).toBeNull();
   });
 });
