@@ -6,7 +6,7 @@ import sharp from 'sharp';
 import type { FileId } from '@geotagger/shared';
 import { naiveToMs } from '@geotagger/shared';
 import { FolderStore, signatureOf } from '../db/store.js';
-import { configureExiftool, exiftool, readRawTags, shutdownExiftool } from '../metadata/reader.js';
+import { configureExiftool, exiftool, exiftoolWriter, readRawTags, shutdownExiftool } from '../metadata/reader.js';
 import { metadataFromTags } from '../metadata/reader.js';
 import { StripService } from '../strips/service.js';
 import { ensureExiftoolConfig, GEOTAGGER_GROUP } from './exiftool-config.js';
@@ -37,7 +37,7 @@ async function makeJpeg(relPath: string, dateTimeOriginal: string): Promise<void
     'EXIF:Make': 'TestCam',
     'EXIF:Model': 'T1',
   };
-  await exiftool().write(abs, tags, ['-overwrite_original']);
+  await exiftoolWriter().write(abs, tags, ['-overwrite_original']);
 }
 
 /** Indexes a file the way a scan would, so the store matches what is on disk. */
@@ -279,7 +279,7 @@ describe('persist against a real JPEG', () => {
     // themselves move. Nothing about the write may depend on that ref being part of it.
     await makeJpeg('IMG_0008.JPG', '2024:07:12 14:00:00');
     const abs = path.join(folder, 'IMG_0008.JPG');
-    await exiftool().write(
+    await exiftoolWriter().write(
       abs,
       { 'EXIF:GPSLatitude': 52.2, 'EXIF:GPSLatitudeRef': 'N', 'EXIF:GPSLongitude': 117.0, 'EXIF:GPSLongitudeRef': 'W' } as Record<string, string | number>,
       ['-overwrite_original'],
@@ -308,7 +308,7 @@ describe('persist against a real JPEG', () => {
 
     // Something else rewrites the file after GeoTagger scanned it.
     const foreignEdit: Record<string, string> = { 'EXIF:Artist': 'Someone else' };
-    await exiftool().write(path.join(folder, 'IMG_0002.JPG'), foreignEdit, ['-overwrite_original']);
+    await exiftoolWriter().write(path.join(folder, 'IMG_0002.JPG'), foreignEdit, ['-overwrite_original']);
 
     const entry = planFor(context()).entries.find((e) => e.relPath === 'IMG_0002.JPG');
     expect(entry?.stale).toBe(true);

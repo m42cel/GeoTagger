@@ -45,7 +45,7 @@ export function buildServer(config: Config): BuiltServer {
       'could not write the ExifTool config; original values will be kept in the edit store only (SPEC §9.3)',
     );
   }
-  configureExiftool(exiftoolConfig);
+  configureExiftool(exiftoolConfig, config.scanConcurrency);
 
   app.setErrorHandler((rawError, _req, reply) => {
     const err = rawError as Error & { statusCode?: number; code?: string };

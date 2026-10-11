@@ -11,40 +11,59 @@ import {
 } from './exif-parse.js';
 
 /**
- * One long-lived ExifTool process in `-stay_open` mode. Starting Perl per file would
+ * Long-lived ExifTool processes in `-stay_open` mode. Starting Perl per file would
  * dominate the scan time on a low-power NAS, which is the whole reason for
  * `exiftool-vendored` (SPEC §2).
+ *
+ * Reads get up to `SCAN_CONCURRENCY` processes, since every scan lane and every
+ * thumbnail render waits on one; `exiftool-vendored` only spawns them under load.
+ * Writes get a process of their own, so file writes never run in parallel.
  */
-let shared: ExifTool | null = null;
+let reader: ExifTool | null = null;
+let writer: ExifTool | null = null;
 let configPath: string | null = null;
+let readProcs = 1;
 
 /**
- * Points ExifTool at the config declaring GeoTagger's XMP namespace (SPEC §9.3).
+ * Points ExifTool at the config declaring GeoTagger's XMP namespace (SPEC §9.3) and
+ * sets how many processes reads may use.
  *
  * `-config` has to be the very first argument ExifTool sees, so it goes in front of
  * the `-stay_open` pair the process is launched with. Must be called before the first
- * read: the process lives for the life of the server and its launch args are fixed.
+ * read: the processes live for the life of the server and their launch args are fixed.
  */
-export function configureExiftool(path: string | null): void {
-  if (shared !== null) throw new Error('ExifTool is already running; configure it before the first read');
+export function configureExiftool(path: string | null, maxReadProcs = 1): void {
+  if (reader !== null || writer !== null) {
+    throw new Error('ExifTool is already running; configure it before the first read');
+  }
   configPath = path;
+  readProcs = Math.max(1, maxReadProcs);
 }
 
-export function exiftool(): ExifTool {
-  shared ??= new ExifTool({
+function launch(maxProcs: number): ExifTool {
+  return new ExifTool({
     taskTimeoutMillis: 20_000,
-    maxProcs: 1,
+    maxProcs,
     exiftoolArgs: [...(configPath === null ? [] : ['-config', configPath]), '-stay_open', 'True', '-@', '-'],
   });
-  return shared;
+}
+
+/** For reads only; anything that changes a file goes through `exiftoolWriter()`. */
+export function exiftool(): ExifTool {
+  reader ??= launch(readProcs);
+  return reader;
+}
+
+export function exiftoolWriter(): ExifTool {
+  writer ??= launch(1);
+  return writer;
 }
 
 export async function shutdownExiftool(): Promise<void> {
-  if (shared) {
-    const et = shared;
-    shared = null;
-    await et.end();
-  }
+  const running = [reader, writer].filter((et): et is ExifTool => et !== null);
+  reader = null;
+  writer = null;
+  await Promise.all(running.map((et) => et.end()));
 }
 
 /**

@@ -210,18 +210,30 @@ const EMBEDDED_THUMBNAIL_PX = 160;
  * `JpgFromRaw` and `PreviewImage` are full-size-ish, `ThumbnailImage` is typically
  * 160 px and so only satisfies a tier no larger than that — asking a bigger tier to
  * accept it would cache a small image under a large name, since nothing here enlarges.
+ *
+ * All candidates are asked for in one ExifTool call: most files have none of them, and
+ * a call per tag would put every render through the ExifTool queue more than once.
  */
 async function extractEmbeddedPreview(absPath: string, size: number): Promise<Buffer | null> {
   const tags = size <= EMBEDDED_THUMBNAIL_PX
     ? ['JpgFromRaw', 'PreviewImage', 'ThumbnailImage']
     : ['JpgFromRaw', 'PreviewImage'];
+  let raw: Record<string, unknown>;
+  try {
+    raw = (await exiftool().readRaw(absPath, ['-b', ...tags.map((t) => `-${t}`)])) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  return pickEmbeddedPreview(raw, tags);
+}
+
+/** With `-json -b`, ExifTool hands binary tags back as `base64:`-prefixed strings. */
+export function pickEmbeddedPreview(raw: Record<string, unknown>, tags: readonly string[]): Buffer | null {
   for (const tag of tags) {
-    try {
-      const buf = await exiftool().extractBinaryTagToBuffer(tag as never, absPath);
-      if (buf && buf.length > 0) return Buffer.from(buf);
-    } catch {
-      // tag absent on this file; try the next
-    }
+    const value = raw[tag];
+    if (typeof value !== 'string' || !value.startsWith('base64:')) continue;
+    const buf = Buffer.from(value.slice('base64:'.length), 'base64');
+    if (buf.length > 0) return buf;
   }
   return null;
 }
