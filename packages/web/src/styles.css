@@ -494,6 +494,8 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .lane-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .lane-title .lane-label { flex: 1; min-width: 0; }
 .lane-title .state-badge { flex: none; }
+.lane-move { flex: none; display: flex; gap: 2px; }
+.lane-move .chip { font-size: 8px; line-height: 1; padding: 3px 4px; border-radius: 5px; }
 .lock-toggle {
   flex: none;
   display: grid;

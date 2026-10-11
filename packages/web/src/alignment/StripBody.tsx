@@ -17,7 +17,7 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  * Height of a lane row. Everything vertical below is derived from it, so a frame
  * fills the strip it sits in rather than floating in its top half.
  */
-const LANE_ROW_PX = 136;
+const LANE_ROW_PX = 146;
 /**
  * What a frame has to clear inside the row: `.strip-hit` sits 4 px in and draws a
  * 1 px border, and a selected frame paints a 2 px ring outside itself. Leaving room
@@ -34,6 +34,7 @@ const THUMB_TOP_PX = FRAME_INSET_PX + SELECT_RING_PX;
 const THUMB_PX = LANE_ROW_PX - 2 * THUMB_TOP_PX;
 
 export const STRIP_LANE_ROW_PX = LANE_ROW_PX;
+export const STRIP_THUMB_PX = THUMB_PX;
 /**
  * A frame is centred on its instant, so it reaches half its width either side of it.
  * The strip's own frame has to be padded by at least that much or its first and last
@@ -74,6 +75,7 @@ export function StripBody({
   onTogglePin,
   onSelectFile,
   onSetTrueTime,
+  onOpenStack,
 }: {
   stripFiles: StripFiles | undefined;
   /**
@@ -91,6 +93,8 @@ export function StripBody({
   onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
   onSetTrueTime: (fileId: FileId) => void;
+  /** A stack was double-clicked: the instants of its photos, and of the one shown on top. */
+  onOpenStack: (instants: readonly number[], shownMs: number) => void;
 }) {
   if (!stripFiles || stripFiles.instants.length === 0) {
     return <div className="strip-body empty" style={{ height: LANE_ROW_PX }} />;
@@ -119,6 +123,7 @@ export function StripBody({
       onTogglePin={onTogglePin}
       onSelectFile={onSelectFile}
       onSetTrueTime={onSetTrueTime}
+      onOpenStack={onOpenStack}
     />
   );
 }
@@ -140,6 +145,7 @@ function Thumbnails({
   onTogglePin,
   onSelectFile,
   onSetTrueTime,
+  onOpenStack,
 }: {
   positions: readonly number[];
   files: readonly TimelineFile[];
@@ -153,8 +159,19 @@ function Thumbnails({
   onTogglePin: ((fileId: FileId) => void) | null;
   onSelectFile: (fileId: FileId, additive: boolean) => void;
   onSetTrueTime: (fileId: FileId) => void;
+  onOpenStack: (instants: readonly number[], shownMs: number) => void;
 }) {
-  const clusters: { fileId: FileId; x: number; count: number; selected: boolean; pinned: boolean }[] = [];
+  const clusters: {
+    fileId: FileId;
+    x: number;
+    /** Where the stack's photos start in `positions`; `count` says how many follow. */
+    first: number;
+    count: number;
+    /** Instant of the photo shown on top, `fileId`. */
+    shownMs: number;
+    selected: boolean;
+    pinned: boolean;
+  }[] = [];
   for (let i = from; i < to; i += 1) {
     const x = xOf(scale, positions[i] as number);
     const file = files[i] as TimelineFile;
@@ -168,11 +185,12 @@ function Thumbnails({
       // as the axis is zoomed out.
       if (selectedFileIds.has(file.id)) {
         last.fileId = file.id;
+        last.shownMs = positions[i] as number;
         last.selected = true;
       }
       continue;
     }
-    clusters.push({ fileId: file.id, x, count: 1, selected: selectedFileIds.has(file.id), pinned });
+    clusters.push({ fileId: file.id, x, first: i, count: 1, shownMs: positions[i] as number, selected: selectedFileIds.has(file.id), pinned });
   }
 
   return (
@@ -190,6 +208,7 @@ function Thumbnails({
               title={record?.filename ?? ''}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => onSelectFile(c.fileId, e.ctrlKey || e.metaKey || e.shiftKey)}
+              onDoubleClick={() => c.count > 1 && onOpenStack(positions.slice(c.first, c.first + c.count), c.shownMs)}
               onContextMenu={(e) => {
                 // Right-click offers "set true time" (SPEC §4.3).
                 e.preventDefault();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arrangeLanes, collapseEmptyLanes, laneAccepts, overlaps, type LanePlacement } from './lanes.js';
+import { arrangeLanes, collapseEmptyLanes, laneAccepts, moveLane, overlaps, type LanePlacement } from './lanes.js';
 
 const strip = (id: number, lane: number, firstMs: number | null, lastMs: number | null): LanePlacement => ({
   id,
@@ -68,6 +68,31 @@ describe('collapseEmptyLanes', () => {
       [2, 0],
       [3, 1],
       [1, 2],
+    ]);
+  });
+});
+
+describe('moveLane', () => {
+  const lanesOf = (out: LanePlacement[]) => Object.fromEntries(out.map((p) => [p.id, p.lane]));
+
+  it('moves a lane down, shifting the ones it passes up by one', () => {
+    const out = moveLane([strip(1, 0, 0, 1), strip(2, 1, 0, 1), strip(3, 2, 0, 1)], 0, 2);
+    expect(lanesOf(out)).toEqual({ 1: 2, 2: 0, 3: 1 });
+  });
+
+  it('moves a lane up, shifting the ones it passes down by one', () => {
+    const out = moveLane([strip(1, 0, 0, 1), strip(2, 1, 0, 1), strip(3, 2, 0, 1)], 2, 0);
+    expect(lanesOf(out)).toEqual({ 1: 1, 2: 2, 3: 0 });
+  });
+
+  it('takes every strip of the lane along, keeping their order', () => {
+    const first = { ...strip(1, 0, 0, 100), ordinal: 0 };
+    const second = { ...strip(2, 0, 200, 300), ordinal: 1 };
+    const out = moveLane([first, second, strip(3, 1, 0, 1)], 0, 1);
+    expect(out.map((p) => [p.id, p.lane, p.ordinal])).toEqual([
+      [3, 0, 0],
+      [1, 1, 0],
+      [2, 1, 1],
     ]);
   });
 });

@@ -42,7 +42,7 @@ import { TimeAxis } from './TimeAxis.js';
 import { TimeScrollbar } from './TimeScrollbar.js';
 import { UtcOffsetPrompt } from './UtcOffsetPrompt.js';
 import { ZoneRibbon } from './ZoneRibbon.js';
-import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX, type StripFiles } from './StripBody.js';
+import { buildStripFiles, StripBody, STRIP_LANE_ROW_PX, STRIP_THUMB_HALF_PX, STRIP_THUMB_PX, type StripFiles } from './StripBody.js';
 import {
   clampToViewport,
   endMs,
@@ -53,6 +53,7 @@ import {
   scaleForZoom,
   xOf,
   zoomAbout,
+  zoomToSeparate,
   ZOOM_SPANS,
   type TimeScale,
   type ZoomLevel,
@@ -787,7 +788,9 @@ export function AlignmentView({
               key={level}
               type="button"
               className="ghost"
-              onClick={() => bounds && setScale((s) => scaleForZoom(s, level, bounds))}
+              onClick={() =>
+                bounds && setScale((s) => scaleForZoom(s, level, bounds, selectedLine?.effectiveMs ?? null))
+              }
             >
               {level}
             </button>
@@ -875,6 +878,8 @@ export function AlignmentView({
               <LaneHeader
                 key={i}
                 lane={lane}
+                index={i}
+                laneCount={lanes.length}
                 selectedStripId={selectedStripId}
                 displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
                 height={STRIP_LANE_ROW_PX}
@@ -883,6 +888,7 @@ export function AlignmentView({
                 onReset={(stripId, part) => run(api.resetStrip(stripId, part))}
                 onSetLocked={(stripId, locked) => run(api.setLocked(stripId, locked))}
                 onSetUtcOffset={(stripId, minutes) => run(api.setStripUtcOffset(stripId, minutes))}
+                onMove={(from, to) => run(api.moveLane(from, to))}
               />
             ))}
           </div>
@@ -956,6 +962,9 @@ export function AlignmentView({
                         }
                         onSelectFile={(id, additive) => selectFile(id, strip.id, additive)}
                         onSetTrueTime={setTrueTime}
+                        onOpenStack={(instants, shownMs) =>
+                          setScale((s) => zoomToSeparate(s, instants, shownMs, STRIP_THUMB_PX))
+                        }
                       />
                     </div>
                   );

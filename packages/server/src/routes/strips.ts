@@ -5,6 +5,7 @@ import type {
   LaneRequest,
   LockRequest,
   MergeRequest,
+  MoveLaneRequest,
   PinRequest,
   RegroupRequest,
   StripFromSelectionRequest,
@@ -101,6 +102,15 @@ export function registerStripRoutes(app: FastifyInstance, sessions: SessionManag
       return badRequest(reply, 'lane must be a number.');
     }
     sessions.require().strips.moveToLane(id, lane);
+    return timeline();
+  });
+
+  app.post<{ Body: MoveLaneRequest }>('/api/strips/lanes/move', async (req, reply) => {
+    const { fromLane, toLane } = req.body ?? {};
+    if (typeof fromLane !== 'number' || typeof toLane !== 'number') {
+      return badRequest(reply, 'fromLane and toLane must be lane numbers.');
+    }
+    sessions.require().strips.moveLane(fromLane, toLane);
     return timeline();
   });
 

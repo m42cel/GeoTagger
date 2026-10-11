@@ -266,7 +266,7 @@ the drift (`0 s/day` until the strip is stretched), the strip's time zone overri
 empty — `auto` — unless one is typed in), a reset (↺) beside each, and the lock with a pin count
 beside it. A lane holding several
 segments of a cut strip shows the selected segment's controls — the first segment's while none of
-them is selected — with the segment numbers to switch between them.
+them is selected — with the segment numbers below the fields to switch between them.
 
 **Lock** freezes a strip: no body drag, no stretch, no cut, no merge, no lane move, no keyboard
 nudge, no pinning. Its purpose is the device whose clock is already correct — typically a phone —
@@ -564,15 +564,15 @@ No map. A shared, zoomable time axis with one lane per strip.
 ```
  group by: [ subfolder | device ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
 
- iPhone 15 Pro · 412    [■]  │  ■■ ■▅   ■▅█▃      ■■■▆        │  ← [■] closed padlock: locked
+ iPhone 15 Pro · 412  ▲▼ [■] │  ■■ ■▅   ■▅█▃      ■■■▆        │  ← [■] closed padlock: locked
  Offset [ 0 s         ] ↺    │                                │
  Drift  [ 0 s/day     ] ↺    │                                │
  TZ     [ auto        ] ↺    │                                │
- SONY ILCE-7… · 896 1 pin [□]│      ■■ ■▅  │✂ cut   ■■■▆      │  ← [□] open padlock
- [ 1 ][ 2 ]                  │    ◀ ■▅█▃   │                  │  ← segment 2 selected:
- Offset [ +1h 02m 12s ] ↺    │             │                  │    merge arrow, cut at the mark
- Drift  [ +14 s/day   ] ↺    │                                │
+ SONY ILC… · 896 1 pin ▲▼ [□]│      ■■ ■▅  │✂ cut   ■■■▆      │  ← [□] open padlock
+ Offset [ +1h 02m 12s ] ↺    │    ◀ ■▅█▃   │                  │  ← segment 2 selected:
+ Drift  [ +14 s/day   ] ↺    │             │                  │    merge arrow, cut at the mark
  TZ     [ +02:00      ] ↺    │                                │
+ [ 1 ][ 2 ]                  │                                │
                              ├────────────────────────────────┤
                              │+02:00 Berlin░░░░░+09:00 Tokyo  │  ← UTC offset periods
                              └────────────────────────────────┘
@@ -604,6 +604,13 @@ Strip controls live on the lanes (§4.3), so a control always says by where it s
 on a strip or on one photo. Under the lanes, the selected photo gets a card of its own, leading
 with a large preview of it.
 
+**Lanes can be reordered** with the up and down arrows (▲▼) beside the lock in their headers. A
+lane moves as a whole, every segment in it along, and since only the order of the rows changes,
+never a time, a locked lane moves too: the lock's "no lane move" (§4.3) is about pulling a strip
+out of its lane, not about where the lane sits in the stack. The order is the folder's group order everywhere — the file grid and the
+map's group filter list groups the same way — and like every strip edit it is undoable; a regroup
+or a rebuilding rescan (§4.4) starts over from the grouping mode's order.
+
 The strip's UTC offset override of §4.2 is the `TZ` field in its lane header. It is empty unless
 typed into: each photo then takes the offset inferred for when it was taken, and the photo card
 shows which one it got and where from.
@@ -611,7 +618,10 @@ shows which one it got and where from.
 **Zoom levels** run from whole trip down to minutes. Strips always render as photo thumbnails,
 at every zoom level: aligning by hand means recognising the same moment on two devices, and an
 abstract density bar cannot be recognised. Colliding thumbnails collapse into a stack with a
-count and separate as you zoom in.
+count and separate as you zoom in. Double-clicking a stack zooms in just far enough to split it at its
+widest gap, centred on that gap but never losing the photo clicked; a part that is still a stack
+splits again the same way, and a burst too tight to separate stops at the deepest zoom. The zoom
+buttons centre on the selected photo, or on the middle of the view while none is selected.
 
 **Rendering is virtualised**: only files inside the visible time window are drawn, so a lane
 holding thousands of files stays responsive.
