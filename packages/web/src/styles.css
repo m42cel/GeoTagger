@@ -21,8 +21,12 @@
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/*
+ * Dark tokens apply when the system asks for dark mode and the theme toggle in the footer
+ * hasn't forced light, or whenever the toggle forces dark (`<html data-theme>`, ThemeToggle).
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #14161a;
     --fg: #e9ecf1;
     --muted: #9aa3b0;
@@ -34,6 +38,21 @@
     --pin: #ff7a45;
   }
 }
+
+:root[data-theme="dark"] {
+  --bg: #14161a;
+  --fg: #e9ecf1;
+  --muted: #9aa3b0;
+  --line: #2a2e36;
+  --panel: #1b1e24;
+  --accent: #6ea8ff;
+  --error: #ff8a80;
+  --weak: #f0b429;
+  --pin: #ff7a45;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -84,6 +103,7 @@ body {
 /* Tucked into the page's bottom-right corner, over `main`'s bottom padding rather than a row of its own. */
 .app-footer {
   position: absolute;
+  left: 20px;
   right: 20px;
   bottom: 10px;
   display: flex;
@@ -94,6 +114,16 @@ body {
 }
 .app-footer a { color: inherit; display: inline-flex; }
 .app-footer a:hover { color: var(--fg); }
+
+.theme-toggle {
+  margin-right: auto;
+  display: inline-flex;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+}
+.theme-toggle:hover { color: var(--fg); }
 
 main {
   /* The extra room at the bottom is the footer's. */
