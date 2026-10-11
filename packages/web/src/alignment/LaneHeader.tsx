@@ -18,6 +18,8 @@ import { countOf } from '../plural.js';
  */
 export function LaneHeader({
   lane,
+  index,
+  laneCount,
   selectedStripId,
   displayUtcOffsetMinutes,
   height,
@@ -26,8 +28,12 @@ export function LaneHeader({
   onReset,
   onSetLocked,
   onSetUtcOffset,
+  onMove,
 }: {
   lane: readonly StripRecord[];
+  /** The lane's position in the stack, and how many there are, for the move arrows. */
+  index: number;
+  laneCount: number;
   selectedStripId: number | null;
   displayUtcOffsetMinutes: number;
   height: number;
@@ -36,6 +42,7 @@ export function LaneHeader({
   onReset: (stripId: number, part: 'offset' | 'drift') => void;
   onSetLocked: (stripId: number, locked: boolean) => void;
   onSetUtcOffset: (stripId: number, minutes: number | null) => void;
+  onMove: (from: number, to: number) => void;
 }) {
   const strip = lane.find((s) => s.id === selectedStripId) ?? lane[0];
   if (strip === undefined) return <div className="lane-header" style={{ height }} />;
@@ -61,6 +68,30 @@ export function LaneHeader({
             {strip.pinnedFileIds.length === 1 ? '1 pin' : `${strip.pinnedFileIds.length} pins`}
           </span>
         )}
+        {laneCount > 1 && (
+          <span className="lane-move">
+            <button
+              type="button"
+              className="chip"
+              disabled={index === 0}
+              title="Move this lane up"
+              aria-label="Move lane up"
+              onClick={() => onMove(index, index - 1)}
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              className="chip"
+              disabled={index === laneCount - 1}
+              title="Move this lane down"
+              aria-label="Move lane down"
+              onClick={() => onMove(index, index + 1)}
+            >
+              ▼
+            </button>
+          </span>
+        )}
         <button
           type="button"
           className={`lock-toggle${strip.locked ? ' on' : ''}`}
@@ -72,21 +103,6 @@ export function LaneHeader({
           <LockIcon locked={strip.locked} />
         </button>
       </span>
-
-      {lane.length > 1 && (
-        <span className="segment-picker" title="This lane holds segments of a cut strip; pick the one to edit">
-          {lane.map((s, i) => (
-            <button
-              type="button"
-              key={s.id}
-              className={`chip${s.id === strip.id ? ' on' : ''}`}
-              onClick={() => onSelect(s.id)}
-            >
-              {i + 1}
-            </button>
-          ))}
-        </span>
-      )}
 
       <span className="lane-row-control" title={pinnedTitle}>
         <span className="lane-row-label">Offset</span>
@@ -152,6 +168,21 @@ export function LaneHeader({
           ↺
         </button>
       </span>
+
+      {lane.length > 1 && (
+        <span className="segment-picker" title="This lane holds segments of a cut strip; pick the one to edit">
+          {lane.map((s, i) => (
+            <button
+              type="button"
+              key={s.id}
+              className={`chip${s.id === strip.id ? ' on' : ''}`}
+              onClick={() => onSelect(s.id)}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </span>
+      )}
     </div>
   );
 }

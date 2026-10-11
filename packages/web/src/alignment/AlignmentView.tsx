@@ -875,6 +875,8 @@ export function AlignmentView({
               <LaneHeader
                 key={i}
                 lane={lane}
+                index={i}
+                laneCount={lanes.length}
                 selectedStripId={selectedStripId}
                 displayUtcOffsetMinutes={timeline.displayUtcOffsetMinutes}
                 height={STRIP_LANE_ROW_PX}
@@ -883,6 +885,7 @@ export function AlignmentView({
                 onReset={(stripId, part) => run(api.resetStrip(stripId, part))}
                 onSetLocked={(stripId, locked) => run(api.setLocked(stripId, locked))}
                 onSetUtcOffset={(stripId, minutes) => run(api.setStripUtcOffset(stripId, minutes))}
+                onMove={(from, to) => run(api.moveLane(from, to))}
               />
             ))}
           </div>

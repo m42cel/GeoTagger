@@ -17,7 +17,7 @@ import { lowerBound, msAt, xOf, type TimeScale } from './scale.js';
  * Height of a lane row. Everything vertical below is derived from it, so a frame
  * fills the strip it sits in rather than floating in its top half.
  */
-const LANE_ROW_PX = 136;
+const LANE_ROW_PX = 146;
 /**
  * What a frame has to clear inside the row: `.strip-hit` sits 4 px in and draws a
  * 1 px border, and a selected frame paints a 2 px ring outside itself. Leaving room

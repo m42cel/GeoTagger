@@ -20,7 +20,7 @@ import type { FolderStore } from '../db/store.js';
 import { buildTimeline, type Timeline } from '../time/timeline.js';
 import { buildUtcOffsetRules } from '../time/utc-offset.js';
 import { buildStrips } from './grouping.js';
-import { arrangeLanes, laneAccepts, type LanePlacement } from './lanes.js';
+import { arrangeLanes, laneAccepts, moveLane, type LanePlacement } from './lanes.js';
 import { correctionOf, planCut, planMerge, planTrueTime, type SegmentMember } from './segments.js';
 
 /**
@@ -379,6 +379,22 @@ export class StripService {
     const target = Math.max(0, Math.round(lane));
     strip.lane = laneAccepts(placements, strip, target) ? target : strip.lane;
     this.store.applyLaneLayout(arrangeLanes(placements, id));
+  }
+
+  /**
+   * Moves a whole lane up or down the stack. Only the order of the rows changes, never
+   * a time, so a locked strip moves with its lane.
+   */
+  moveLane(from: number, to: number): void {
+    const placements = this.placements();
+    const laneCount = new Set(placements.map((p) => p.lane)).size;
+    const valid = (lane: number): boolean => Number.isInteger(lane) && lane >= 0 && lane < laneCount;
+    if (!valid(from) || !valid(to)) {
+      throw new StripOperationError('no_such_lane', 'There is no lane at that position.', 400);
+    }
+    if (from === to) return;
+    this.pushUndo();
+    this.store.applyLaneLayout(moveLane(placements, from, to));
   }
 
   /** Re-derives lanes and ordinals after anything that can have moved a strip. */

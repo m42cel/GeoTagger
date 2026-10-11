@@ -251,6 +251,29 @@ describe('cutting, merging and lanes (SPEC §4.3)', () => {
   });
 });
 
+describe('reordering lanes', () => {
+  beforeEach(() => {
+    addFile('phone/IMG_1.JPG', '2024-07-12T09:00:00', { device: 'phone' });
+    addFile('sony/DSC_1.JPG', '2024-07-12T09:00:00', { device: 'sony' });
+    service.regroup('device');
+  });
+
+  const order = (): string[] => service.strips().strips.map((s) => s.label);
+
+  it('moves a lane, locked or not, and can be undone', () => {
+    const before = order();
+    service.setLocked(stripFor(before[0] as string).id, true);
+    service.moveLane(0, 1);
+    expect(order()).toEqual([...before].reverse());
+    service.undo();
+    expect(order()).toEqual(before);
+  });
+
+  it('refuses a lane that does not exist', () => {
+    expect(() => service.moveLane(1, 2)).toThrow(/no lane/i);
+  });
+});
+
 describe('set true time (SPEC §4.3)', () => {
   it('shifts the whole strip so the file lands on the time given', () => {
     const first = addFile('sony/DSC_1.JPG', '2024-07-12T08:00:00');

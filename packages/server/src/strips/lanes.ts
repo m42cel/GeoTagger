@@ -77,6 +77,21 @@ function orderWithinLanes(placements: LanePlacement[]): LanePlacement[] {
   return placements;
 }
 
+/**
+ * Moves a whole lane to another position in the stack, every strip in it along, and
+ * shifts the lanes in between by one. Nothing changes within a lane, so no strip can
+ * collide.
+ */
+export function moveLane(placements: readonly LanePlacement[], from: number, to: number): LanePlacement[] {
+  const working = placements.map((p) => ({ ...p }));
+  for (const p of working) {
+    if (p.lane === from) p.lane = to;
+    else if (from < to && p.lane > from && p.lane <= to) p.lane -= 1;
+    else if (from > to && p.lane >= to && p.lane < from) p.lane += 1;
+  }
+  return collapseEmptyLanes(working);
+}
+
 /** Renumbers lanes 0..n-1 in their existing order, so a vacated lane closes up. */
 export function collapseEmptyLanes(placements: LanePlacement[]): LanePlacement[] {
   const used = [...new Set(placements.map((p) => p.lane))].sort((a, b) => a - b);
