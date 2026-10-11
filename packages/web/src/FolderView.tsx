@@ -27,16 +27,23 @@ type View = 'grouping' | 'question' | 'files' | 'alignment' | 'map';
 export function FolderView({
   session,
   onSessionChange,
+  onScanningChange,
 }: {
   session: SessionState;
   onSessionChange: (s: SessionState) => void;
+  /** Whether a scan is in flight, for the app bar's Rescan button. */
+  onScanningChange: (scanning: boolean) => void;
 }) {
   const [scan, setScan] = useState<ScanStatus>(session.scan);
+  const scanning = scan.phase !== 'done' && scan.phase !== 'failed' && scan.phase !== 'idle';
+  useEffect(() => onScanningChange(scanning), [scanning, onScanningChange]);
   const [data, setData] = useState<FilesResponse | null>(null);
   const [strips, setStrips] = useState<StripsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>(() => initialView(session));
   const [persisting, setPersisting] = useState(false);
+  /** Bumped by every write, so the map and alignment view refetch what it changed. */
+  const [writeCount, setWriteCount] = useState(0);
   // Held here rather than in the grid so it survives a trip to the map or the alignment
   // view, which unmounts the grid; a reload starts with every group expanded again.
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<number | null>>(() => new Set());
@@ -55,6 +62,9 @@ export function FolderView({
   groupingQuestionPending.current = session.groupingQuestionPending;
   const timestampQuestionPending = useRef(session.timestampQuestionPending);
   timestampQuestionPending.current = session.timestampQuestionPending;
+
+  // A rescan is started from the app bar, which hands the new scan down through the session.
+  useEffect(() => setScan(session.scan), [session.scan]);
 
   const refresh = useCallback(() => {
     Promise.all([api.files(), api.strips()])
@@ -117,20 +127,13 @@ export function FolderView({
     [onSessionChange, refresh],
   );
 
-  const rescan = useCallback(() => {
-    // Optimistic: blocks browsing immediately rather than waiting for the first SSE
-    // update, so no stale content flashes before the scan stream reports 'walking'.
-    setScan((s) => ({ ...s, phase: 'walking' }));
-    api.rescan().then(onSessionChange).catch((err: unknown) => setError(errorText(err)));
-  }, [onSessionChange]);
-
   // The scan, including thumbnail generation, is a precondition for everything past
   // it (SPEC §6.1 step 2) — the question, the file grid, the alignment view all wait
   // behind it, and a rescan hides them again the same way.
   if (scan.phase !== 'done') {
     return (
       <section className="folder-view">
-        <ScanProgress status={scan} onRescan={rescan} />
+        <ScanProgress status={scan} />
         {error && <div className="banner error">{error}</div>}
       </section>
     );
@@ -139,7 +142,7 @@ export function FolderView({
   if (view === 'grouping') {
     return (
       <section className="folder-view">
-        <ScanProgress status={scan} onRescan={rescan} />
+        <ScanProgress status={scan} />
         <GroupingQuestion files={data?.files ?? []} devices={data?.devices ?? []} onChoose={chooseGrouping} />
       </section>
     );
@@ -148,7 +151,7 @@ export function FolderView({
   if (view === 'question') {
     return (
       <section className="folder-view">
-        <ScanProgress status={scan} onRescan={rescan} />
+        <ScanProgress status={scan} />
         <TimestampQuestion
           onFixTimestamps={() => answerQuestion('alignment')}
           onGoToMap={() => answerQuestion('map')}
@@ -157,20 +160,32 @@ export function FolderView({
     );
   }
 
+  const persistDialog = persisting && (
+    <PersistDialog
+      onClose={(wrote) => {
+        setPersisting(false);
+        if (!wrote) return;
+        refresh();
+        setWriteCount((n) => n + 1);
+      }}
+    />
+  );
+
+  // The other views' edits change what is pending, so the overview's copy is refetched.
+  const backToOverview = (): void => {
+    refresh();
+    setView('files');
+  };
+
   if (view === 'map') {
     return (
       <section className="folder-view">
-        {persisting && (
-          <PersistDialog
-            onClose={(wrote) => {
-              setPersisting(false);
-              if (wrote) refresh();
-            }}
-          />
-        )}
+        {persistDialog}
         <MapView
           focusFileId={focusFileId}
-          onBack={() => setView('files')}
+          writeCount={writeCount}
+          onBack={backToOverview}
+          onOpenAlignment={() => openView('alignment')}
           onOpenPersist={() => setPersisting(true)}
         />
       </section>
@@ -180,17 +195,11 @@ export function FolderView({
   if (view === 'alignment') {
     return (
       <section className="folder-view">
-        {persisting && (
-          <PersistDialog
-            onClose={(wrote) => {
-              setPersisting(false);
-              if (wrote) refresh();
-            }}
-          />
-        )}
+        {persistDialog}
         <AlignmentView
           focusFileId={focusFileId}
-          onBack={() => setView('files')}
+          writeCount={writeCount}
+          onBack={backToOverview}
           onOpenPersist={() => setPersisting(true)}
           onOpenMap={() => openView('map')}
         />
@@ -204,15 +213,8 @@ export function FolderView({
 
   return (
     <section className="folder-view">
-      <ScanProgress status={scan} onRescan={rescan} />
+      <ScanProgress status={scan} />
       {error && <div className="banner error">{error}</div>}
-
-      {scan.summary && (
-        <p className="summary">
-          {scan.summary.known.toLocaleString()} known · {scan.summary.added.toLocaleString()} new ·{' '}
-          {scan.summary.changed.toLocaleString()} changed · {scan.summary.missing.toLocaleString()} missing
-        </p>
-      )}
 
       <div className="view-actions">
         <button type="button" className="primary" onClick={() => openView('map')}>
@@ -221,19 +223,17 @@ export function FolderView({
         <button type="button" className="ghost" onClick={() => openView('alignment')}>
           Fix timestamps
         </button>
-        <button type="button" className="ghost" onClick={() => setPersisting(true)}>
+        <button
+          type="button"
+          className="persist-button"
+          disabled={!data?.hasPendingChanges}
+          onClick={() => setPersisting(true)}
+        >
           Persist changes
         </button>
       </div>
 
-      {persisting && (
-        <PersistDialog
-          onClose={(wrote) => {
-            setPersisting(false);
-            if (wrote) refresh();
-          }}
-        />
-      )}
+      {persistDialog}
 
       <div className="panels">
         <div className="side-column">

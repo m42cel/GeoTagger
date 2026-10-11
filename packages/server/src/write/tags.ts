@@ -171,7 +171,7 @@ export function writesUtcOffsetTag(kind: MediaKind): boolean {
 }
 
 /** How a confirmed position was arrived at, written as `geotagger:PositionSource` (SPEC §9.2). */
-export type PositionSourceTag = 'manual' | 'interpolated-confirmed';
+type PositionSourceTag = 'manual' | 'interpolated-confirmed';
 
 export interface Provenance {
   /** The correction relative to what the file said, in seconds. */

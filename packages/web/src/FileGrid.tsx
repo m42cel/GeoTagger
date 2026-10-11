@@ -224,12 +224,12 @@ function trustClass(source: CaptureTimeSource): string {
   return source === 'file:ModifyDate' || source === 'none' ? 'weak' : '';
 }
 
-export function formatTime(localIso: string | null): string {
+function formatTime(localIso: string | null): string {
   if (!localIso) return '—';
   return localIso.replace('T', ' ');
 }
 
-export function formatOffset(minutes: number): string {
+function formatOffset(minutes: number): string {
   const sign = minutes < 0 ? '-' : '+';
   const abs = Math.abs(minutes);
   return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;

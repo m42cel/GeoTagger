@@ -7,3 +7,4 @@ export * from './persist.js';
 export * from './geo.js';
 export * from './positions.js';
 export * from './api.js';
+export * from './version.js';

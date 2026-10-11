@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { OplogEntry, PersistPlan, PersistProgress, PersistRequest } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
-import { planFor, runPersist, type PersistContext } from '../write/persist.js';
-import { APP_VERSION } from '../version.js';
+import { hasPendingChanges, planFor, runPersist, type PersistContext } from '../write/persist.js';
+import { APP_VERSION } from '@geotagger/shared';
 
 /**
  * Writing to files (SPEC §9) and the operation log (SPEC §10.3).
@@ -49,6 +49,11 @@ export function registerPersistRoutes(app: FastifyInstance, sessions: SessionMan
     const limit = Number.parseInt(req.query.limit ?? '', 10);
     return sessions.require().store.listOplog(Number.isFinite(limit) ? Math.min(limit, 5000) : 500);
   });
+}
+
+/** Whether persisting would write anything, for the responses that carry `hasPendingChanges`. */
+export function pendingChangesIn(session: Session): boolean {
+  return hasPendingChanges(contextFor(session));
 }
 
 function contextFor(session: Session): PersistContext {

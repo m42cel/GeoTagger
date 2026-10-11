@@ -55,7 +55,7 @@ body {
  * stretches if the view's own root sets `flex: 1` for itself, which just `.map-view`
  * does.
  */
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+.app { position: relative; min-height: 100vh; display: flex; flex-direction: column; }
 
 .app-bar {
   display: flex;
@@ -73,7 +73,7 @@ body {
 .brand { min-height: calc(1lh + 12px); display: inline-flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: 0.01em; }
 .brand img { width: 22px; height: 22px; }
 .crumb { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.app-bar .ghost { margin-left: auto; }
+.app-bar .crumb { margin-right: auto; }
 
 /*
  * 1400px made sense for the file grid and picker, but the alignment view's timeline
@@ -81,8 +81,23 @@ body {
  * give it. The narrower views (picker, timestamp question, …) already cap themselves
  * well under this, so raising it only gives the alignment view more room.
  */
+/* Tucked into the page's bottom-right corner, over `main`'s bottom padding rather than a row of its own. */
+.app-footer {
+  position: absolute;
+  right: 20px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.app-footer a { color: inherit; display: inline-flex; }
+.app-footer a:hover { color: var(--fg); }
+
 main {
-  padding: 16px;
+  /* The extra room at the bottom is the footer's. */
+  padding: 16px 16px 44px;
   max-width: 1800px;
   margin: 0 auto;
   width: 100%;
@@ -114,7 +129,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: var(--accent);
   color: #fff;
   border: 1px solid transparent;
-  padding: 6px 12px;
+  padding: 5px 12px;
 }
 
 .ghost {
@@ -124,7 +139,15 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   padding: 5px 10px;
 }
 
-.ghost:disabled, .primary:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+/* Writing to the files is the one step that can't be undone in the app: amber, not alarm red. */
+.persist-button {
+  background: transparent;
+  color: var(--weak);
+  border: 1px solid var(--muted);
+  padding: 5px 10px;
+}
+
+.ghost:disabled, .primary:disabled, .persist-button:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 
 .link {
   background: none;
@@ -206,7 +229,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .scan { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .scan-head { display: flex; align-items: center; gap: 12px; }
-.scan-head .ghost, .scan-head .muted { margin-left: auto; }
+.scan-head .muted { margin-left: auto; }
 .scan-head .muted {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -218,7 +241,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .scan progress { width: 100%; margin-top: 8px; height: 6px; }
 .scan-failed { border-color: var(--error); }
 
-.summary { color: var(--muted); margin: 0 0 12px; }
 
 /* ---- panels ---- */
 
@@ -370,7 +392,17 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .grouping-options li:last-child { border-bottom: none; }
 .grouping-options button { width: 100%; }
 
-.view-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+/* Boxed and spaced like `.align-toolbar`, so every view's buttons sit on the same line. */
+.view-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.view-actions > .persist-button { margin-left: auto; }
 
 /* ---- alignment view (SPEC §6.2) ---- */
 
@@ -386,7 +418,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border-radius: 8px;
   background: var(--panel);
 }
-.align-toolbar label, .align-toolbar .zoom {
+.align-toolbar .grouping, .align-toolbar .zoom {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -395,8 +427,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.align-toolbar select { font: inherit; text-transform: none; letter-spacing: 0; }
-.align-toolbar .primary { margin-left: auto; }
+.align-toolbar .back-to-overview { margin-left: auto; }
 
 .align-body { display: flex; align-items: flex-start; gap: 12px; }
 
@@ -1100,11 +1131,75 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
    read as cramped rather than spacious. */
 .map-view { flex: 1; display: flex; flex-direction: column; min-height: 0; max-height: 90vh; }
 
-.chip-group { display: flex; gap: 4px; }
+.map-view .view-actions { align-items: center; gap: 12px; }
+.map-filters { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.tray-spacer { width: 220px; flex-shrink: 0; }
+.view-actions-end { width: 520px; flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; }
 
 .map-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 
-.map-legend { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.filter-group { display: flex; align-items: baseline; gap: 6px; }
+/* Too many groups for the row continue on the next line, under the first button. */
+.toggle-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-label { color: var(--muted); }
+
+/* Pick-one: a single joined bar with exactly one segment filled. */
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.segmented button {
+  padding: 5px 10px;
+  border-radius: 0;
+  border: none;
+  background: var(--bg);
+  color: var(--muted);
+}
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button.on { background: var(--accent); color: #fff; }
+
+/* On/off: separate buttons, outlined in the accent colour while on. */
+.toggle-chip {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+}
+.toggle-chip.on { border-color: var(--accent); color: var(--accent); }
+
+/* Leaflet's own control styling, so it reads as part of the map like the zoom buttons. */
+.satellite-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: #fff;
+  color: #333;
+  font: 600 12px/1 sans-serif;
+  cursor: pointer;
+}
+.satellite-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch-track {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: #bbb;
+  transition: background 0.15s;
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.satellite-switch input:checked + .switch-track { background: #2f6fd0; }
+.satellite-switch input:checked + .switch-track::after { transform: translateX(12px); }
+.satellite-switch input:focus-visible + .switch-track { outline: 2px solid #2f6fd0; outline-offset: 2px; }
+
+.map-legend.leaflet-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #fff; color: #333; font-size: 12px; }
 
 .legend-swatch {
   display: inline-block;
@@ -1230,6 +1325,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   font-weight: 700;
 }
 .detail-actions .confirm:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+.detail-actions .placeholder { visibility: hidden; }
 
 .map-thumb-icon img {
   width: 100%;

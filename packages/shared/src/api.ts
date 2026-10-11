@@ -30,7 +30,7 @@ export interface RecentFolder {
 
 export type ScanPhase = 'idle' | 'walking' | 'reading-metadata' | 'thumbnails' | 'done' | 'failed';
 
-/** Reopen summary shown before continuing (SPEC §6.1 step 3). */
+/** What a scan found against the index; a change rebuilds the strips (SPEC §4.4, §6.1 step 3). */
 export interface ScanSummary {
   known: number;
   added: number;
@@ -85,11 +85,13 @@ export interface FilesResponse {
   /** One computed position per file — camera GPS, an interpolated estimate, or none (SPEC §5, §10.2). */
   positions: ComputedPosition[];
   /**
-   * File ids with a confirmed or manual position that doesn't match what's on disk yet
-   * (SPEC §6.3's "unpersisted" filter) — never persisted at all, or persisted with a
-   * different value than the current edit.
+   * File ids with a confirmed position that doesn't match what's on disk yet (SPEC
+   * §6.3's "unpersisted" status) — never persisted at all, or persisted with a
+   * different value than the current edit. A drag on top doesn't change that.
    */
   unpersistedFileIds: FileId[];
+  /** Whether persisting would write anything at all — a position or a time (SPEC §9.1). */
+  hasPendingChanges: boolean;
 }
 
 export interface StripsResponse {
@@ -119,6 +121,8 @@ export interface TimelineResponse extends StripsResponse {
    */
   needsUtcOffsetAnswer: boolean;
   folderUtcOffsetMinutes: number | null;
+  /** Whether persisting would write anything at all — a position or a time (SPEC §9.1). */
+  hasPendingChanges: boolean;
 }
 
 export interface RegroupRequest {

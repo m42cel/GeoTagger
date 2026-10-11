@@ -91,7 +91,7 @@ export const api = {
 
   dragPosition: (fileId: FileId, lat: number, lon: number) => postFiles(`/api/files/${fileId}/position`, { lat, lon }),
   confirmPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/confirm`, {}),
-  revertPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/revert-position`, {}),
+  discardMove: (fileId: FileId) => postFiles(`/api/files/${fileId}/discard-move`, {}),
   resetPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/reset-position`, {}),
   bulkConfirm: (fileIds: FileId[]) => postFiles('/api/edits/bulk', { fileIds }),
 };

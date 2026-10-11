@@ -5,10 +5,7 @@ import type {
   PersistPlan,
   PersistPlanEntry,
   PersistTagChange,
-  PositionSource,
-  TimelineFile,
 } from '@geotagger/shared';
-import { formatUtcOffset } from '@geotagger/shared';
 import { parseOffset } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
 import {

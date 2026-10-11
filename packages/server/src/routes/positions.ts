@@ -1,17 +1,18 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { BulkConfirmRequest, DragPositionRequest, FileId, FilesResponse } from '@geotagger/shared';
+import type { BulkConfirmRequest, ComputedPosition, DragPositionRequest, FileId, FilesResponse } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
+import { canConfirm } from '@geotagger/shared';
 import { isFileId } from './files.js';
+import { pendingChangesIn } from './persist.js';
 
 /**
- * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, revert, reset,
- * and a multi-select bulk confirm.
+ * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, discard move,
+ * reset, and a multi-select bulk confirm.
  *
- * Revert and reset are deliberately two different routes, not one: revert cancels
- * only a drag in progress, falling back to whatever anchor (confirmed or camera GPS)
- * was underneath it; reset discards that anchor too. Confirming a plain interpolated
- * estimate that was never dragged has no anchor to fall back to, so it only ever
- * gets a reset.
+ * Discard move and reset are deliberately two different routes, not one: discarding
+ * a move cancels only a drag in progress, falling back to whatever was underneath it (camera GPS, a
+ * confirmed position, or the estimate); reset discards a confirmed position too, and
+ * with it any drag on top.
  *
  * Bulk confirm takes one snapshot of the current positions and confirms each
  * selected file against it, rather than recomputing between every one — "confirm the
@@ -20,7 +21,7 @@ import { isFileId } from './files.js';
  *
  * Every route answers with the whole `FilesResponse`, like the strips routes answer
  * with the whole timeline. A drag only ever changes the dragged file's own entry,
- * but a confirm, revert, reset or bulk confirm can change which files are anchors,
+ * but a confirm, discard move, reset or bulk confirm can change which files are anchors,
  * which recomputes every unconfirmed estimate in the folder (SPEC §5.5) — either
  * way, nothing less than the whole response would leave the map showing stale
  * positions somewhere.
@@ -34,6 +35,7 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      hasPendingChanges: pendingChangesIn(session),
     };
   };
 
@@ -55,18 +57,17 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
     if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
 
     const current = session.positions.compute(session.store.listFiles()).find((p) => p.fileId === id);
-    if (!current || current.lat === null || current.lon === null) {
+    if (!current || !confirmShown(session, current)) {
       return badRequest(reply, 'This file has no position to confirm.');
     }
-    session.store.confirmPosition(id, current.lat, current.lon, current.uncertaintyM, current.source === 'manual');
     return filesResponse(session);
   });
 
-  app.post<{ Params: { id: string } }>('/api/files/:id/revert-position', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/files/:id/discard-move', async (req, reply) => {
     const session = sessions.require();
     const id = parseId(req.params.id);
     if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
-    session.store.revertPendingPosition(id);
+    session.store.discardPendingPosition(id);
     return filesResponse(session);
   });
 
@@ -92,14 +93,29 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
     for (const id of fileIds) {
       const current = snapshot.get(id);
       // Same eligibility as the single-file confirm button (§6.5): camera GPS and an
-      // already-confirmed position are already anchors, with nothing to confirm —
-      // "confirming" one again would just re-stamp it as a manual edit for no reason.
-      if (!current || current.lat === null || current.lon === null) continue;
-      if (current.source !== 'estimate' && current.source !== 'manual') continue;
-      session.store.confirmPosition(id, current.lat, current.lon, current.uncertaintyM, current.source === 'manual');
+      // already-confirmed position with no drag on top are already anchors, with
+      // nothing to confirm — "confirming" one again would just re-stamp it as a
+      // manual edit for no reason.
+      if (!current || !canConfirm(current)) continue;
+      confirmShown(session, current);
     }
     return filesResponse(session);
   });
+}
+
+/**
+ * Confirms what the file currently shows (SPEC §5.6): its drag if one is in progress,
+ * else its own position, with the estimate's uncertainty when that is what it shows.
+ * False when it shows nothing.
+ */
+function confirmShown(session: Session, current: ComputedPosition): boolean {
+  if (current.pending !== null) {
+    session.store.confirmPosition(current.fileId, current.pending.lat, current.pending.lon, null, true);
+    return true;
+  }
+  if (current.base === null) return false;
+  session.store.confirmPosition(current.fileId, current.base.lat, current.base.lon, current.base.uncertaintyM, false);
+  return true;
 }
 
 function parseId(raw: string): FileId | null {

@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { ComputedPosition, FileId, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
-import { formatInstant, formatUtcOffset } from '@geotagger/shared';
+import { canConfirm as confirmable, formatInstant, formatUtcOffset, shownPosition } from '@geotagger/shared';
+import { borderClassFor } from './marker-status.js';
+import { RESET_LABEL, type ResetTarget } from './reset-target.js';
 
 /**
  * Detail for the map's selected thumbnail (SPEC §6.3's side panel): the large
  * preview, the corrected timestamp, where the file currently sits, and — for a
- * single selection — the confirm/revert/reset controls of SPEC §6.5.
+ * single selection — the confirm/discard move/reset controls of SPEC §6.5.
  *
- * Revert and reset are two different depths of undo: revert cancels only a drag in
- * progress, falling back to whatever anchor (confirmed or camera GPS) was underneath
- * it; reset discards that anchor too, all the way back to a derived estimate or no
- * position at all (SPEC §5.6). A plain interpolated estimate that has never been
- * dragged or confirmed has nothing to revert to, only to reset.
+ * Discard move and reset are two different depths of undo: discarding a move cancels
+ * only a drag in progress, falling back to whatever is underneath it (camera GPS, a confirmed
+ * position, or the estimate); reset discards a confirmed position too, back to camera
+ * GPS, a derived estimate or no position at all (SPEC §5.6, §6.5).
  *
  * While the map's multi-selection (SPEC §6.5) is non-empty, this panel shows a grid
  * of small thumbnails instead — the single-file view doesn't make sense for several
@@ -24,8 +25,9 @@ export function DetailPanel({
   position,
   timelineFile,
   onConfirm,
-  onRevert,
+  onDiscardMove,
   onReset,
+  resetTarget,
   busy,
   multiSelectedItems,
   onSelectOne,
@@ -34,8 +36,10 @@ export function DetailPanel({
   position: ComputedPosition | null;
   timelineFile: TimelineFile | null;
   onConfirm: () => void;
-  onRevert: () => void;
+  onDiscardMove: () => void;
   onReset: () => void;
+  /** What a reset would fall back to; only asked for a selected file. */
+  resetTarget: ResetTarget;
   busy: boolean;
   multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
   onSelectOne: (fileId: FileId) => void;
@@ -49,7 +53,7 @@ export function DetailPanel({
             <button
               key={item.file.id}
               type="button"
-              className={`detail-multi-thumb ${borderClassFor(item.position.source)}`}
+              className={`detail-multi-thumb ${borderClassFor(item.position)}`}
               title={item.file.filename}
               onClick={() => onSelectOne(item.file.id)}
             >
@@ -65,13 +69,11 @@ export function DetailPanel({
     return <aside className="detail-panel muted">Click a thumbnail to see it here.</aside>;
   }
 
-  const canConfirm = position?.source === 'estimate' || position?.source === 'manual';
-  // A ghost (SPEC §5.6) means a drag is in progress over an existing anchor — the
-  // one thing revert can fall back to.
-  const canRevert = position !== null && position.anchorLat !== null;
-  // Reset needs something in the edit store at all, pending or confirmed; camera GPS
-  // and derived estimates have no edit-store row of their own to discard.
-  const canReset = position?.source === 'manual' || position?.source === 'confirmed';
+  const canConfirm = position !== null && confirmable(position);
+  const canDiscardMove = position !== null && position.pending !== null;
+  // Camera GPS and an estimate come from the file and the anchors, not the edit store
+  // — only a confirmation is there to discard.
+  const canReset = position?.base?.source === 'confirmed';
 
   return (
     <aside className="detail-panel">
@@ -83,23 +85,38 @@ export function DetailPanel({
         <dd>{formatCorrectedTime(timelineFile)}</dd>
         <dt>position</dt>
         <dd>{formatPosition(position, file.origAlt)}</dd>
-        {position !== null && position.source !== 'none' && (
+        {position !== null && shownPosition(position) !== null && (
           <>
             <dt>status</dt>
             <dd className="detail-status">{formatStatus(position)}</dd>
           </>
         )}
       </dl>
-      {(canConfirm || canRevert || canReset) && (
+      {/* Only the actions that apply; busy disables them for the moment an edit is in flight.
+          The first row keeps its height even when empty, so Reset always sits on the
+          second and nothing moves when confirming swaps one set of buttons for the other. */}
+      <div className="detail-actions">
+        {canConfirm && (
+          <button type="button" className="confirm" disabled={busy} onClick={onConfirm}>
+            ✓ Confirm position
+          </button>
+        )}
+        {canDiscardMove && (
+          <button type="button" className="ghost" disabled={busy} onClick={onDiscardMove}>
+            Discard move
+          </button>
+        )}
+        {!canConfirm && !canDiscardMove && (
+          <button type="button" className="confirm placeholder" tabIndex={-1} aria-hidden="true">
+            ✓ Confirm position
+          </button>
+        )}
+      </div>
+      {/* The label names what the file falls back to. */}
+      {canReset && (
         <div className="detail-actions">
-          <button type="button" className="confirm" disabled={!canConfirm || busy} onClick={onConfirm} title="Confirm">
-            ✓
-          </button>
-          <button type="button" className="ghost" disabled={!canRevert || busy} onClick={onRevert}>
-            Revert
-          </button>
-          <button type="button" className="ghost" disabled={!canReset || busy} onClick={onReset}>
-            Reset
+          <button type="button" className="ghost" disabled={busy} onClick={onReset}>
+            {RESET_LABEL[resetTarget]}
           </button>
         </div>
       )}
@@ -136,25 +153,22 @@ function formatCorrectedTime(timelineFile: TimelineFile | null) {
 }
 
 function formatPosition(position: ComputedPosition | null, origAlt: number | null): string {
-  if (position === null || position.lat === null || position.lon === null) return 'no position';
-  const latLon = `${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}`;
+  const shown = position === null ? null : shownPosition(position);
+  if (shown === null) return 'no position';
+  const latLon = `${shown.lat.toFixed(5)}, ${shown.lon.toFixed(5)}`;
   return origAlt === null ? latLon : `${latLon}, ${Math.round(origAlt)} m`;
-}
-
-/** Same rule as the map's marker borders (SPEC §6.5) — duplicated rather than shared to avoid a circular import with MapView. */
-function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfirmed' {
-  return source === 'camera-gps' || source === 'confirmed' ? 'known' : 'unconfirmed';
 }
 
 const STATUS_LABEL: Record<PositionSource, string> = {
   'camera-gps': 'camera GPS',
-  manual: 'manually placed',
   confirmed: 'confirmed',
   estimate: 'interpolated',
-  none: 'no position',
 };
 
+/** Only called for a file that shows somewhere — a drag, or a position of its own. */
 function formatStatus(position: ComputedPosition): string {
-  const label = STATUS_LABEL[position.source];
-  return position.uncertaintyM === null ? label : `${label} · ±${Math.round(position.uncertaintyM)} m`;
+  if (position.pending !== null) return 'manually placed';
+  const base = position.base as NonNullable<ComputedPosition['base']>;
+  const label = STATUS_LABEL[base.source];
+  return base.uncertaintyM === null ? label : `${label} · ±${Math.round(base.uncertaintyM)} m`;
 }

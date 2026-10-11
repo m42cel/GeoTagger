@@ -6,21 +6,17 @@ import type { ScanStatus } from '@geotagger/shared';
  * rather than a plain spinner — a first scan of 5,000 files on an ARM NAS is long
  * enough that the user needs to see it moving.
  */
-export function ScanProgress({ status, onRescan }: { status: ScanStatus; onRescan: () => void }) {
-  const idle = status.phase === 'done' || status.phase === 'idle' || status.phase === 'failed';
+export function ScanProgress({ status }: { status: ScanStatus }) {
+  // A finished scan has nothing left to report.
+  if (status.phase === 'done') return null;
+  const idle = status.phase === 'idle' || status.phase === 'failed';
   const { label, value, max } = describe(status);
 
   return (
     <div className={`scan scan-${status.phase}`}>
       <div className="scan-head">
         <strong>{label}</strong>
-        {idle ? (
-          <button type="button" className="ghost" onClick={onRescan}>
-            Rescan
-          </button>
-        ) : (
-          <span className="muted">{status.currentPath ?? ''}</span>
-        )}
+        {!idle && <span className="muted">{status.currentPath ?? ''}</span>}
       </div>
       {!idle && (
         <progress value={max > 0 ? value : undefined} max={max > 0 ? max : undefined}>
@@ -48,8 +44,6 @@ function describe(s: ScanStatus): { label: string; value: number; max: number } 
         value: s.thumbsDone,
         max: s.thumbsQueued,
       };
-    case 'done':
-      return { label: 'Scan complete', value: 1, max: 1 };
     case 'failed':
       return { label: 'Scan failed', value: 0, max: 0 };
     default:

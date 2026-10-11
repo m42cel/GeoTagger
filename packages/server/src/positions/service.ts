@@ -1,4 +1,4 @@
-import type { ComputedPosition, FileId, FileRecord, KnownPosition, PositionInput } from '@geotagger/shared';
+import type { BasePosition, ComputedPosition, FileId, FileRecord, KnownPosition, PositionInput } from '@geotagger/shared';
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
@@ -49,7 +49,8 @@ export class PositionService {
    * A confirmed position whose on-disk state doesn't match it yet (SPEC §6.3): never
    * persisted at all, or persisted with different coordinates than the current edit.
    * Camera GPS, a pending drag and an unconfirmed estimate are never persisted, so
-   * they are never "unpersisted" either — only a settled, `confirmed` position is.
+   * they are never "unpersisted" either — only a settled, `confirmed` position is, with or
+   * without a drag on top of it.
    *
    * Read through the same two steps the persist plan uses — the tags GeoTagger has
    * written over what the scan read — so this answers with what is in the file rather than
@@ -63,15 +64,15 @@ export class PositionService {
     const persisted = this.store.listPersisted();
     const fileById = new Map(this.store.listFiles().map((f) => [f.id, f]));
     return positions
-      .filter((p) => p.source === 'confirmed')
-      .filter((p) => {
-        const file = fileById.get(p.fileId);
-        if (file === undefined || p.lat === null || p.lon === null) return true;
-        const row = persisted.get(p.fileId);
+      .filter((p): p is ComputedPosition & { base: BasePosition } => p.base?.source === 'confirmed')
+      .filter(({ fileId, base }) => {
+        const file = fileById.get(fileId);
+        if (file === undefined) return true;
+        const row = persisted.get(fileId);
         const written = row === undefined ? null : writtenTagsOf(row);
         const onDisk = coordsFromTags(file.kind, tagValuesOnDisk(file, written ?? {}));
         if (onDisk === null) return true;
-        return formatCoord(onDisk.lat) !== formatCoord(p.lat) || formatCoord(onDisk.lon) !== formatCoord(p.lon);
+        return formatCoord(onDisk.lat) !== formatCoord(base.lat) || formatCoord(onDisk.lon) !== formatCoord(base.lon);
       })
       .map((p) => p.fileId);
   }

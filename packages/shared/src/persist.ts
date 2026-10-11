@@ -1,4 +1,3 @@
-import type { PositionSource } from './positions.js';
 import type { FileId } from './media.js';
 
 /**
@@ -50,8 +49,8 @@ export interface PersistPlanEntry {
   fields: PersistFieldChange[];
   /** The correction relative to what the file said, in seconds — written as provenance. */
   timeShiftSeconds: number;
-  /** Always `manual` or `confirmed` when set — the only two provenances ever persisted. */
-  positionSource: PositionSource | null;
+  /** How the persisted position came about: confirmed from a drag (`manual`) or from an estimate. */
+  positionSource: 'manual' | 'confirmed' | null;
   positionUncertaintyM: number | null;
   /** True when the file changed on disk since it was scanned (SPEC §8.3). */
   stale: boolean;

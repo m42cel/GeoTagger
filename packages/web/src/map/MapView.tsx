@@ -3,23 +3,38 @@ import type { DragEvent } from 'react';
 import * as L from 'leaflet';
 import 'leaflet.markercluster';
 import 'leaflet-polylinedecorator';
+import { GeodesicLine } from 'leaflet.geodesic';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import type { ComputedPosition, FileId, FileRecord, FilesResponse, TimelineFile, TimelineResponse } from '@geotagger/shared';
+import type {
+  BasePosition,
+  ComputedPosition,
+  FileId,
+  FileRecord,
+  FilesResponse,
+  LatLon,
+  TimelineFile,
+  TimelineResponse,
+} from '@geotagger/shared';
+import { canConfirm, shownPosition } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
+import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
+import { resetTarget } from './reset-target.js';
+import { isShown, STATUS_FILTERS, type StatusFilter } from './filters.js';
+import { pathVertices } from './path.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
  * interpolated position, clustered, with a path line and uncertainty circles.
  * Selecting a thumbnail shows the detail panel; dragging a marker or using the
- * panel's confirm/revert/reset buttons edits its position (SPEC §5.6). Re-dragging
- * an already-anchored file draws a ghost at its old position, connected by a thin
- * line to where it is now — that old position is still what anchors everyone else
- * until the drag is confirmed or reverted.
+ * panel's confirm/discard move/reset buttons edits its position (SPEC §5.6). A dragged
+ * file draws a ghost at its own position — its anchor, still placing everyone else,
+ * or its estimate — connected by a thin line to where it is now, until the drag is
+ * confirmed or discarded.
  *
  * Editing is wired the same way the alignment view's mutations are: every edit posts
  * to the server and replaces local state with the response it sends back, rather
@@ -28,7 +43,7 @@ import { markerSize } from './marker-size.js';
  * Multi-select (SPEC §6.5) is shift-click to toggle one marker at a time, or a
  * shift+drag rubber band to select every marker inside the box, independent of the
  * single `selectedId` the detail panel shows — it exists only to batch-confirm a
- * selection at once (§6.5's "confirm the selection together"), not to drag or revert
+ * selection at once (§6.5's "confirm the selection together"), not to drag or discard
  * a group, so it carries no per-file detail of its own.
  */
 
@@ -42,15 +57,17 @@ interface MapItem {
 
 type BaseLayerId = 'osm' | 'esri';
 
-const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution: string; maxZoom: number }> = {
+/** How far past the view, as a fraction of its size, vector layers stay drawn while panning. */
+const RENDERER_PADDING = 1.5;
+const GHOST_PANE = 'ghosts';
+
+const BASE_LAYERS: Record<BaseLayerId, { url: string; attribution: string; maxZoom: number }> = {
   osm: {
-    label: 'Map',
     url: '/tiles/osm/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
   },
   esri: {
-    label: 'Satellite',
     url: '/tiles/esri/{z}/{x}/{y}.png',
     attribution: 'Imagery &copy; Esri',
     maxZoom: 19,
@@ -59,23 +76,27 @@ const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution
 
 export function MapView({
   focusFileId,
+  writeCount,
   onBack,
+  onOpenAlignment,
   onOpenPersist,
 }: {
   /** A file to open on: zoomed to and selected. */
   focusFileId: FileId | null;
+  /** Changes after each write to the files, which this view then refetches. */
+  writeCount: number;
   onBack: () => void;
+  onOpenAlignment: () => void;
   onOpenPersist: () => void;
 }) {
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showCircles, setShowCircles] = useState(true);
-  // SPEC §6.3 filters: visibility-only, on by default.
-  const [showUnconfirmed, setShowUnconfirmed] = useState(true);
-  const [showAppModified, setShowAppModified] = useState(true);
-  const [showUnpersisted, setShowUnpersisted] = useState(true);
-  const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
+  // SPEC §6.3 filters: visibility-only, everything shown by default. Groups are kept
+  // as the hidden ones so a strip that appears later (a cut, a regroup) shows.
+  const [hiddenStripIds, setHiddenStripIds] = useState<ReadonlySet<number>>(new Set());
+  const [status, setStatus] = useState<StatusFilter>('all');
+  const [satellite, setSatellite] = useState(false);
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -96,7 +117,7 @@ export function MapView({
         setTimeline(t);
       })
       .catch((err: unknown) => setError(errorText(err)));
-  }, []);
+  }, [writeCount]);
 
   /**
    * Every position edit follows the same shape: post it, adopt whatever
@@ -131,8 +152,8 @@ export function MapView({
     if (selectedId !== null) void editPosition(() => api.confirmPosition(selectedId));
   }
 
-  function handleRevert(): void {
-    if (selectedId !== null) void editPosition(() => api.revertPosition(selectedId));
+  function handleDiscardMove(): void {
+    if (selectedId !== null) void editPosition(() => api.discardMove(selectedId));
   }
 
   function handleReset(): void {
@@ -172,6 +193,14 @@ export function MapView({
     setMultiSelected((prev) => (prev.size === 0 ? prev : new Set()));
   }
 
+  function toggleStrip(stripId: number): void {
+    setHiddenStripIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(stripId)) next.add(stripId);
+      return next;
+    });
+  }
+
   function handleBulkConfirm(): void {
     if (confirmableSelected.length === 0) return;
     void editPosition(() => api.bulkConfirm(confirmableSelected)).then((ok) => {
@@ -185,56 +214,39 @@ export function MapView({
     const timelineById = new Map(timeline.files.map((f) => [f.id, f]));
     return filesResp.files.map((file) => ({
       file,
-      position: positionById.get(file.id) ?? {
-        fileId: file.id,
-        lat: null,
-        lon: null,
-        uncertaintyM: null,
-        source: 'none',
-        anchorLat: null,
-        anchorLon: null,
-      },
+      position: positionById.get(file.id) ?? { fileId: file.id, base: null, pending: null },
       timelineFile: timelineById.get(file.id) ?? null,
     }));
   }, [filesResp, timeline]);
 
-  const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
-
-  const unpersistedIds = useMemo(() => new Set(filesResp?.unpersistedFileIds ?? []), [filesResp]);
+  const onMap = useMemo(() => items.filter((i) => shownPosition(i.position) !== null), [items]);
 
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
   // unaffected by what's currently hidden. This is what markers actually get drawn
   // from.
-  const visibleOnMap = useMemo(
-    () =>
-      onMap.filter((i) => {
-        const isUnconfirmed = i.position.source === 'manual' || i.position.source === 'estimate';
-        const isAppModified = i.position.source !== 'camera-gps';
-        const isUnpersisted = unpersistedIds.has(i.file.id);
-        return (
-          (showUnconfirmed || !isUnconfirmed) &&
-          (showAppModified || !isAppModified) &&
-          (showUnpersisted || !isUnpersisted)
-        );
-      }),
-    [onMap, showUnconfirmed, showAppModified, showUnpersisted, unpersistedIds],
-  );
+  const visibleOnMap = useMemo(() => {
+    const assignments = timeline?.assignments ?? {};
+    const context = { assignments, unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
+    const filters = { hiddenStripIds, status };
+    return onMap.filter((i) => isShown(i, context, filters));
+  }, [onMap, timeline, filesResp, hiddenStripIds, status]);
 
-  const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
+  const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.file.id, i])), [items]);
 
   // Same eligibility as the single-file confirm button (SPEC §6.5): camera GPS and
-  // an already-confirmed position are already anchors, with nothing to confirm.
+  // an already-confirmed position with no drag on top are already anchors, with
+  // nothing to confirm.
   // Filtering here — not just on the server — means the bar can hide the button
   // entirely when the selection has nothing confirmable in it, rather than showing
   // a button that would silently no-op on every selected file.
   const confirmableSelected = useMemo(
     () =>
       [...multiSelected].filter((id) => {
-        const source = itemById.get(id)?.position.source;
-        return source === 'estimate' || source === 'manual';
+        const position = itemById.get(id)?.position;
+        return position !== undefined && canConfirm(position);
       }),
     [multiSelected, itemById],
   );
@@ -254,35 +266,11 @@ export function MapView({
     clearMultiSelected();
   }
 
-  // SPEC §6.3: the line connects anchors and the estimates between them, in
-  // effective-time order. Files with no effective time cannot take a place in that
-  // order, so they are left out of the line — they are on the map (an extrapolated
-  // position needs no timestamp of its own to draw), just not on it. A file with a
-  // pending drag and no anchor underneath is excluded the same way: it does not
-  // anchor its neighbours (SPEC §5.5), so it should not bend the line toward it
-  // either. A file being *re*-dragged still has its old anchor (`anchorLat`/`Lon`,
-  // SPEC §5.6's ghost) doing that work, so the line runs through that point rather
-  // than skipping the file or bending toward where it is being dragged to.
-  const path = useMemo<[number, number][]>(
-    () =>
-      onMap
-        .filter(
-          (i) =>
-            (i.position.anchorLat !== null || i.position.source !== 'manual') &&
-            i.timelineFile?.effectiveMs !== null &&
-            i.timelineFile?.effectiveMs !== undefined,
-        )
-        .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number))
-        .map((i): [number, number] =>
-          i.position.anchorLat !== null
-            ? [i.position.anchorLat, i.position.anchorLon as number]
-            : [i.position.lat as number, i.position.lon as number],
-        ),
-    [onMap],
-  );
+  const path = useMemo(() => pathVertices(onMap), [onMap]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const ghostRendererRef = useRef<L.Renderer | undefined>(undefined);
   const baseLayersRef = useRef<Record<BaseLayerId, L.TileLayer> | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const circlesRef = useRef<L.LayerGroup | null>(null);
@@ -299,12 +287,48 @@ export function MapView({
     if (!containerRef.current) return;
     // boxZoom is Leaflet's own shift+drag gesture; multi-select's rubber band (below)
     // repurposes shift+drag for selection instead, so the built-in one has to go.
-    const map = L.map(containerRef.current, { center: [20, 0], zoom: 2, boxZoom: false });
+    // The renderer only redraws vector layers (path line, circles, ghosts) once a pan
+    // ends, and clips them to the view plus `padding` (a fraction of its size): the
+    // default 0.1 leaves them cut off mid-pan, one and a half views on each side doesn't.
+    const map = L.map(containerRef.current, {
+      center: [20, 0],
+      zoom: 2,
+      boxZoom: false,
+      renderer: L.svg({ padding: RENDERER_PADDING }),
+    });
+    // Ghosts (SPEC §5.6, §6.3) sit in a pane of their own between the overlay pane
+    // (path line, arrowheads, circles: 400) and the markers (600), so they draw over
+    // the line however often the arrowheads are re-added on pan. A pane gets its own
+    // renderer, which needs the same padding as the map's.
+    map.createPane(GHOST_PANE).style.zIndex = '450';
+    ghostRendererRef.current = L.svg({ padding: RENDERER_PADDING, pane: GHOST_PANE });
     const layers = {
       osm: L.tileLayer(BASE_LAYERS.osm.url, { attribution: BASE_LAYERS.osm.attribution, maxZoom: BASE_LAYERS.osm.maxZoom }),
       esri: L.tileLayer(BASE_LAYERS.esri.url, { attribution: BASE_LAYERS.esri.attribution, maxZoom: BASE_LAYERS.esri.maxZoom }),
     };
     layers.osm.addTo(map);
+    const satelliteControl = new L.Control({ position: 'topright' });
+    satelliteControl.onAdd = () => {
+      const label = L.DomUtil.create('label', 'leaflet-bar satellite-switch');
+      const input = L.DomUtil.create('input', '', label);
+      input.type = 'checkbox';
+      input.setAttribute('role', 'switch');
+      L.DomUtil.create('span', 'switch-track', label);
+      label.append('Satellite');
+      L.DomEvent.on(input, 'change', () => setSatellite(input.checked));
+      L.DomEvent.disableClickPropagation(label);
+      return label;
+    };
+    satelliteControl.addTo(map);
+    const legend = new L.Control({ position: 'bottomleft' });
+    legend.onAdd = () => {
+      const box = L.DomUtil.create('div', 'leaflet-bar map-legend');
+      box.innerHTML =
+        '<span class="legend-swatch known"></span> known position' +
+        '<span class="legend-swatch unconfirmed"></span> unconfirmed position';
+      return box;
+    };
+    legend.addTo(map);
     mapRef.current = map;
     baseLayersRef.current = layers;
     return () => {
@@ -318,11 +342,10 @@ export function MapView({
     const layers = baseLayersRef.current;
     const map = mapRef.current;
     if (!layers || !map) return;
-    for (const id of Object.keys(layers) as BaseLayerId[]) {
-      if (id === baseLayer) layers[id].addTo(map);
-      else map.removeLayer(layers[id]);
-    }
-  }, [baseLayer]);
+    const [shown, hidden] = satellite ? [layers.esri, layers.osm] : [layers.osm, layers.esri];
+    map.removeLayer(hidden);
+    shown.addTo(map);
+  }, [satellite]);
 
   // Multi-select (SPEC §6.5): shift+drag starting on empty map draws a rubber band
   // and replaces the selection with everything inside it once released. A marker's
@@ -468,9 +491,11 @@ export function MapView({
     const markers: MarkerWithFile[] = [];
 
     for (const item of visibleOnMap) {
-      const borderClass = borderClassFor(item.position.source);
+      const { base, pending } = item.position;
+      const shown = shownPosition(item.position) as LatLon;
+      const borderClass = borderClassFor(item.position);
       const size = markerSize(item.file.width, item.file.height, THUMB_SIZE_PX);
-      const marker = L.marker([item.position.lat as number, item.position.lon as number], {
+      const marker = L.marker([shown.lat, shown.lon], {
         icon: thumbIcon(
           item.file.id,
           size,
@@ -485,7 +510,9 @@ export function MapView({
       markerWithFile.geotaggerFileId = item.file.id;
       markerWithFile.geotaggerBorderClass = borderClass;
       markerWithFile.geotaggerSize = size;
-      markerWithFile.geotaggerUncertaintyM = item.position.uncertaintyM;
+      // A dragged file's circle belongs to the estimate it is overriding, drawn on
+      // its ghost below, not to where the drag has put it.
+      markerWithFile.geotaggerUncertaintyM = pending === null ? (base?.uncertaintyM ?? null) : null;
       marker.bindTooltip(item.file.filename);
       // Shift-click toggles multi-select (SPEC §6.5) without touching the detail
       // panel's single selection; a plain click does the opposite — replaces the
@@ -500,20 +527,19 @@ export function MapView({
       // `dragstart`/`drag` (selecting the file, clearing multi-select): that would
       // rebuild the marker layer mid-gesture and abort the drag — see `handleDragEnd`,
       // which does both once the drag has actually finished instead.
-      const startedAt = L.latLng(item.position.lat as number, item.position.lon as number);
+      const startedAt = L.latLng(shown.lat, shown.lon);
 
-      // SPEC §5.6's ghost: re-dragging a file that already has a known position
-      // (camera GPS or confirmed) leaves that old position marked — it is still what
-      // places everyone else — with a thin line to where the file is now. A file
-      // already mid-drag from an *earlier* gesture (source 'manual', `anchorLat` set)
-      // already has this ghost drawn below from server state; this branch instead
-      // covers the *first* drag of an already-known file, where the server hasn't
-      // been told about the pending drag yet — the ghost has to appear locally, the
-      // instant the drag starts, rather than waiting on that round trip.
-      if (item.position.source === 'camera-gps' || item.position.source === 'confirmed') {
+      // SPEC §5.6's ghost: dragging a file leaves its own position marked — an
+      // anchor because it still places everyone else, an estimate because it is
+      // where the track still puts the file — with a thin line to where the file is
+      // now. A file already mid-drag from an *earlier* gesture already has this ghost
+      // drawn below from server state; this branch instead covers the *first* drag,
+      // where the server hasn't been told about it yet — the ghost has to appear
+      // locally, the instant the drag starts, rather than waiting on that round trip.
+      if (pending === null && base !== null) {
         let ghost: { line: L.Polyline; dot: L.CircleMarker } | null = null;
         marker.on('dragstart', () => {
-          ghost = createGhost(ghosts, startedAt, startedAt, item.file.filename);
+          ghost = createGhost(ghosts, ghostRendererRef.current, startedAt, startedAt, ghostTooltip(item.file.filename, base));
         });
         marker.on('drag', () => ghost?.line.setLatLngs([startedAt, marker.getLatLng()]));
         marker.on('dragend', () => {
@@ -530,15 +556,15 @@ export function MapView({
       cluster.addLayer(marker);
       markers.push(markerWithFile);
 
-      if (item.position.anchorLat !== null && item.position.anchorLon !== null) {
-        const anchorLatLng = L.latLng(item.position.anchorLat, item.position.anchorLon);
-        const liveLatLng = L.latLng(item.position.lat as number, item.position.lon as number);
-        const ghost = createGhost(ghosts, anchorLatLng, liveLatLng, item.file.filename);
+      if (pending !== null && base !== null) {
+        const baseLatLng = L.latLng(base.lat, base.lon);
+        const ghost = createGhost(ghosts, ghostRendererRef.current, baseLatLng, startedAt, ghostTooltip(item.file.filename, base));
+        if (base.uncertaintyM !== null) uncertaintyCircle(baseLatLng, base.uncertaintyM).addTo(ghosts);
         // Follow the marker while it's being re-dragged so the line doesn't point at
         // the file's old (pre-drag) spot until the state update on `dragend` catches
         // up — Leaflet fires 'drag' continuously during the gesture, same as it does
         // for the marker's own live position.
-        marker.on('drag', () => ghost.line.setLatLngs([anchorLatLng, marker.getLatLng()]));
+        marker.on('drag', () => ghost.line.setLatLngs([baseLatLng, marker.getLatLng()]));
       }
     }
 
@@ -556,7 +582,6 @@ export function MapView({
     // members eventually get their own individually-sized circles again.
     const rebuildCircles = () => {
       circles.clearLayers();
-      if (!showCircles) return;
       const groups = new Map<L.Layer, { center: L.LatLng; maxUncertaintyM: number }>();
       for (const marker of markers) {
         if (marker.geotaggerUncertaintyM === null || marker.geotaggerUncertaintyM === undefined) continue;
@@ -568,15 +593,7 @@ export function MapView({
         }
       }
       for (const { center, maxUncertaintyM } of groups.values()) {
-        circles.addLayer(
-          L.circle(center, {
-            radius: maxUncertaintyM,
-            color: '#d1453b',
-            weight: 1,
-            fillOpacity: 0.08,
-            opacity: 0.35,
-          }),
-        );
+        circles.addLayer(uncertaintyCircle(center, maxUncertaintyM));
       }
     };
 
@@ -587,13 +604,31 @@ export function MapView({
     circles.addTo(map);
     circlesRef.current = circles;
 
+    // A corner of the path whose file is filtered out keeps a small dot (SPEC §6.3),
+    // so the line doesn't bend at nothing. Smaller than §5.6's re-drag ghost, which
+    // means something else, and small enough that a dense run of hidden camera-GPS
+    // photos just reads as a slightly heavier stretch of line.
+    const visibleIds = new Set(visibleOnMap.map((i) => i.file.id));
+    for (const vertex of path) {
+      if (visibleIds.has(vertex.fileId)) continue;
+      L.circleMarker([vertex.lat, vertex.lon], {
+        radius: 3,
+        color: '#666666',
+        weight: 1,
+        fillColor: '#ffffff',
+        fillOpacity: 0.8,
+        interactive: false,
+        renderer: ghostRendererRef.current,
+      }).addTo(ghosts);
+    }
     ghosts.addTo(map);
     ghostsRef.current = ghosts;
 
     if (path.length > 1) {
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
-      // not the app background.
-      const line = L.polyline(path, { color: '#333333', weight: 2, opacity: 0.7 });
+      // not the app background. Geodesic so each segment follows the same great
+      // circle the estimates on it were placed along (SPEC §5.1).
+      const line = new GeodesicLine(path.map((v) => [v.lat, v.lon]), { color: '#333333', weight: 2, opacity: 0.7 });
       line.addTo(map);
       pathRef.current = line;
 
@@ -634,11 +669,16 @@ export function MapView({
         map.setView(focus.getLatLng(), 16, { animate: false });
         cluster.zoomToShowLayer(focus);
       } else {
-        const bounds = L.latLngBounds(onMap.map((i) => [i.position.lat as number, i.position.lon as number]));
+        const bounds = L.latLngBounds(
+          onMap.map((i) => {
+            const { lat, lon } = shownPosition(i.position) as LatLon;
+            return [lat, lon];
+          }),
+        );
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
       }
     }
-  }, [visibleOnMap, path, showCircles]);
+  }, [visibleOnMap, path]);
 
   // Selection highlighting is applied in place, not by rebuilding the marker layer
   // above: `Marker.setIcon`/`DivIcon.createIcon` reuse the existing DOM node instead
@@ -667,57 +707,78 @@ export function MapView({
 
   return (
     <section className="map-view">
+      {/* Columns match `.map-layout`'s below, so the filters stay over the map. */}
       <div className="view-actions">
-        <button type="button" className="ghost" onClick={onBack}>
-          ← Back
-        </button>
-        <button type="button" className="ghost" onClick={onOpenPersist}>
-          Persist changes
-        </button>
-        <div className="chip-group">
-          {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((id) => (
-            <button
-              key={id}
-              type="button"
-              className={`chip${baseLayer === id ? ' on' : ''}`}
-              onClick={() => setBaseLayer(id)}
-            >
-              {BASE_LAYERS[id].label}
-            </button>
-          ))}
-        </div>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showCircles} onChange={(e) => setShowCircles(e.target.checked)} />
-          Uncertainty circles
-        </label>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showUnconfirmed} onChange={(e) => setShowUnconfirmed(e.target.checked)} />
-          Unconfirmed
-        </label>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showAppModified} onChange={(e) => setShowAppModified(e.target.checked)} />
-          App-modified
-        </label>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showUnpersisted} onChange={(e) => setShowUnpersisted(e.target.checked)} />
-          Unpersisted
-        </label>
-        {multiSelected.size > 0 && (
-          <div className="multi-select-bar">
-            <span>{multiSelected.size} selected</span>
-            {confirmableSelected.length > 0 && (
-              <button type="button" className="confirm" disabled={busy} onClick={handleBulkConfirm}>
-                Confirm selection
-              </button>
-            )}
-            <button type="button" className="ghost" disabled={busy} onClick={clearMultiSelected}>
-              Clear
-            </button>
+        <div className="map-filters">
+          <div className="filter-group">
+            <span className="filter-label">Status:</span>
+            <div className="segmented" role="radiogroup" aria-label="Status">
+              {STATUS_FILTERS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={status === id}
+                  className={status === id ? 'on' : ''}
+                  onClick={() => setStatus(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
-        <div className="map-legend">
-          <span className="legend-swatch known" /> known position
-          <span className="legend-swatch unconfirmed" /> unconfirmed estimate
+          {/* With a single group, hiding it would just hide everything. */}
+          {(timeline?.strips.length ?? 0) > 1 && (
+            <div className="filter-group">
+              <span className="filter-label">Show group:</span>
+              <div className="toggle-chips">
+                {timeline?.strips.map((strip) => {
+                  const on = !hiddenStripIds.has(strip.id);
+                  return (
+                    <button
+                      key={strip.id}
+                      type="button"
+                      aria-pressed={on}
+                      className={`toggle-chip${on ? ' on' : ''}`}
+                      onClick={() => toggleStrip(strip.id)}
+                    >
+                      {strip.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {multiSelected.size > 0 && (
+            <div className="multi-select-bar">
+              <span>{multiSelected.size} selected</span>
+              {confirmableSelected.length > 0 && (
+                <button type="button" className="confirm" disabled={busy} onClick={handleBulkConfirm}>
+                  Confirm selection
+                </button>
+              )}
+              <button type="button" className="ghost" disabled={busy} onClick={clearMultiSelected}>
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+        {tray.length > 0 && <div className="tray-spacer" />}
+        <div className="view-actions-end">
+          <button type="button" className="ghost" onClick={onBack}>
+            ← Back to overview
+          </button>
+          <button type="button" className="ghost" onClick={onOpenAlignment}>
+            Fix timestamps
+          </button>
+          <button
+            type="button"
+            className="persist-button"
+            disabled={!filesResp?.hasPendingChanges}
+            onClick={onOpenPersist}
+          >
+            Persist changes
+          </button>
         </div>
       </div>
 
@@ -736,8 +797,9 @@ export function MapView({
           position={selected?.position ?? null}
           timelineFile={selected?.timelineFile ?? null}
           onConfirm={handleConfirm}
-          onRevert={handleRevert}
+          onDiscardMove={handleDiscardMove}
           onReset={handleReset}
+          resetTarget={selected ? resetTarget(selected.file, selected.timelineFile, items) : 'none'}
           busy={busy}
           multiSelectedItems={multiSelectedItems}
           onSelectOne={handleSelectOne}
@@ -793,22 +855,38 @@ type MarkerWithFile = L.Marker & {
   geotaggerUncertaintyM?: number | null;
 };
 
-/** Green for a known position (camera GPS or confirmed), red for anything derived or not yet confirmed (SPEC §6.5). */
-function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfirmed' {
-  return source === 'camera-gps' || source === 'confirmed' ? 'known' : 'unconfirmed';
+function ghostTooltip(filename: string, base: BasePosition): string {
+  return `${filename} — ${base.source === 'estimate' ? 'estimated position' : 'previous position'}`;
 }
 
-/** SPEC §5.6's ghost: the faint marker at a file's old position plus the thin line to its new one. */
+/** SPEC §5.2's faint circle. */
+function uncertaintyCircle(center: L.LatLng, radiusM: number): L.Circle {
+  return L.circle(center, { radius: radiusM, color: '#d1453b', weight: 1, fillOpacity: 0.08, opacity: 0.35 });
+}
+
+/** SPEC §5.6's ghost: the faint marker at a dragged file's own position plus the thin line to the drag. */
 function createGhost(
   ghosts: L.LayerGroup,
+  renderer: L.Renderer | undefined,
   anchor: L.LatLng,
   live: L.LatLng,
   filename: string,
 ): { line: L.Polyline; dot: L.CircleMarker } {
-  const line = L.polyline([anchor, live], { color: '#666666', weight: 1.5, dashArray: '4 4', opacity: 0.8 }).addTo(
-    ghosts,
-  );
-  const dot = L.circleMarker(anchor, { radius: 8, color: '#666666', weight: 2, fillColor: '#ffffff', fillOpacity: 0.7 })
+  const line = L.polyline([anchor, live], {
+    color: '#666666',
+    weight: 1.5,
+    dashArray: '4 4',
+    opacity: 0.8,
+    renderer,
+  }).addTo(ghosts);
+  const dot = L.circleMarker(anchor, {
+    radius: 8,
+    color: '#666666',
+    weight: 2,
+    fillColor: '#ffffff',
+    fillOpacity: 0.7,
+    renderer,
+  })
     .bindTooltip(`${filename} — previous position`)
     .addTo(ghosts);
   return { line, dot };

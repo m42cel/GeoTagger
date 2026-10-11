@@ -125,12 +125,15 @@ interface StretchHandle {
 
 export function AlignmentView({
   focusFileId,
+  writeCount,
   onBack,
   onOpenPersist,
   onOpenMap,
 }: {
   /** A file to open on: centred at the hour zoom, and selected. */
   focusFileId: FileId | null;
+  /** Changes after each write to the files, which this view then refetches. */
+  writeCount: number;
   onBack: () => void;
   onOpenPersist: () => void;
   onOpenMap: () => void;
@@ -197,7 +200,7 @@ export function AlignmentView({
         setFiles(f.files);
       })
       .catch((err: unknown) => setError(errorText(err)));
-  }, []);
+  }, [writeCount]);
 
   // A refusal floats over the view rather than pushing it down, and goes by itself.
   useEffect(() => {
@@ -759,16 +762,23 @@ export function AlignmentView({
     <section className="alignment" onPointerDownCapture={() => setError(null)}>
       {dialog}
       <div className="align-toolbar">
-        <label>
-          grouping
-          <select
-            value={timeline.groupingMode}
-            onChange={(e) => void regroup(e.target.value as GroupingMode)}
-          >
-            <option value="subfolder">by subfolder</option>
-            <option value="device">by device</option>
-          </select>
-        </label>
+        <span className="grouping">
+          group by
+          <div className="segmented" role="radiogroup" aria-label="Group by">
+            {(['subfolder', 'device'] as GroupingMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={timeline.groupingMode === mode}
+                className={timeline.groupingMode === mode ? 'on' : ''}
+                onClick={() => timeline.groupingMode !== mode && void regroup(mode)}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+        </span>
 
         <span className="zoom">
           zoom
@@ -825,13 +835,18 @@ export function AlignmentView({
         >
           reset all
         </button>
+        <button type="button" className="ghost back-to-overview" onClick={onBack}>
+          ← Back to overview
+        </button>
         <button type="button" className="primary" onClick={onOpenMap}>
           Open map
         </button>
-        <button type="button" className="ghost" onClick={onBack}>
-          Back to files
-        </button>
-        <button type="button" className="ghost" onClick={onOpenPersist}>
+        <button
+          type="button"
+          className="persist-button"
+          disabled={!timeline.hasPendingChanges}
+          onClick={onOpenPersist}
+        >
           Persist changes
         </button>
       </div>

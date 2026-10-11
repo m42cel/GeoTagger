@@ -7,7 +7,7 @@ import type {
   PersistProgress,
   StalePolicy,
 } from '@geotagger/shared';
-import { formatUtcOffset, kindForExtension } from '@geotagger/shared';
+import { formatUtcOffset } from '@geotagger/shared';
 import { api, runPersist } from './api.js';
 import { errorText } from './App.js';
 

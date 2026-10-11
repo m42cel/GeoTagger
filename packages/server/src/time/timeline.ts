@@ -96,12 +96,3 @@ export function buildTimeline(input: TimelineInput): Timeline {
     byId: new Map(out.map((f) => [f.id, f])),
   };
 }
-
-/** Effective instants of a strip's files, ascending — what snapping and cutting need. */
-export function effectiveInstantsOf(timeline: Timeline, stripId: number): number[] {
-  const out: number[] = [];
-  for (const f of timeline.files) {
-    if (f.stripId === stripId && f.effectiveMs !== null) out.push(f.effectiveMs);
-  }
-  return out.sort((a, b) => a - b);
-}
