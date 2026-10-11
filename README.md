@@ -143,6 +143,39 @@ and opens straight away, without the folder picker.
 | `SCAN_CONCURRENCY` | `2` | Parallel metadata reads and thumbnail renders; raise on a stronger machine |
 | `LOG_LEVEL` | `info` | |
 
+## Restoring originals
+
+A restore built into the app is planned. Until then, two scripts in this repository's
+`scripts/` folder put files back the way they were before GeoTagger wrote to them. They do
+the same thing, so use whichever runtime you have: Node or Python 3. Both need `exiftool`
+on the `PATH` of the machine you run them on.
+
+```sh
+# See what would be restored, without writing anything
+python3 scripts/restore-originals.py /path/to/photos --dry-run
+
+# Restore
+python3 scripts/restore-originals.py /path/to/photos
+```
+
+(`node scripts/restore-originals.mjs` takes the same arguments.)
+
+The scripts go through the folder and its subfolders. For every file GeoTagger has written,
+they put back the saved original values, delete the tags GeoTagger added where the file
+had none, and then remove the `geotagger:` XMP block. Files GeoTagger never wrote are
+left alone.
+
+**Afterwards, delete the `.geotagger/` folder** in the folder you had opened in GeoTagger:
+
+```sh
+rm -rf /path/to/photos/.geotagger
+```
+
+The scripts don't touch it, and it still holds every correction you made. Leave it there and
+the next time you open the folder, GeoTagger shows all those edits again and offers to write
+them back to the files. Deleting it removes nothing but GeoTagger's own state. The cached
+thumbnails are rebuilt on the next scan.
+
 ## Development
 
 ```sh
