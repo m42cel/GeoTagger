@@ -699,10 +699,11 @@ a thin line to the file's new, live position, so it is clear which marker the gh
 Camera-original versus app-set provenance is shown in the detail panel only, not on the
 thumbnail.
 
-**Path line:** a single plain polyline connecting every file that is currently an anchor or an
-estimate between anchors — camera GPS, confirmed positions, and the interpolation between them —
-in effective-time order across all devices, one collective timeline, no per-device separation, no
-colour gradient, never broken by time gaps. A file with a pending drag and no anchor underneath
+**Path line:** a single plain geodesic line through every anchor — camera GPS and confirmed
+positions — in effective-time order across all devices, one collective timeline, no per-device
+separation, no colour gradient, never broken by time gaps. Each segment follows the great circle
+(§5.1), so every interpolated file lies on the line without being a vertex of it. At either end it
+continues to the farthest extrapolated file (§5.3), which keeps the extrapolated files on it too. A file with a pending drag and no anchor underneath
 sits off to the side instead of bending the line toward it, the same way it does not anchor its
 neighbours (§5.5). A file being *re*-dragged still has its old anchor doing that work (§5.6's
 ghost), so the line runs through the ghost's position rather than skipping the file or bending

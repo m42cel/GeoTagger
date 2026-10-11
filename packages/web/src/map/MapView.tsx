@@ -3,6 +3,7 @@ import type { DragEvent } from 'react';
 import * as L from 'leaflet';
 import 'leaflet.markercluster';
 import 'leaflet-polylinedecorator';
+import { GeodesicLine } from 'leaflet.geodesic';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -11,6 +12,7 @@ import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
 import { markerSize } from './marker-size.js';
+import { pathVertices } from './path.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
@@ -253,32 +255,7 @@ export function MapView({
     clearMultiSelected();
   }
 
-  // SPEC §6.3: the line connects anchors and the estimates between them, in
-  // effective-time order. Files with no effective time cannot take a place in that
-  // order, so they are left out of the line — they are on the map (an extrapolated
-  // position needs no timestamp of its own to draw), just not on it. A file with a
-  // pending drag and no anchor underneath is excluded the same way: it does not
-  // anchor its neighbours (SPEC §5.5), so it should not bend the line toward it
-  // either. A file being *re*-dragged still has its old anchor (`anchorLat`/`Lon`,
-  // SPEC §5.6's ghost) doing that work, so the line runs through that point rather
-  // than skipping the file or bending toward where it is being dragged to.
-  const path = useMemo<[number, number][]>(
-    () =>
-      onMap
-        .filter(
-          (i) =>
-            (i.position.anchorLat !== null || i.position.source !== 'manual') &&
-            i.timelineFile?.effectiveMs !== null &&
-            i.timelineFile?.effectiveMs !== undefined,
-        )
-        .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number))
-        .map((i): [number, number] =>
-          i.position.anchorLat !== null
-            ? [i.position.anchorLat, i.position.anchorLon as number]
-            : [i.position.lat as number, i.position.lon as number],
-        ),
-    [onMap],
-  );
+  const path = useMemo(() => pathVertices(onMap), [onMap]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -298,7 +275,15 @@ export function MapView({
     if (!containerRef.current) return;
     // boxZoom is Leaflet's own shift+drag gesture; multi-select's rubber band (below)
     // repurposes shift+drag for selection instead, so the built-in one has to go.
-    const map = L.map(containerRef.current, { center: [20, 0], zoom: 2, boxZoom: false });
+    // The renderer only redraws vector layers (path line, circles, ghosts) once a pan
+    // ends, and clips them to the view plus `padding` (a fraction of its size): the
+    // default 0.1 leaves them cut off mid-pan, one and a half views on each side doesn't.
+    const map = L.map(containerRef.current, {
+      center: [20, 0],
+      zoom: 2,
+      boxZoom: false,
+      renderer: L.svg({ padding: 1.5 }),
+    });
     const layers = {
       osm: L.tileLayer(BASE_LAYERS.osm.url, { attribution: BASE_LAYERS.osm.attribution, maxZoom: BASE_LAYERS.osm.maxZoom }),
       esri: L.tileLayer(BASE_LAYERS.esri.url, { attribution: BASE_LAYERS.esri.attribution, maxZoom: BASE_LAYERS.esri.maxZoom }),
@@ -590,8 +575,9 @@ export function MapView({
 
     if (path.length > 1) {
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
-      // not the app background.
-      const line = L.polyline(path, { color: '#333333', weight: 2, opacity: 0.7 });
+      // not the app background. Geodesic so each segment follows the same great
+      // circle the estimates on it were placed along (SPEC §5.1).
+      const line = new GeodesicLine(path, { color: '#333333', weight: 2, opacity: 0.7 });
       line.addTo(map);
       pathRef.current = line;
 
