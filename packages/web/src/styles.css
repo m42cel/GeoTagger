@@ -392,17 +392,17 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .grouping-options li:last-child { border-bottom: none; }
 .grouping-options button { width: 100%; }
 
-/* Spaced like `.align-toolbar` (border included), so every view's buttons sit on the same line. */
+/* Boxed and spaced like `.align-toolbar`, so every view's buttons sit on the same line. */
 .view-actions {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
   padding: 8px 10px;
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
 }
 .view-actions > .persist-button { margin-left: auto; }
-/* The overview's row, boxed like `.align-toolbar`; the map's stays on the page background. */
-.folder-view > .view-actions { border-color: var(--line); border-radius: 8px; background: var(--panel); }
 
 /* ---- alignment view (SPEC §6.2) ---- */
 
