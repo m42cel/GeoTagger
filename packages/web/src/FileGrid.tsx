@@ -1,6 +1,7 @@
 import type { CaptureTimeSource, FileId, FileRecord, StripsResponse } from '@geotagger/shared';
 import { countOf } from './plural.js';
 import { DetailPreview } from './map/DetailPanel.js';
+import { laneGroups } from './lane-groups.js';
 
 /**
  * The scanned files, with the capture time and — per SPEC §4.1 — the source it came
@@ -8,8 +9,8 @@ import { DetailPreview } from './map/DetailPanel.js';
  * filename or from mtime deserves far less trust than one from DateTimeOriginal, and
  * that is exactly what the user needs to judge before correcting clocks in phase 1.
  *
- * The files are grouped by strip, in the strip list's order. This page calls strips
- * "groups"; the alignment view, where they are lanes on a time axis, keeps "strip".
+ * The files are grouped by lane, top to bottom as the alignment view stacks them, so
+ * the segments of a cut strip stay one group unless one was moved to a lane of its own.
  */
 export function FileGrid({
   files,
@@ -21,9 +22,9 @@ export function FileGrid({
 }: {
   files: FileRecord[];
   strips: StripsResponse | null;
-  /** Strip ids whose group is collapsed; `null` for the unassigned group. */
+  /** Lanes whose group is collapsed; `null` for the unassigned group. */
   collapsed: ReadonlySet<number | null>;
-  onToggle: (stripId: number | null) => void;
+  onToggle: (lane: number | null) => void;
   selectedId: FileId | null;
   onSelect: (id: FileId) => void;
 }) {
@@ -41,15 +42,15 @@ export function FileGrid({
     <div className="file-column">
       <div className="file-scroll">
         <div className="file-scroll-inner">
-          {groupFiles(files, strips).map(({ stripId, label, files: members }) => {
-            const open = !collapsed.has(stripId);
+          {groupFiles(files, strips).map(({ lane, label, files: members }) => {
+            const open = !collapsed.has(lane);
             return (
-              <section key={stripId ?? 'unassigned'} className="panel file-group">
+              <section key={lane ?? 'unassigned'} className="panel file-group">
                 <button
                   type="button"
                   className="file-group-head"
                   aria-expanded={open}
-                  onClick={() => onToggle(stripId)}
+                  onClick={() => onToggle(lane)}
                 >
                   <span className="strip-label">{label}</span>
                   <span className="muted">{countOf(members.length, 'file')}</span>
@@ -95,33 +96,35 @@ function Chevron({ open }: { open: boolean }) {
 
 export interface FileGroup {
   /** `null` for files no strip claims, which only happens between two fetches. */
-  stripId: number | null;
+  lane: number | null;
   label: string;
   files: FileRecord[];
 }
 
 /**
- * One group per strip in the strips' own order, each keeping the files' order. Empty
- * strips are dropped, and unassigned files, if any, come last.
+ * One group per lane, top to bottom, each keeping the files' order. Empty lanes are
+ * dropped, and unassigned files, if any, come last.
  */
 export function groupFiles(files: FileRecord[], strips: StripsResponse | null): FileGroup[] {
-  const byStrip = new Map<number | null, FileRecord[]>();
+  const lanes = laneGroups(strips?.strips ?? []);
+  const laneOfStrip = new Map(lanes.flatMap(({ lane, stripIds }) => stripIds.map((id) => [id, lane] as const)));
+  const byLane = new Map<number | null, FileRecord[]>();
   for (const file of files) {
-    const stripId = strips?.assignments[file.id] ?? null;
-    const list = byStrip.get(stripId);
+    const stripId = strips?.assignments[file.id];
+    // Assigned to a strip the list doesn't have is as good as unassigned.
+    const lane = stripId === undefined ? null : (laneOfStrip.get(stripId) ?? null);
+    const list = byLane.get(lane);
     if (list) list.push(file);
-    else byStrip.set(stripId, [file]);
+    else byLane.set(lane, [file]);
   }
 
   const groups: FileGroup[] = [];
-  for (const strip of strips?.strips ?? []) {
-    const list = byStrip.get(strip.id);
-    if (list) groups.push({ stripId: strip.id, label: strip.label, files: list });
-    byStrip.delete(strip.id);
+  for (const { lane, label } of lanes) {
+    const list = byLane.get(lane);
+    if (list) groups.push({ lane, label, files: list });
   }
-  // Assigned to a strip the list doesn't have is as good as unassigned.
-  const rest = [...byStrip.values()].flat();
-  if (rest.length > 0) groups.push({ stripId: null, label: 'Unassigned', files: rest });
+  const rest = byLane.get(null);
+  if (rest) groups.push({ lane: null, label: 'Unassigned', files: rest });
   return groups;
 }
 
@@ -157,12 +160,13 @@ function Tile({ file, selected, onSelect }: { file: FileRecord; selected: boolea
 /** The selected file's details, shown below the group list. */
 export function FileDetail({
   file,
-  stripId,
+  group,
   onShowInAlignment,
   onShowOnMap,
 }: {
   file: FileRecord;
-  stripId: number | null;
+  /** The label of the file's lane group; `null` while no strip claims it. */
+  group: string | null;
   onShowInAlignment: () => void;
   onShowOnMap: () => void;
 }) {
@@ -194,7 +198,7 @@ export function FileDetail({
           {file.durationMs !== null ? ` · ${(file.durationMs / 1000).toFixed(1)} s` : ''}
         </dd>
         <dt>Group</dt>
-        <dd>{stripId === null ? 'unassigned' : `#${stripId}`}</dd>
+        <dd>{group ?? 'unassigned'}</dd>
       </dl>
       <div className="detail-jumps">
         <button type="button" className="ghost" onClick={onShowInAlignment}>

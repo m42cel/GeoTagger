@@ -11,6 +11,7 @@ import { api, subscribeScan } from './api.js';
 import { errorText } from './App.js';
 import { ScanProgress } from './ScanProgress.js';
 import { FileDetail, FileGrid } from './FileGrid.js';
+import { laneGroups } from './lane-groups.js';
 import { StripList } from './StripList.js';
 import { GroupingQuestion } from './GroupingQuestion.js';
 import { TimestampQuestion } from './TimestampQuestion.js';
@@ -210,6 +211,11 @@ export function FolderView({
   // Looked up by id so a refetch after a rescan or a write shows the file's new state,
   // and a file the rescan dropped simply stops being selected.
   const selectedFile = data?.files.find((f) => f.id === selectedFileId) ?? null;
+  const selectedStripId = selectedFile === null ? undefined : strips?.assignments[selectedFile.id];
+  const selectedGroup =
+    selectedStripId === undefined
+      ? null
+      : (laneGroups(strips?.strips ?? []).find((g) => g.stripIds.includes(selectedStripId))?.label ?? null);
 
   return (
     <section className="folder-view">
@@ -241,7 +247,7 @@ export function FolderView({
           {selectedFile && (
             <FileDetail
               file={selectedFile}
-              stripId={strips?.assignments[selectedFile.id] ?? null}
+              group={selectedGroup}
               onShowInAlignment={() => openView('alignment', selectedFile.id)}
               onShowOnMap={() => openView('map', selectedFile.id)}
             />
@@ -251,10 +257,10 @@ export function FolderView({
           files={data?.files ?? []}
           strips={strips}
           collapsed={collapsedGroups}
-          onToggle={(stripId) =>
+          onToggle={(lane) =>
             setCollapsedGroups((current) => {
               const next = new Set(current);
-              if (!next.delete(stripId)) next.add(stripId);
+              if (!next.delete(lane)) next.add(lane);
               return next;
             })
           }

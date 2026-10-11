@@ -3,6 +3,7 @@ export * from './time.js';
 export * from './correction.js';
 export * from './snap.js';
 export * from './strips.js';
+export * from './grouping.js';
 export * from './persist.js';
 export * from './geo.js';
 export * from './positions.js';
