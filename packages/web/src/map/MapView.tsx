@@ -70,7 +70,6 @@ export function MapView({
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showCircles, setShowCircles] = useState(true);
   // SPEC §6.3 filters: visibility-only, on by default.
   const [showUnconfirmed, setShowUnconfirmed] = useState(true);
   const [showAppModified, setShowAppModified] = useState(true);
@@ -556,7 +555,6 @@ export function MapView({
     // members eventually get their own individually-sized circles again.
     const rebuildCircles = () => {
       circles.clearLayers();
-      if (!showCircles) return;
       const groups = new Map<L.Layer, { center: L.LatLng; maxUncertaintyM: number }>();
       for (const marker of markers) {
         if (marker.geotaggerUncertaintyM === null || marker.geotaggerUncertaintyM === undefined) continue;
@@ -638,7 +636,7 @@ export function MapView({
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
       }
     }
-  }, [visibleOnMap, path, showCircles]);
+  }, [visibleOnMap, path]);
 
   // Selection highlighting is applied in place, not by rebuilding the marker layer
   // above: `Marker.setIcon`/`DivIcon.createIcon` reuse the existing DOM node instead
@@ -686,10 +684,6 @@ export function MapView({
             </button>
           ))}
         </div>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showCircles} onChange={(e) => setShowCircles(e.target.checked)} />
-          Uncertainty circles
-        </label>
         <label className="map-toggle">
           <input type="checkbox" checked={showUnconfirmed} onChange={(e) => setShowUnconfirmed(e.target.checked)} />
           Unconfirmed

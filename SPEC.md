@@ -441,7 +441,7 @@ r = max( r_min, min( v_ref × min(t - tA, tC - t),      reachability from each a
 `r_min` defaults to 10 m. The result is largest midway between anchors and shrinks towards
 each one, and it collapses when the anchors are close in both time and space.
 
-Displayed as a faint circle on every unconfirmed item, with a global toggle. Confirmed items
+Displayed as a faint circle on every unconfirmed item, always shown. Confirmed items
 show no circle. The detail panel states the radius in metres and a plain-language rating
 (excellent < 50 m, good < 250 m, fair < 1 km, poor < 5 km, very poor beyond).
 
@@ -711,7 +711,7 @@ toward where it is being dragged to. Optional direction arrowheads, off by defau
 **Clustering:** Leaflet.markercluster; nearby thumbnails collapse into a badge showing the count
 over a representative thumbnail and expand on zoom.
 
-**Uncertainty circles:** drawn faintly on all unconfirmed items; global toggle.
+**Uncertainty circles:** drawn faintly on all unconfirmed items; always shown.
 
 **Filters:** by status — unconfirmed, app-modified, unpersisted. Purely a marker-visibility
 toggle: the path line is unaffected and always runs through the full track regardless of what is
@@ -1132,7 +1132,7 @@ LOG_LEVEL                  default info
 - tile provider, satellite layer toggle
 - interpolation: `v_floor`, `v_cap`, `r_min`
 - extrapolation cap (default off)
-- map thumbnail size, uncertainty circle toggle, path arrowheads toggle
+- map thumbnail size, path arrowheads toggle
 - RAW scanning (off, reserved)
 - tile cache purge
 
