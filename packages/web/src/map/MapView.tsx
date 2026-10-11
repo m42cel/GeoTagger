@@ -61,15 +61,13 @@ type BaseLayerId = 'osm' | 'esri';
 const RENDERER_PADDING = 1.5;
 const GHOST_PANE = 'ghosts';
 
-const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution: string; maxZoom: number }> = {
+const BASE_LAYERS: Record<BaseLayerId, { url: string; attribution: string; maxZoom: number }> = {
   osm: {
-    label: 'Map',
     url: '/tiles/osm/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
   },
   esri: {
-    label: 'Satellite',
     url: '/tiles/esri/{z}/{x}/{y}.png',
     attribution: 'Imagery &copy; Esri',
     maxZoom: 19,
@@ -93,7 +91,7 @@ export function MapView({
   // as the hidden ones so a strip that appears later (a cut, a regroup) shows.
   const [hiddenStripIds, setHiddenStripIds] = useState<ReadonlySet<number>>(new Set());
   const [status, setStatus] = useState<StatusFilter>('all');
-  const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
+  const [satellite, setSatellite] = useState(false);
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -304,6 +302,28 @@ export function MapView({
       esri: L.tileLayer(BASE_LAYERS.esri.url, { attribution: BASE_LAYERS.esri.attribution, maxZoom: BASE_LAYERS.esri.maxZoom }),
     };
     layers.osm.addTo(map);
+    const satelliteControl = new L.Control({ position: 'topright' });
+    satelliteControl.onAdd = () => {
+      const label = L.DomUtil.create('label', 'leaflet-bar satellite-switch');
+      const input = L.DomUtil.create('input', '', label);
+      input.type = 'checkbox';
+      input.setAttribute('role', 'switch');
+      L.DomUtil.create('span', 'switch-track', label);
+      label.append('Satellite');
+      L.DomEvent.on(input, 'change', () => setSatellite(input.checked));
+      L.DomEvent.disableClickPropagation(label);
+      return label;
+    };
+    satelliteControl.addTo(map);
+    const legend = new L.Control({ position: 'bottomleft' });
+    legend.onAdd = () => {
+      const box = L.DomUtil.create('div', 'leaflet-bar map-legend');
+      box.innerHTML =
+        '<span class="legend-swatch known"></span> known position' +
+        '<span class="legend-swatch unconfirmed"></span> unconfirmed position';
+      return box;
+    };
+    legend.addTo(map);
     mapRef.current = map;
     baseLayersRef.current = layers;
     return () => {
@@ -317,11 +337,10 @@ export function MapView({
     const layers = baseLayersRef.current;
     const map = mapRef.current;
     if (!layers || !map) return;
-    for (const id of Object.keys(layers) as BaseLayerId[]) {
-      if (id === baseLayer) layers[id].addTo(map);
-      else map.removeLayer(layers[id]);
-    }
-  }, [baseLayer]);
+    const [shown, hidden] = satellite ? [layers.esri, layers.osm] : [layers.osm, layers.esri];
+    map.removeLayer(hidden);
+    shown.addTo(map);
+  }, [satellite]);
 
   // Multi-select (SPEC §6.5): shift+drag starting on empty map draws a rubber band
   // and replaces the selection with everything inside it once released. A marker's
@@ -683,63 +702,70 @@ export function MapView({
 
   return (
     <section className="map-view">
+      {/* Columns match `.map-layout`'s below, so the filters stay over the map. */}
       <div className="view-actions">
-        <button type="button" className="ghost" onClick={onBack}>
-          ← Back
-        </button>
-        <button type="button" className="ghost" onClick={onOpenPersist}>
-          Persist changes
-        </button>
-        <div className="chip-group">
-          {(Object.keys(BASE_LAYERS) as BaseLayerId[]).map((id) => (
-            <button
-              key={id}
-              type="button"
-              className={`chip${baseLayer === id ? ' on' : ''}`}
-              onClick={() => setBaseLayer(id)}
-            >
-              {BASE_LAYERS[id].label}
-            </button>
-          ))}
-        </div>
-        <div className="chip-group">
-          {STATUS_FILTERS.map(({ id, label }) => (
-            <button key={id} type="button" className={`chip${status === id ? ' on' : ''}`} onClick={() => setStatus(id)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {/* With a single group, hiding it would just hide everything. */}
-        {(timeline?.strips.length ?? 0) > 1 && (
-          <div className="chip-group">
-            {timeline?.strips.map((strip) => (
-              <button
-                key={strip.id}
-                type="button"
-                className={`chip${hiddenStripIds.has(strip.id) ? '' : ' on'}`}
-                onClick={() => toggleStrip(strip.id)}
-              >
-                {strip.label}
-              </button>
-            ))}
+        <div className="map-filters">
+          <div className="filter-group">
+            <span className="filter-label">Status:</span>
+            <div className="segmented" role="radiogroup" aria-label="Status">
+              {STATUS_FILTERS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={status === id}
+                  className={status === id ? 'on' : ''}
+                  onClick={() => setStatus(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
-        {multiSelected.size > 0 && (
-          <div className="multi-select-bar">
-            <span>{multiSelected.size} selected</span>
-            {confirmableSelected.length > 0 && (
-              <button type="button" className="confirm" disabled={busy} onClick={handleBulkConfirm}>
-                Confirm selection
+          {/* With a single group, hiding it would just hide everything. */}
+          {(timeline?.strips.length ?? 0) > 1 && (
+            <div className="filter-group">
+              <span className="filter-label">Show group:</span>
+              <div className="toggle-chips">
+                {timeline?.strips.map((strip) => {
+                  const on = !hiddenStripIds.has(strip.id);
+                  return (
+                    <button
+                      key={strip.id}
+                      type="button"
+                      aria-pressed={on}
+                      className={`toggle-chip${on ? ' on' : ''}`}
+                      onClick={() => toggleStrip(strip.id)}
+                    >
+                      {strip.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {multiSelected.size > 0 && (
+            <div className="multi-select-bar">
+              <span>{multiSelected.size} selected</span>
+              {confirmableSelected.length > 0 && (
+                <button type="button" className="confirm" disabled={busy} onClick={handleBulkConfirm}>
+                  Confirm selection
+                </button>
+              )}
+              <button type="button" className="ghost" disabled={busy} onClick={clearMultiSelected}>
+                Clear
               </button>
-            )}
-            <button type="button" className="ghost" disabled={busy} onClick={clearMultiSelected}>
-              Clear
-            </button>
-          </div>
-        )}
-        <div className="map-legend">
-          <span className="legend-swatch known" /> known position
-          <span className="legend-swatch unconfirmed" /> unconfirmed estimate
+            </div>
+          )}
+        </div>
+        {tray.length > 0 && <div className="tray-spacer" />}
+        <div className="view-actions-end">
+          <button type="button" className="ghost" onClick={onBack}>
+            ← Back
+          </button>
+          <button type="button" className="ghost" onClick={onOpenPersist}>
+            Persist changes
+          </button>
         </div>
       </div>
 
