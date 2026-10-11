@@ -7,7 +7,7 @@ import { generateThumb, thumbExists } from '../thumbs/generator.js';
 import { walkMedia } from './walker.js';
 import { runPool } from './pool.js';
 
-export function idleScanStatus(): ScanStatus {
+function idleScanStatus(): ScanStatus {
   return {
     phase: 'idle',
     discovered: 0,

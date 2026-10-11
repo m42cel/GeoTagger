@@ -72,7 +72,7 @@ function subfolderLabel(key: string): string {
  * Capture order, with undated files last and path as the tiebreaker so the result is
  * stable across rescans.
  */
-export function compareByCaptureThenPath(a: FileRecord, b: FileRecord): number {
+function compareByCaptureThenPath(a: FileRecord, b: FileRecord): number {
   const ta = naiveToMs(a.captureTimeRaw ?? '');
   const tb = naiveToMs(b.captureTimeRaw ?? '');
   if (ta !== tb) {

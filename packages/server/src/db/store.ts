@@ -22,8 +22,8 @@ import { pruneAllThumbTiers } from '../thumbs/generator.js';
 import type { DraftUtcOffsetRule } from '../time/utc-offset.js';
 
 export const GEOTAGGER_DIR = '.geotagger';
-export const DB_FILENAME = 'edits.sqlite';
-export const THUMBS_DIRNAME = 'thumbs';
+const DB_FILENAME = 'edits.sqlite';
+const THUMBS_DIRNAME = 'thumbs';
 
 /** What the scanner knows about a file on disk before metadata has been read. */
 export interface ScannedFile {

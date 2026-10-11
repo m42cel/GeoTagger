@@ -1,5 +1,4 @@
 import type {
-  DeviceRecord,
   FileId,
   FileRecord,
   GroupingMode,
@@ -561,6 +560,3 @@ function orderByStart(a: StripRecord, b: StripRecord): [StripRecord, StripRecord
   const bv = b.firstEffectiveMs ?? Number.POSITIVE_INFINITY;
   return av <= bv ? [a, b] : [b, a];
 }
-
-/** Devices are re-exported for the routes that list them beside the strips. */
-export type { DeviceRecord };

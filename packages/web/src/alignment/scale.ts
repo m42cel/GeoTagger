@@ -84,7 +84,7 @@ function clamp(v: number, lo: number, hi: number): number {
  * and behave right, so callers clamp into this margin before handing a pixel value to
  * CSS `left`/`width`.
  */
-export const RENDER_MARGIN_PX = 50_000;
+const RENDER_MARGIN_PX = 50_000;
 
 /** Clamps a pixel position/extent into the renderable margin around the viewport. */
 export function clampToViewport(px: number, widthPx: number): number {

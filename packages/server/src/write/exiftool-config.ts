@@ -11,9 +11,9 @@ import path from 'node:path';
  * app already keeps state rather than beside the photos — it is not folder state.
  */
 
-export const GEOTAGGER_NAMESPACE = 'http://ns.geotagger.local/1.0/';
+const GEOTAGGER_NAMESPACE = 'http://ns.geotagger.local/1.0/';
 export const GEOTAGGER_GROUP = 'XMP-geotagger';
-export const CONFIG_FILENAME = 'geotagger.exiftool.config';
+const CONFIG_FILENAME = 'geotagger.exiftool.config';
 
 /**
  * The tags of SPEC §9.3, in the order they are declared to ExifTool.
@@ -24,7 +24,7 @@ export const CONFIG_FILENAME = 'geotagger.exiftool.config';
  * remove it — an absent `Original*` would be indistinguishable from never having been
  * written at all.
  */
-export const GEOTAGGER_TAGS = [
+const GEOTAGGER_TAGS = [
   'OriginalDateTimeOriginal',
   'OriginalCreateDate',
   'OriginalOffsetTimeOriginal',
@@ -42,8 +42,6 @@ export const GEOTAGGER_TAGS = [
   'ModifiedAt',
   'AppVersion',
 ] as const;
-
-export type GeotaggerTag = (typeof GEOTAGGER_TAGS)[number];
 
 function configSource(): string {
   const tagLines = GEOTAGGER_TAGS.map((tag) => `        ${tag} => { },`).join('\n');

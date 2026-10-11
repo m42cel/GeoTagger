@@ -9,7 +9,7 @@
  * whatever it started as.
  */
 
-export type WheelAxis = 'horizontal' | 'vertical';
+type WheelAxis = 'horizontal' | 'vertical';
 
 export interface WheelGestureState {
   axis: WheelAxis;
