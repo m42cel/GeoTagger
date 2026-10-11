@@ -1,4 +1,9 @@
-import { distanceMeters, type ComputedPosition, type LatLon, type TimelineFile } from '@geotagger/shared';
+import { distanceMeters, type ComputedPosition, type FileId, type LatLon, type TimelineFile } from '@geotagger/shared';
+
+/** A corner of the path line, and the file it belongs to — hidden by a filter, it gets a ghost dot. */
+export interface PathVertex extends LatLon {
+  fileId: FileId;
+}
 
 /**
  * The path line's vertices (SPEC §6.3), in effective-time order: every anchor,
@@ -19,7 +24,7 @@ import { distanceMeters, type ComputedPosition, type LatLon, type TimelineFile }
  */
 export function pathVertices(
   items: readonly { position: ComputedPosition; timelineFile: TimelineFile | null }[],
-): [number, number][] {
+): PathVertex[] {
   const timed = items
     .filter(
       (i) =>
@@ -31,23 +36,23 @@ export function pathVertices(
     )
     .sort((a, b) => (a.timelineFile?.effectiveMs as number) - (b.timelineFile?.effectiveMs as number));
 
-  const anchors: LatLon[] = [];
+  const anchors: PathVertex[] = [];
   let firstAnchorIndex = -1;
   let lastAnchorIndex = -1;
   timed.forEach((i, index) => {
     const anchor = anchorOf(i.position);
     if (!anchor) return;
-    anchors.push(anchor);
+    anchors.push({ ...anchor, fileId: i.position.fileId });
     if (firstAnchorIndex === -1) firstAnchorIndex = index;
     lastAnchorIndex = index;
   });
   if (anchors.length === 0) return [];
 
-  const first = anchors[0] as LatLon;
-  const last = anchors[anchors.length - 1] as LatLon;
+  const first = anchors[0] as PathVertex;
+  const last = anchors[anchors.length - 1] as PathVertex;
   const before = farthest(timed.slice(0, firstAnchorIndex), first);
   const after = farthest(timed.slice(lastAnchorIndex + 1), last);
-  return [...(before ? [before] : []), ...anchors, ...(after ? [after] : [])].map((p) => [p.lat, p.lon]);
+  return [...(before ? [before] : []), ...anchors, ...(after ? [after] : [])];
 }
 
 function anchorOf(position: ComputedPosition): LatLon | null {
@@ -58,11 +63,11 @@ function anchorOf(position: ComputedPosition): LatLon | null {
   return null;
 }
 
-function farthest(items: readonly { position: ComputedPosition }[], from: LatLon): LatLon | null {
-  let best: LatLon | null = null;
+function farthest(items: readonly { position: ComputedPosition }[], from: LatLon): PathVertex | null {
+  let best: PathVertex | null = null;
   let bestDistance = 0;
   for (const { position } of items) {
-    const point = { lat: position.lat as number, lon: position.lon as number };
+    const point = { lat: position.lat as number, lon: position.lon as number, fileId: position.fileId };
     const distance = distanceMeters(from, point);
     if (distance > bestDistance) {
       best = point;

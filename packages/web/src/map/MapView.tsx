@@ -12,6 +12,7 @@ import { api } from '../api.js';
 import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
 import { markerSize } from './marker-size.js';
+import { isShown } from './filters.js';
 import { pathVertices } from './path.js';
 
 /**
@@ -72,10 +73,11 @@ export function MapView({
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // SPEC §6.3 filters: visibility-only, on by default.
-  const [showUnconfirmed, setShowUnconfirmed] = useState(true);
-  const [showAppModified, setShowAppModified] = useState(true);
-  const [showUnpersisted, setShowUnpersisted] = useState(true);
+  // SPEC §6.3 filters: visibility-only, everything shown by default. Groups are kept
+  // as the hidden ones so a strip that appears later (a cut, a regroup) shows.
+  const [hiddenStripIds, setHiddenStripIds] = useState<ReadonlySet<number>>(new Set());
+  const [showKnown, setShowKnown] = useState(true);
+  const [showInterpolated, setShowInterpolated] = useState(true);
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
@@ -173,6 +175,14 @@ export function MapView({
     setMultiSelected((prev) => (prev.size === 0 ? prev : new Set()));
   }
 
+  function toggleStrip(stripId: number): void {
+    setHiddenStripIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(stripId)) next.add(stripId);
+      return next;
+    });
+  }
+
   function handleBulkConfirm(): void {
     if (confirmableSelected.length === 0) return;
     void editPosition(() => api.bulkConfirm(confirmableSelected)).then((ok) => {
@@ -201,26 +211,15 @@ export function MapView({
 
   const onMap = useMemo(() => items.filter((i) => i.position.lat !== null && i.position.lon !== null), [items]);
 
-  const unpersistedIds = useMemo(() => new Set(filesResp?.unpersistedFileIds ?? []), [filesResp]);
-
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
   // stay the full set, so the path line and anything else built from `onMap` are
   // unaffected by what's currently hidden. This is what markers actually get drawn
   // from.
-  const visibleOnMap = useMemo(
-    () =>
-      onMap.filter((i) => {
-        const isUnconfirmed = i.position.source === 'manual' || i.position.source === 'estimate';
-        const isAppModified = i.position.source !== 'camera-gps';
-        const isUnpersisted = unpersistedIds.has(i.file.id);
-        return (
-          (showUnconfirmed || !isUnconfirmed) &&
-          (showAppModified || !isAppModified) &&
-          (showUnpersisted || !isUnpersisted)
-        );
-      }),
-    [onMap, showUnconfirmed, showAppModified, showUnpersisted, unpersistedIds],
-  );
+  const visibleOnMap = useMemo(() => {
+    const assignments = timeline?.assignments ?? {};
+    const filters = { hiddenStripIds, showKnown, showInterpolated };
+    return onMap.filter((i) => isShown(i, assignments, filters));
+  }, [onMap, timeline, hiddenStripIds, showKnown, showInterpolated]);
 
   const tray = useMemo(() => items.filter((i) => i.position.source === 'none'), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
@@ -570,6 +569,22 @@ export function MapView({
     circles.addTo(map);
     circlesRef.current = circles;
 
+    // A corner of the path whose file is filtered out keeps a small dot (SPEC §6.3),
+    // so the line doesn't bend at nothing. Smaller than §5.6's re-drag ghost, which
+    // means something else, and small enough that a dense run of hidden camera-GPS
+    // photos just reads as a slightly heavier stretch of line.
+    const visibleIds = new Set(visibleOnMap.map((i) => i.file.id));
+    for (const vertex of path) {
+      if (visibleIds.has(vertex.fileId)) continue;
+      L.circleMarker([vertex.lat, vertex.lon], {
+        radius: 3,
+        color: '#666666',
+        weight: 1,
+        fillColor: '#ffffff',
+        fillOpacity: 0.8,
+        interactive: false,
+      }).addTo(ghosts);
+    }
     ghosts.addTo(map);
     ghostsRef.current = ghosts;
 
@@ -577,7 +592,7 @@ export function MapView({
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
       // not the app background. Geodesic so each segment follows the same great
       // circle the estimates on it were placed along (SPEC §5.1).
-      const line = new GeodesicLine(path, { color: '#333333', weight: 2, opacity: 0.7 });
+      const line = new GeodesicLine(path.map((v) => [v.lat, v.lon]), { color: '#333333', weight: 2, opacity: 0.7 });
       line.addTo(map);
       pathRef.current = line;
 
@@ -671,17 +686,28 @@ export function MapView({
           ))}
         </div>
         <label className="map-toggle">
-          <input type="checkbox" checked={showUnconfirmed} onChange={(e) => setShowUnconfirmed(e.target.checked)} />
-          Unconfirmed
+          <input type="checkbox" checked={showKnown} onChange={(e) => setShowKnown(e.target.checked)} />
+          Known
         </label>
         <label className="map-toggle">
-          <input type="checkbox" checked={showAppModified} onChange={(e) => setShowAppModified(e.target.checked)} />
-          App-modified
+          <input type="checkbox" checked={showInterpolated} onChange={(e) => setShowInterpolated(e.target.checked)} />
+          Interpolated
         </label>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showUnpersisted} onChange={(e) => setShowUnpersisted(e.target.checked)} />
-          Unpersisted
-        </label>
+        {/* With a single group, hiding it would just hide everything. */}
+        {(timeline?.strips.length ?? 0) > 1 && (
+          <div className="chip-group">
+            {timeline?.strips.map((strip) => (
+              <button
+                key={strip.id}
+                type="button"
+                className={`chip${hiddenStripIds.has(strip.id) ? '' : ' on'}`}
+                onClick={() => toggleStrip(strip.id)}
+              >
+                {strip.label}
+              </button>
+            ))}
+          </div>
+        )}
         {multiSelected.size > 0 && (
           <div className="multi-select-bar">
             <span>{multiSelected.size} selected</span>

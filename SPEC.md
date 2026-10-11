@@ -714,16 +714,20 @@ over a representative thumbnail and expand on zoom.
 
 **Uncertainty circles:** drawn faintly on all unconfirmed items; always shown.
 
-**Filters:** by status — unconfirmed, app-modified, unpersisted. Purely a marker-visibility
-toggle: the path line is unaffected and always runs through the full track regardless of what is
-currently hidden, and a filtered-out marker is simply hidden, not replaced with a ghost. (Time-range,
-device and confidence filters are explicitly not in scope.)
+**Filters:** by group and by status, purely a marker-visibility toggle. Each group (strip) can be
+shown or hidden; the group filter appears only when there is more than one. Status is *known*
+(camera GPS or confirmed, green) and *interpolated* (an estimate), each shown or hidden. A file shows
+when its group is shown **and** its status is shown — with groups A and B shown and only known, only
+the green files of A and B are on the map. A pending drag has neither status and passes the status
+filter either way, so an unconfirmed drag never disappears under the user; hiding its group still
+hides it. Confirming a file makes it known, so it disappears at once when known files are hidden.
 
-Unconfirmed and app-modified ship in phase 3, since both read straight off the computed position
-(`source`). Unpersisted has to wait for phase 4: nothing writes GPS to a file yet, so every
-confirmed position is unpersisted right now — the filter would just restate "has a confirmed or
-manual position," not a real third status. It becomes meaningful once phase 4 gives it an actual
-on-disk-vs-edit-store distinction to filter on.
+The path line is unaffected and always runs through the full track regardless of what is currently
+hidden. Where one of its corners belongs to a hidden file — an anchor, or the end of an
+extrapolated tail — a small non-interactive dot marks the spot, smaller than §5.6's re-drag ghost.
+A hidden file's re-drag ghost and its connecting line are hidden with it; its old anchor is still a
+corner of the line and gets the dot. (Time-range and confidence filters are explicitly not in
+scope.)
 
 ### 6.4 Tray
 
@@ -1248,7 +1252,7 @@ form a complete, shippable application with no map in it at all.
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
 | **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, set true time, pinning and stretching, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
-| **3 — Editing** | Drag (including from the tray, §6.4), confirm, revert, reset, multi-select confirm, status filters (unconfirmed, app-modified — unpersisted waits for phase 4, see §6.3). Extends phase 2's detail panel with the confirm/revert/reset controls. |
+| **3 — Editing** | Drag (including from the tray, §6.4), confirm, revert, reset, multi-select confirm, map filters (§6.3). Extends phase 2's detail panel with the confirm/revert/reset controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert, the map view's "unpersisted" filter (§6.3). *Feature-complete release.* |
 | **5 — Offline and polish** | PMTiles support, area pre-download for permitted providers, settings page, performance tuning against a real 5,000-file folder |
 
