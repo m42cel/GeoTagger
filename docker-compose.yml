@@ -4,9 +4,9 @@ services:
     ports: ["8080:8080"]
     environment:
       PHOTO_ROOT: /photos
-      # Two workers suit a low-power ARM NAS; raise it on a stronger box (SPEC §10.1).
+      # Two workers suit a low-power machine; raise it on a stronger one (SPEC §10.1).
       SCAN_CONCURRENCY: 2
     volumes:
-      - /volume1/photos:/photos
+      - /path/to/photos:/photos
       - ./cache:/cache
     restart: unless-stopped

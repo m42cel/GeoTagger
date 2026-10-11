@@ -1,6 +1,6 @@
 # GeoTagger
 
-Self-hosted geotagging for vacation photos and videos.
+*A tool to add missing GPS coordinates to vacation photos.*
 
 Cameras that normally record GPS sometimes miss a fix, leaving gaps in an otherwise
 well-tagged trip. Because the files around a gap *do* have coordinates, and every file
@@ -13,9 +13,22 @@ Estimates are only as good as the timestamps behind them, and offline cameras ke
 time: never set, not moved across a timezone border, reset with the battery. So
 GeoTagger's first job is putting every camera's clock right.
 
-It runs as a web app, meant for the NAS where the photos already live, so scanning,
-thumbnailing and writing happen next to the files instead of across a network share.
-It works just as well locally on a laptop.
+It runs as a web app on whichever machine holds the photos: your own computer, or a
+home server or NAS. Running it next to the files keeps scanning, thumbnailing and
+writing fast. Pointing it at photos on a network share works too, but every file is
+read across the network, which gets slow for a large folder.
+
+**Important:** GeoTagger has no authentication, because it's intended as local tool.
+Anyone who can reach it can read and modify the photos in `PHOTO_ROOT`. Run it only
+on your own machine or a trusted local network, and never it to the internet.
+
+**AI Dislaimer:** This tool is written with heavy use of Claude Code. I decided how
+the UI looks and what the UX should feel like, what features should be there and how
+they work, but Claude wrote 99% of the code. Doing this by hand would've taken me 
+weeks or months and I just wanted to have a tool that exactly fit my needs. I still
+spent many hours fine tuning, testing and guiding code changes and am pretty happy with
+the result.
+
 
 Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
 
@@ -78,7 +91,9 @@ Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
 
 ## Running it
 
-### Docker (on a NAS)
+Run it on the machine where the photos are stored, with Docker or from source.
+
+### Docker
 
 Images for `linux/amd64` and `linux/arm64` are published to
 `ghcr.io/m42cel/geotagger`. Tags: `latest`, `1`, `1.0` or `1.0.0` for releases, `dev`
@@ -93,19 +108,16 @@ services:
       PHOTO_ROOT: /photos
       SCAN_CONCURRENCY: 2
     volumes:
-      - /volume1/photos:/photos   # your photo folder; must be writable
+      - /path/to/photos:/photos   # your photo folder; must be writable
       - ./cache:/cache            # tile cache and app state
     restart: unless-stopped
 ```
 
 Save this as `docker-compose.yml` (or use the one in this repository), run
-`docker compose up -d`, and open `http://<nas>:8080`.
+`docker compose up -d`, and open `http://localhost:8080`, or the machine's address
+from another device on your network.
 
-GeoTagger has **no authentication**. Run it on a trusted home network only. All file
-access is confined beneath `PHOTO_ROOT`, but that guards against bugs, not against
-people.
-
-### Locally
+### From source
 
 Needs Node 26, plus `vipsthumbnail` (libvips, with HEIC support), `ffmpeg` and `perl`
 on the `PATH`.
