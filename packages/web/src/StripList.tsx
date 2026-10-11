@@ -1,8 +1,7 @@
 import type { DeviceRecord, FileRecord, GroupingMode, StripsResponse } from '@geotagger/shared';
-import { formatOffset } from '@geotagger/shared';
+import { groupByMode } from '@geotagger/shared';
 import { countOf } from './plural.js';
 import { useDialog } from './Dialog.js';
-import { previewGroups } from './grouping-preview.js';
 
 const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
   { mode: 'subfolder', label: 'By subfolder', hint: 'Useful when already sorted by camera or person' },
@@ -10,9 +9,10 @@ const MODES: { mode: GroupingMode; label: string; hint: string }[] = [
 ];
 
 /**
- * The strips a folder was grouped into (SPEC §4.4), side by side with what the other
- * grouping mode would build instead. Correcting the clocks happens in the alignment
- * view; this is the overview beside the file grid, which calls strips "groups".
+ * The groups of both grouping modes side by side (SPEC §4.4): the devices or subfolders
+ * the files fall into, never the strips. Those start out one per group of the chosen
+ * mode, but cuts, merges and hand-picked strips are clock correction, which lives in the
+ * alignment view.
  */
 export function StripList({
   strips,
@@ -36,8 +36,8 @@ export function StripList({
       strips.strips.length > 0 &&
       !(await confirm({
         title: 'Switch grouping mode?',
-        message: 'Every group is rebuilt from scratch, discarding cuts and clock offsets. Undo brings them back.',
-        confirmLabel: 'Rebuild groups',
+        message: 'Every strip is rebuilt from scratch, discarding cuts and clock offsets. Undo brings them back.',
+        confirmLabel: 'Rebuild strips',
       }))
     ) {
       return;
@@ -48,48 +48,33 @@ export function StripList({
   return (
     <div className="panel">
       {dialog}
-      <h2>Groups · {strips.strips.length}</h2>
+      <h2>Groups · {groupByMode(strips.groupingMode, files, devices).length}</h2>
 
       <div className="mode-split">
-        {MODES.map(({ mode, label, hint }) =>
-          strips.groupingMode === mode ? (
-            <section key={mode} className="mode-column active">
-              <button type="button" className="mode active" title={hint} disabled>
+        {MODES.map(({ mode, label, hint }) => {
+          const active = strips.groupingMode === mode;
+          return (
+            <section key={mode} className={`mode-column${active ? ' active' : ''}`}>
+              <button
+                type="button"
+                className={`mode${active ? ' active' : ''}`}
+                title={hint}
+                disabled={active}
+                onClick={() => void switchTo(mode)}
+              >
                 {label}
               </button>
               <ul className="strips">
-                {strips.strips.map((strip) => (
-                  <li key={strip.id}>
-                    <span className="strip-label">{strip.label}</span>
-                    <span className="muted">
-                      {[
-                        countOf(strip.fileCount, 'file'),
-                        strip.offsetSeconds !== 0 && formatOffset(strip.offsetSeconds),
-                        strip.locked && 'locked',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : (
-            <section key={mode} className="mode-column">
-              <button type="button" className="mode" title={hint} onClick={() => void switchTo(mode)}>
-                {label}
-              </button>
-              <ul className="strips">
-                {previewGroups(mode, files, devices).map((group) => (
+                {groupByMode(mode, files, devices).map((group) => (
                   <li key={group.key}>
                     <span className="strip-label">{group.label}</span>
-                    <span className="muted">{countOf(group.count, 'file')}</span>
+                    <span className="muted">{countOf(group.fileIds.length, 'file')}</span>
                   </li>
                 ))}
               </ul>
             </section>
-          ),
-        )}
+          );
+        })}
       </div>
     </div>
   );

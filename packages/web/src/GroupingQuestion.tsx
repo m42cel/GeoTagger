@@ -1,6 +1,6 @@
 import type { DeviceRecord, FileRecord, GroupingMode } from '@geotagger/shared';
+import { groupByMode } from '@geotagger/shared';
 import { countOf } from './plural.js';
-import { previewGroups } from './grouping-preview.js';
 
 /**
  * The initial grouping question of SPEC §4.4, asked once per folder before any strip
@@ -16,8 +16,8 @@ export function GroupingQuestion({
   devices: DeviceRecord[];
   onChoose: (mode: GroupingMode) => void;
 }) {
-  const bySubfolder = previewGroups('subfolder', files, devices);
-  const byDevice = previewGroups('device', files, devices);
+  const bySubfolder = groupByMode('subfolder', files, devices);
+  const byDevice = groupByMode('device', files, devices);
 
   return (
     <div className="question-card">
@@ -32,10 +32,10 @@ export function GroupingQuestion({
         <section>
           <h2>{bySubfolder.length} subfolder{bySubfolder.length === 1 ? '' : 's'} found</h2>
           <ul>
-            {bySubfolder.map(({ key, label, count }) => (
+            {bySubfolder.map(({ key, label, fileIds }) => (
               <li key={key}>
                 {label}
-                <span className="muted"> · {countOf(count, 'file')}</span>
+                <span className="muted"> · {countOf(fileIds.length, 'file')}</span>
               </li>
             ))}
           </ul>
@@ -47,10 +47,10 @@ export function GroupingQuestion({
         <section>
           <h2>{devices.length} device{devices.length === 1 ? '' : 's'} found</h2>
           <ul>
-            {byDevice.map(({ key, label, count }) => (
+            {byDevice.map(({ key, label, fileIds }) => (
               <li key={key}>
                 {label}
-                <span className="muted"> · {countOf(count, 'file')}</span>
+                <span className="muted"> · {countOf(fileIds.length, 'file')}</span>
               </li>
             ))}
           </ul>

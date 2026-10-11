@@ -20,6 +20,7 @@ import type {
 import { canConfirm, shownPosition } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
+import { laneGroups } from '../lane-groups.js';
 import { DetailPanel } from './DetailPanel.js';
 import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
@@ -92,9 +93,10 @@ export function MapView({
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // SPEC §6.3 filters: visibility-only, everything shown by default. Groups are kept
-  // as the hidden ones so a strip that appears later (a cut, a regroup) shows.
-  const [hiddenStripIds, setHiddenStripIds] = useState<ReadonlySet<number>>(new Set());
+  // SPEC §6.3 filters: visibility-only, everything shown by default. A group is a lane,
+  // so the segments of a cut strip are shown or hidden together while they share one;
+  // lanes are kept as the hidden ones so a lane that appears later (a regroup) shows.
+  const [hiddenLanes, setHiddenLanes] = useState<ReadonlySet<number>>(new Set());
   const [status, setStatus] = useState<StatusFilter>('all');
   const [satellite, setSatellite] = useState(false);
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
@@ -193,10 +195,10 @@ export function MapView({
     setMultiSelected((prev) => (prev.size === 0 ? prev : new Set()));
   }
 
-  function toggleStrip(stripId: number): void {
-    setHiddenStripIds((prev) => {
+  function toggleLane(lane: number): void {
+    setHiddenLanes((prev) => {
       const next = new Set(prev);
-      if (!next.delete(stripId)) next.add(stripId);
+      if (!next.delete(lane)) next.add(lane);
       return next;
     });
   }
@@ -219,6 +221,8 @@ export function MapView({
     }));
   }, [filesResp, timeline]);
 
+  const lanes = useMemo(() => laneGroups(timeline?.strips ?? []), [timeline]);
+
   const onMap = useMemo(() => items.filter((i) => shownPosition(i.position) !== null), [items]);
 
   // SPEC §6.3 filters: visibility only — `onMap` (and `path`, derived from it below)
@@ -228,9 +232,10 @@ export function MapView({
   const visibleOnMap = useMemo(() => {
     const assignments = timeline?.assignments ?? {};
     const context = { assignments, unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
+    const hiddenStripIds = new Set(lanes.filter((g) => hiddenLanes.has(g.lane)).flatMap((g) => g.stripIds));
     const filters = { hiddenStripIds, status };
     return onMap.filter((i) => isShown(i, context, filters));
-  }, [onMap, timeline, filesResp, hiddenStripIds, status]);
+  }, [onMap, timeline, filesResp, lanes, hiddenLanes, status]);
 
   const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
@@ -728,21 +733,21 @@ export function MapView({
             </div>
           </div>
           {/* With a single group, hiding it would just hide everything. */}
-          {(timeline?.strips.length ?? 0) > 1 && (
+          {lanes.length > 1 && (
             <div className="filter-group">
               <span className="filter-label">Show group:</span>
               <div className="toggle-chips">
-                {timeline?.strips.map((strip) => {
-                  const on = !hiddenStripIds.has(strip.id);
+                {lanes.map(({ lane, label }) => {
+                  const on = !hiddenLanes.has(lane);
                   return (
                     <button
-                      key={strip.id}
+                      key={lane}
                       type="button"
                       aria-pressed={on}
                       className={`toggle-chip${on ? ' on' : ''}`}
-                      onClick={() => toggleStrip(strip.id)}
+                      onClick={() => toggleLane(lane)}
                     >
-                      {strip.label}
+                      {label}
                     </button>
                   );
                 })}
