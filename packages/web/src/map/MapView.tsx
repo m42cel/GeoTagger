@@ -45,6 +45,10 @@ interface MapItem {
 
 type BaseLayerId = 'osm' | 'esri';
 
+/** How far past the view, as a fraction of its size, vector layers stay drawn while panning. */
+const RENDERER_PADDING = 1.5;
+const GHOST_PANE = 'ghosts';
+
 const BASE_LAYERS: Record<BaseLayerId, { label: string; url: string; attribution: string; maxZoom: number }> = {
   osm: {
     label: 'Map',
@@ -258,6 +262,7 @@ export function MapView({
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const ghostRendererRef = useRef<L.Renderer | undefined>(undefined);
   const baseLayersRef = useRef<Record<BaseLayerId, L.TileLayer> | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const circlesRef = useRef<L.LayerGroup | null>(null);
@@ -281,8 +286,14 @@ export function MapView({
       center: [20, 0],
       zoom: 2,
       boxZoom: false,
-      renderer: L.svg({ padding: 1.5 }),
+      renderer: L.svg({ padding: RENDERER_PADDING }),
     });
+    // Ghosts (SPEC §5.6, §6.3) sit in a pane of their own between the overlay pane
+    // (path line, arrowheads, circles: 400) and the markers (600), so they draw over
+    // the line however often the arrowheads are re-added on pan. A pane gets its own
+    // renderer, which needs the same padding as the map's.
+    map.createPane(GHOST_PANE).style.zIndex = '450';
+    ghostRendererRef.current = L.svg({ padding: RENDERER_PADDING, pane: GHOST_PANE });
     const layers = {
       osm: L.tileLayer(BASE_LAYERS.osm.url, { attribution: BASE_LAYERS.osm.attribution, maxZoom: BASE_LAYERS.osm.maxZoom }),
       esri: L.tileLayer(BASE_LAYERS.esri.url, { attribution: BASE_LAYERS.esri.attribution, maxZoom: BASE_LAYERS.esri.maxZoom }),
@@ -496,7 +507,7 @@ export function MapView({
       if (item.position.source === 'camera-gps' || item.position.source === 'confirmed') {
         let ghost: { line: L.Polyline; dot: L.CircleMarker } | null = null;
         marker.on('dragstart', () => {
-          ghost = createGhost(ghosts, startedAt, startedAt, item.file.filename);
+          ghost = createGhost(ghosts, ghostRendererRef.current, startedAt, startedAt, item.file.filename);
         });
         marker.on('drag', () => ghost?.line.setLatLngs([startedAt, marker.getLatLng()]));
         marker.on('dragend', () => {
@@ -516,7 +527,7 @@ export function MapView({
       if (item.position.anchorLat !== null && item.position.anchorLon !== null) {
         const anchorLatLng = L.latLng(item.position.anchorLat, item.position.anchorLon);
         const liveLatLng = L.latLng(item.position.lat as number, item.position.lon as number);
-        const ghost = createGhost(ghosts, anchorLatLng, liveLatLng, item.file.filename);
+        const ghost = createGhost(ghosts, ghostRendererRef.current, anchorLatLng, liveLatLng, item.file.filename);
         // Follow the marker while it's being re-dragged so the line doesn't point at
         // the file's old (pre-drag) spot until the state update on `dragend` catches
         // up — Leaflet fires 'drag' continuously during the gesture, same as it does
@@ -583,6 +594,7 @@ export function MapView({
         fillColor: '#ffffff',
         fillOpacity: 0.8,
         interactive: false,
+        renderer: ghostRendererRef.current,
       }).addTo(ghosts);
     }
     ghosts.addTo(map);
@@ -807,14 +819,26 @@ function borderClassFor(source: ComputedPosition['source']): 'known' | 'unconfir
 /** SPEC §5.6's ghost: the faint marker at a file's old position plus the thin line to its new one. */
 function createGhost(
   ghosts: L.LayerGroup,
+  renderer: L.Renderer | undefined,
   anchor: L.LatLng,
   live: L.LatLng,
   filename: string,
 ): { line: L.Polyline; dot: L.CircleMarker } {
-  const line = L.polyline([anchor, live], { color: '#666666', weight: 1.5, dashArray: '4 4', opacity: 0.8 }).addTo(
-    ghosts,
-  );
-  const dot = L.circleMarker(anchor, { radius: 8, color: '#666666', weight: 2, fillColor: '#ffffff', fillOpacity: 0.7 })
+  const line = L.polyline([anchor, live], {
+    color: '#666666',
+    weight: 1.5,
+    dashArray: '4 4',
+    opacity: 0.8,
+    renderer,
+  }).addTo(ghosts);
+  const dot = L.circleMarker(anchor, {
+    radius: 8,
+    color: '#666666',
+    weight: 2,
+    fillColor: '#ffffff',
+    fillOpacity: 0.7,
+    renderer,
+  })
     .bindTooltip(`${filename} — previous position`)
     .addTo(ghosts);
   return { line, dot };
