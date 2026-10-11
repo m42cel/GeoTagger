@@ -5,11 +5,11 @@ import { canConfirm } from '@geotagger/shared';
 import { isFileId } from './files.js';
 
 /**
- * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, revert, reset,
- * and a multi-select bulk confirm.
+ * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, discard move,
+ * reset, and a multi-select bulk confirm.
  *
- * Revert and reset are deliberately two different routes, not one: revert cancels
- * only a drag in progress, falling back to whatever was underneath it (camera GPS, a
+ * Discard move and reset are deliberately two different routes, not one: discarding
+ * a move cancels only a drag in progress, falling back to whatever was underneath it (camera GPS, a
  * confirmed position, or the estimate); reset discards a confirmed position too, and
  * with it any drag on top.
  *
@@ -20,7 +20,7 @@ import { isFileId } from './files.js';
  *
  * Every route answers with the whole `FilesResponse`, like the strips routes answer
  * with the whole timeline. A drag only ever changes the dragged file's own entry,
- * but a confirm, revert, reset or bulk confirm can change which files are anchors,
+ * but a confirm, discard move, reset or bulk confirm can change which files are anchors,
  * which recomputes every unconfirmed estimate in the folder (SPEC §5.5) — either
  * way, nothing less than the whole response would leave the map showing stale
  * positions somewhere.
@@ -61,11 +61,11 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
     return filesResponse(session);
   });
 
-  app.post<{ Params: { id: string } }>('/api/files/:id/revert-position', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/files/:id/discard-move', async (req, reply) => {
     const session = sessions.require();
     const id = parseId(req.params.id);
     if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
-    session.store.revertPendingPosition(id);
+    session.store.discardPendingPosition(id);
     return filesResponse(session);
   });
 

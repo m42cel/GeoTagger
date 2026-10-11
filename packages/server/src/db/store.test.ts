@@ -271,21 +271,21 @@ describe('positions — SPEC §5.5, §5.6, §6.5', () => {
     expect(store.listPendingPositions().get(id)).toEqual({ lat: MILAN.lat, lon: MILAN.lon });
   });
 
-  it('revert cancels only a pending drag, leaving a confirmed anchor underneath alone', () => {
+  it('discarding a move cancels only a pending drag, leaving a confirmed anchor underneath alone', () => {
     const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
     store.confirmPosition(id, ROME.lat, ROME.lon, 42, false);
     store.setDraggedPosition(id, MILAN.lat, MILAN.lon);
 
-    store.revertPendingPosition(id);
+    store.discardPendingPosition(id);
 
     expect(store.listPendingPositions().has(id)).toBe(false);
     expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
   });
 
-  it('revert on a file with nothing pending is a no-op', () => {
+  it('discarding a move on a file with nothing pending is a no-op', () => {
     const id = store.upsertScanned(scanned({ relPath: 'a.jpg' }), 1).id;
     store.confirmPosition(id, ROME.lat, ROME.lon, 42, false);
-    expect(() => store.revertPendingPosition(id)).not.toThrow();
+    expect(() => store.discardPendingPosition(id)).not.toThrow();
     expect(store.listConfirmedPositions().get(id)).toEqual({ lat: ROME.lat, lon: ROME.lon });
   });
 

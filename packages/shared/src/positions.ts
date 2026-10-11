@@ -29,14 +29,14 @@ export interface PositionInput {
    * A settled position that anchors this file *and* every other file (SPEC §5.5):
    * camera GPS or a confirmation. A drag in progress never touches this — see
    * `pending` — so re-dragging an already-settled file keeps this anchor active for
-   * everyone else until the drag is confirmed or reverted.
+   * everyone else until the drag is confirmed or discarded.
    */
   known: KnownPosition | null;
   /**
    * A drag in progress: overrides this file's own displayed position but anchors
    * nothing (SPEC §5.5, §5.6). Coexists with `known` when a previously-settled file
    * is being re-dragged — the map shows `known` as a ghost, connected to `pending`
-   * by a thin line, until the user confirms or reverts.
+   * by a thin line, until the user confirms or discards the move.
    */
   pending: LatLon | null;
 }

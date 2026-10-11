@@ -23,6 +23,7 @@ import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
 import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
+import { resetTarget } from './reset-target.js';
 import { isShown } from './filters.js';
 import { pathVertices } from './path.js';
 
@@ -30,10 +31,10 @@ import { pathVertices } from './path.js';
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
  * interpolated position, clustered, with a path line and uncertainty circles.
  * Selecting a thumbnail shows the detail panel; dragging a marker or using the
- * panel's confirm/revert/reset buttons edits its position (SPEC §5.6). Re-dragging
- * an already-anchored file draws a ghost at its old position, connected by a thin
- * line to where it is now — that old position is still what anchors everyone else
- * until the drag is confirmed or reverted.
+ * panel's confirm/discard move/reset buttons edits its position (SPEC §5.6). A dragged
+ * file draws a ghost at its own position — its anchor, still placing everyone else,
+ * or its estimate — connected by a thin line to where it is now, until the drag is
+ * confirmed or discarded.
  *
  * Editing is wired the same way the alignment view's mutations are: every edit posts
  * to the server and replaces local state with the response it sends back, rather
@@ -42,7 +43,7 @@ import { pathVertices } from './path.js';
  * Multi-select (SPEC §6.5) is shift-click to toggle one marker at a time, or a
  * shift+drag rubber band to select every marker inside the box, independent of the
  * single `selectedId` the detail panel shows — it exists only to batch-confirm a
- * selection at once (§6.5's "confirm the selection together"), not to drag or revert
+ * selection at once (§6.5's "confirm the selection together"), not to drag or discard
  * a group, so it carries no per-file detail of its own.
  */
 
@@ -149,8 +150,8 @@ export function MapView({
     if (selectedId !== null) void editPosition(() => api.confirmPosition(selectedId));
   }
 
-  function handleRevert(): void {
-    if (selectedId !== null) void editPosition(() => api.revertPosition(selectedId));
+  function handleDiscardMove(): void {
+    if (selectedId !== null) void editPosition(() => api.discardMove(selectedId));
   }
 
   function handleReset(): void {
@@ -758,8 +759,9 @@ export function MapView({
           position={selected?.position ?? null}
           timelineFile={selected?.timelineFile ?? null}
           onConfirm={handleConfirm}
-          onRevert={handleRevert}
+          onDiscardMove={handleDiscardMove}
           onReset={handleReset}
+          resetTarget={selected ? resetTarget(selected.file, selected.timelineFile, items) : 'none'}
           busy={busy}
           multiSelectedItems={multiSelectedItems}
           onSelectOne={handleSelectOne}

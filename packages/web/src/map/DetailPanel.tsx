@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import type { ComputedPosition, FileId, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
 import { canConfirm as confirmable, formatInstant, formatUtcOffset, shownPosition } from '@geotagger/shared';
 import { borderClassFor } from './marker-status.js';
+import { RESET_LABEL, type ResetTarget } from './reset-target.js';
 
 /**
  * Detail for the map's selected thumbnail (SPEC §6.3's side panel): the large
  * preview, the corrected timestamp, where the file currently sits, and — for a
- * single selection — the confirm/revert/reset controls of SPEC §6.5.
+ * single selection — the confirm/discard move/reset controls of SPEC §6.5.
  *
- * Revert and reset are two different depths of undo: revert cancels only a drag in
- * progress, falling back to whatever is underneath it (camera GPS, a confirmed
+ * Discard move and reset are two different depths of undo: discarding a move cancels
+ * only a drag in progress, falling back to whatever is underneath it (camera GPS, a confirmed
  * position, or the estimate); reset discards a confirmed position too, back to camera
  * GPS, a derived estimate or no position at all (SPEC §5.6, §6.5).
  *
@@ -24,8 +25,9 @@ export function DetailPanel({
   position,
   timelineFile,
   onConfirm,
-  onRevert,
+  onDiscardMove,
   onReset,
+  resetTarget,
   busy,
   multiSelectedItems,
   onSelectOne,
@@ -34,8 +36,10 @@ export function DetailPanel({
   position: ComputedPosition | null;
   timelineFile: TimelineFile | null;
   onConfirm: () => void;
-  onRevert: () => void;
+  onDiscardMove: () => void;
   onReset: () => void;
+  /** What a reset would fall back to; only asked for a selected file. */
+  resetTarget: ResetTarget;
   busy: boolean;
   multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
   onSelectOne: (fileId: FileId) => void;
@@ -66,7 +70,7 @@ export function DetailPanel({
   }
 
   const canConfirm = position !== null && confirmable(position);
-  const canRevert = position !== null && position.pending !== null;
+  const canDiscardMove = position !== null && position.pending !== null;
   // Camera GPS and an estimate come from the file and the anchors, not the edit store
   // — only a confirmation is there to discard.
   const canReset = position?.base?.source === 'confirmed';
@@ -88,16 +92,31 @@ export function DetailPanel({
           </>
         )}
       </dl>
-      {(canConfirm || canRevert || canReset) && (
+      {/* Only the actions that apply; busy disables them for the moment an edit is in flight.
+          The first row keeps its height even when empty, so Reset always sits on the
+          second and nothing moves when confirming swaps one set of buttons for the other. */}
+      <div className="detail-actions">
+        {canConfirm && (
+          <button type="button" className="confirm" disabled={busy} onClick={onConfirm}>
+            ✓ Confirm position
+          </button>
+        )}
+        {canDiscardMove && (
+          <button type="button" className="ghost" disabled={busy} onClick={onDiscardMove}>
+            Discard move
+          </button>
+        )}
+        {!canConfirm && !canDiscardMove && (
+          <button type="button" className="confirm placeholder" tabIndex={-1} aria-hidden="true">
+            ✓ Confirm position
+          </button>
+        )}
+      </div>
+      {/* The label names what the file falls back to. */}
+      {canReset && (
         <div className="detail-actions">
-          <button type="button" className="confirm" disabled={!canConfirm || busy} onClick={onConfirm} title="Confirm">
-            ✓
-          </button>
-          <button type="button" className="ghost" disabled={!canRevert || busy} onClick={onRevert}>
-            Revert
-          </button>
-          <button type="button" className="ghost" disabled={!canReset || busy} onClick={onReset}>
-            Reset
+          <button type="button" className="ghost" disabled={busy} onClick={onReset}>
+            {RESET_LABEL[resetTarget]}
           </button>
         </div>
       )}

@@ -60,7 +60,7 @@ describe('GET /api/files/:id/thumb and /preview', () => {
 });
 
 describe('position routes — malformed file id', () => {
-  it('404s rather than crashing on drag, confirm, revert and reset', async () => {
+  it('404s rather than crashing on drag, confirm, discard move and reset', async () => {
     const drag = await built.app.inject({
       method: 'POST',
       url: '/api/files/not-a-uuid/position',
@@ -68,7 +68,7 @@ describe('position routes — malformed file id', () => {
     });
     expect(drag.statusCode).toBe(404);
 
-    for (const action of ['confirm', 'revert-position', 'reset-position']) {
+    for (const action of ['confirm', 'discard-move', 'reset-position']) {
       const res = await built.app.inject({ method: 'POST', url: `/api/files/not-a-uuid/${action}` });
       expect(res.statusCode).toBe(404);
     }

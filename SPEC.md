@@ -495,13 +495,13 @@ so dragging a file that already has camera GPS or a confirmed position leaves th
 place, still anchoring everyone else, while the drag itself is held separately as a pending,
 unconfirmed placement. The map shows the old position as a faint **ghost**, connected to the file's
 new, live position by a thin line, so it is obvious which marker a ghost belongs to. The ghost
-disappears once the drag is confirmed (the new position becomes the anchor) or reverted (the drag
-is discarded and the old anchor is what the file shows again).
+disappears once the drag is confirmed (the new position becomes the anchor) or the move is
+discarded (the old anchor is what the file shows again).
 
 **Dragging an estimated file.** The same holds for a file with no anchor underneath: its estimate is
 still worked out while the drag is pending and shown as the ghost, with its uncertainty circle. It
 is still derived, so unlike an anchor's ghost it moves when the anchors change, always staying on
-the path line. Reverting the drag returns the file to it.
+the path line. Discarding the move returns the file to it.
 
 Consequences:
 
@@ -664,8 +664,8 @@ dismissed, goes by itself after a few seconds, and is cleared by the next action
 │                                        ││ 11.3456      │
 │                                        ││ interpolated │
 │                                        ││ ±180 m (good)│
-│                                        ││ [✓] [revert] │
-│                                        ││              │
+│                                        ││ [✓ confirm   │
+│                                        ││   position]  │
 └────────────────────────────────────────┘└──────────────┘
 ```
 
@@ -690,8 +690,8 @@ both at once. A cluster showing a stack's representative thumbnail carries which
 to any file inside it, so collapsing a stack never makes a selected file look deselected.
 
 **Multi-select in the side panel:** while the multi-selection is non-empty, the side panel shows a
-grid of small thumbnails in place of the single-file view (large preview, metadata, confirm/revert/
-reset) — those controls don't apply to several files at once, and the confirm/clear actions for the
+grid of small thumbnails in place of the single-file view (large preview, metadata, confirm/discard
+move/reset) — those controls don't apply to several files at once, and the confirm/clear actions for the
 selection live in the map's own toolbar, not here. Clicking a thumbnail in the grid exits
 multi-select and shows that one file normally, exactly as clicking it on the map would.
 
@@ -747,18 +747,21 @@ what makes it an anchor and places everything else (§5.5).
 | --- | --- |
 | Click thumbnail | Select; detail panel shows large preview, metadata, provenance, uncertainty |
 | Drag thumbnail | Sets its own position; **stays unconfirmed (red)** and does not anchor other files' estimates. It leaves a ghost at the file's own position — its anchor or its estimate (§5.6) |
-| Checkmark on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
+| Confirm position on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
 | Multi-select (shift-click / rubber band) | Confirm the selection together |
-| Revert on selected thumbnail | Cancels a drag in progress, falling back to whatever is underneath it — camera GPS, a confirmed position or the estimate. Available whenever a drag is pending |
-| Reset on selected thumbnail | Discards a confirmed position — and any drag on top of it — back to camera GPS if the file has it, else to a derived estimate or no position at all. Available whenever the position is confirmed |
+| Discard move on selected thumbnail | Cancels a drag in progress, falling back to whatever is underneath it — camera GPS, a confirmed position or the estimate. Available whenever a drag is pending |
+| Reset on selected thumbnail | Discards a confirmed position — and any drag on top of it — back to camera GPS if the file has it, else to a derived estimate or no position at all. On its own row, and named for what it falls back to: *Reset to camera GPS*, *Reset to interpolated position* or *Reset to no position* |
 | Persist changes | Writes all confirmed changes to files (§9) |
+
+The detail panel shows only the actions that apply to the selected file: Confirm position for a
+drag or an estimate, Discard move while a drag is pending, Reset for a confirmed position.
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
 both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.
 
-Revert and reset are two different depths of undo (§5.6, §9.4), not the same action under
-different names: a file dragged away from a confirmed position can be reverted back to that
-confirmed position (the drag is cancelled, the confirmation still stands), or reset past it
+Discard move and reset are two different depths of undo (§5.6, §9.4), not the same action under
+different names: a file dragged away from a confirmed position can have the move discarded, back to
+that confirmed position (the drag is cancelled, the confirmation still stands), or reset past it
 entirely (the confirmation itself is discarded, falling back to camera GPS if the file has it, or
 to a derived estimate otherwise). A third, deeper undo — back to what the file said before
 GeoTagger ever touched it — is deferred; see §9.4.
@@ -1016,12 +1019,12 @@ The same snapshot is stored in the edit store, so the record survives whether th
 the file is the surviving copy. Nothing in the app reads it back yet — it is written for the
 deferred revert of §9.4, and for anyone inspecting the file with `exiftool`.
 
-### 9.4 Revert
+### 9.4 Undo
 
 Two depths of undo exist, shallowest to deepest (§6.5, §4.3):
 
-1. **Revert** — cancels a drag in progress, falling back to the anchor underneath it. Edit-store
-   only; never touches a file.
+1. **Discard move** — cancels a drag in progress, falling back to whatever is underneath it.
+   Edit-store only; never touches a file.
 2. **Reset** (a file's position) / a strip's own **Reset** (time) — discards the edit entirely:
    a position falls back to whatever the app would derive next — camera GPS, or an interpolated
    estimate; an offset falls back to zero. This is not guaranteed to match the file's original
@@ -1239,7 +1242,7 @@ Focused on the areas where a mistake is silent and expensive:
    XMP is written alongside for breadth.
 7. **Confirmation promotes to anchor**, so a chain of confirmed estimates can in principle drift
    away from reality. This was a deliberate choice; provenance is recorded per file so a
-   confirmed estimate remains distinguishable from camera GPS, and revert is always available.
+   confirmed estimate remains distinguishable from camera GPS, and reset is always available.
 8. **Unlimited extrapolation** can place a file implausibly far away. Also deliberate: every file
    must be on the map to be draggable, and the uncertainty circle conveys the doubt. The cap
    exists if it ever becomes a nuisance.
@@ -1258,7 +1261,7 @@ form a complete, shippable application with no map in it at all.
 | **0 — Foundation** | Project setup, config, folder picker, recursive scan, metadata extraction, capture-time resolution, strip grouping, thumbnail pipeline, SQLite store, Docker image |
 | **1 — Time correction** | Alignment view: shared zoomable axis, lanes and strips, drag, snap, numeric entry, cut and merge, lock and reset, grouping modes, set true time, pinning and stretching, UTC offset inheritance, startup question. The general file writer — verification, original preservation, staleness checks, revert, operation log — carrying only the time payload, since position editing does not exist yet. **Usable release: a standalone timestamp-correction tool.** |
 | **2 — Map and interpolation** | Leaflet map, tile proxy and cache, thumbnail markers, clustering, path line, interpolation, uncertainty circles, tray. Also shipped early: selection and a read-only detail panel (large preview, corrected timestamp, lat/lon, altitude when the file has one, position status) — pulled forward from phase 3 since it needs nothing phase 3 adds. |
-| **3 — Editing** | Drag (including from the tray, §6.4), confirm, revert, reset, multi-select confirm, map filters (§6.3). Extends phase 2's detail panel with the confirm/revert/reset controls. |
+| **3 — Editing** | Drag (including from the tray, §6.4), confirm, discard move, reset, multi-select confirm, map filters (§6.3). Extends phase 2's detail panel with the confirm/discard move/reset controls. |
 | **4 — Persisting positions** | Extends the phase 1 writer to GPS tags, so time and position commit together in one write per file: persist dialog and report, position provenance, per-file revert, the map view's "unpersisted" filter (§6.3). *Feature-complete release.* |
 | **5 — Offline and polish** | PMTiles support, area pre-download for permitted providers, settings page, performance tuning against a real 5,000-file folder |
 

@@ -859,12 +859,12 @@ export class FolderStore {
   }
 
   /**
-   * Revert (SPEC §6.5): cancels a drag in progress, discarding only the pending
-   * coordinates. A confirmed or camera GPS anchor underneath is untouched — the drag
-   * never affected it in the first place (SPEC §5.5) — so the file's marker simply
-   * falls back to showing that anchor, and the ghost disappears.
+   * Discard move (SPEC §6.5): cancels a drag in progress, discarding only the pending
+   * coordinates. Whatever is underneath — camera GPS, a confirmed position, or the
+   * estimate — is untouched, since the drag never affected it in the first place
+   * (SPEC §5.5), so the file's marker simply falls back to it and the ghost disappears.
    */
-  revertPendingPosition(fileId: FileId): void {
+  discardPendingPosition(fileId: FileId): void {
     this.db
       .prepare('UPDATE edits SET pending_lat = NULL, pending_lon = NULL, placed_at = NULL WHERE file_id = ?')
       .run(fileId);

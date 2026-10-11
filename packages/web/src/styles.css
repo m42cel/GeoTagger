@@ -1230,6 +1230,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   font-weight: 700;
 }
 .detail-actions .confirm:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+.detail-actions .placeholder { visibility: hidden; }
 
 .map-thumb-icon img {
   width: 100%;
