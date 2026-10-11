@@ -24,7 +24,7 @@ import { DetailPanel } from './DetailPanel.js';
 import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
 import { resetTarget } from './reset-target.js';
-import { isShown } from './filters.js';
+import { isShown, STATUS_FILTERS, type StatusFilter } from './filters.js';
 import { pathVertices } from './path.js';
 
 /**
@@ -92,8 +92,7 @@ export function MapView({
   // SPEC §6.3 filters: visibility-only, everything shown by default. Groups are kept
   // as the hidden ones so a strip that appears later (a cut, a regroup) shows.
   const [hiddenStripIds, setHiddenStripIds] = useState<ReadonlySet<number>>(new Set());
-  const [showKnown, setShowKnown] = useState(true);
-  const [showInterpolated, setShowInterpolated] = useState(true);
+  const [status, setStatus] = useState<StatusFilter>('all');
   const [baseLayer, setBaseLayer] = useState<BaseLayerId>('osm');
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
@@ -225,9 +224,10 @@ export function MapView({
   // from.
   const visibleOnMap = useMemo(() => {
     const assignments = timeline?.assignments ?? {};
-    const filters = { hiddenStripIds, showKnown, showInterpolated };
-    return onMap.filter((i) => isShown(i, assignments, filters));
-  }, [onMap, timeline, hiddenStripIds, showKnown, showInterpolated]);
+    const context = { assignments, unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
+    const filters = { hiddenStripIds, status };
+    return onMap.filter((i) => isShown(i, context, filters));
+  }, [onMap, timeline, filesResp, hiddenStripIds, status]);
 
   const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
@@ -702,14 +702,13 @@ export function MapView({
             </button>
           ))}
         </div>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showKnown} onChange={(e) => setShowKnown(e.target.checked)} />
-          Known
-        </label>
-        <label className="map-toggle">
-          <input type="checkbox" checked={showInterpolated} onChange={(e) => setShowInterpolated(e.target.checked)} />
-          Interpolated
-        </label>
+        <div className="chip-group">
+          {STATUS_FILTERS.map(({ id, label }) => (
+            <button key={id} type="button" className={`chip${status === id ? ' on' : ''}`} onClick={() => setStatus(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
         {/* With a single group, hiding it would just hide everything. */}
         {(timeline?.strips.length ?? 0) > 1 && (
           <div className="chip-group">
