@@ -3,6 +3,7 @@ import type { BulkConfirmRequest, ComputedPosition, DragPositionRequest, FileId,
 import type { Session, SessionManager } from '../session.js';
 import { canConfirm } from '@geotagger/shared';
 import { isFileId } from './files.js';
+import { pendingChangesIn } from './persist.js';
 
 /**
  * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, discard move,
@@ -34,6 +35,7 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      hasPendingChanges: pendingChangesIn(session),
     };
   };
 

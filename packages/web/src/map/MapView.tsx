@@ -76,12 +76,17 @@ const BASE_LAYERS: Record<BaseLayerId, { url: string; attribution: string; maxZo
 
 export function MapView({
   focusFileId,
+  writeCount,
   onBack,
+  onOpenAlignment,
   onOpenPersist,
 }: {
   /** A file to open on: zoomed to and selected. */
   focusFileId: FileId | null;
+  /** Changes after each write to the files, which this view then refetches. */
+  writeCount: number;
   onBack: () => void;
+  onOpenAlignment: () => void;
   onOpenPersist: () => void;
 }) {
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
@@ -112,7 +117,7 @@ export function MapView({
         setTimeline(t);
       })
       .catch((err: unknown) => setError(errorText(err)));
-  }, []);
+  }, [writeCount]);
 
   /**
    * Every position edit follows the same shape: post it, adopt whatever
@@ -761,9 +766,17 @@ export function MapView({
         {tray.length > 0 && <div className="tray-spacer" />}
         <div className="view-actions-end">
           <button type="button" className="ghost" onClick={onBack}>
-            ← Back
+            ← Back to overview
           </button>
-          <button type="button" className="ghost" onClick={onOpenPersist}>
+          <button type="button" className="ghost" onClick={onOpenAlignment}>
+            Fix timestamps
+          </button>
+          <button
+            type="button"
+            className="persist-button"
+            disabled={!filesResp?.hasPendingChanges}
+            onClick={onOpenPersist}
+          >
             Persist changes
           </button>
         </div>

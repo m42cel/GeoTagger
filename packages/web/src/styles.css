@@ -73,7 +73,7 @@ body {
 .brand { min-height: calc(1lh + 12px); display: inline-flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: 0.01em; }
 .brand img { width: 22px; height: 22px; }
 .crumb { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.app-bar .ghost { margin-left: auto; }
+.app-bar .crumb { margin-right: auto; }
 
 /*
  * 1400px made sense for the file grid and picker, but the alignment view's timeline
@@ -114,7 +114,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: var(--accent);
   color: #fff;
   border: 1px solid transparent;
-  padding: 6px 12px;
+  padding: 5px 12px;
 }
 
 .ghost {
@@ -124,7 +124,15 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   padding: 5px 10px;
 }
 
-.ghost:disabled, .primary:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
+/* Writing to the files is the one step that can't be undone in the app: amber, not alarm red. */
+.persist-button {
+  background: transparent;
+  color: var(--weak);
+  border: 1px solid var(--muted);
+  padding: 5px 10px;
+}
+
+.ghost:disabled, .primary:disabled, .persist-button:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 
 .link {
   background: none;
@@ -206,7 +214,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 
 .scan { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .scan-head { display: flex; align-items: center; gap: 12px; }
-.scan-head .ghost, .scan-head .muted { margin-left: auto; }
+.scan-head .muted { margin-left: auto; }
 .scan-head .muted {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -218,7 +226,6 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .scan progress { width: 100%; margin-top: 8px; height: 6px; }
 .scan-failed { border-color: var(--error); }
 
-.summary { color: var(--muted); margin: 0 0 12px; }
 
 /* ---- panels ---- */
 
@@ -370,7 +377,17 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .grouping-options li:last-child { border-bottom: none; }
 .grouping-options button { width: 100%; }
 
-.view-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+/* Spaced like `.align-toolbar` (border included), so every view's buttons sit on the same line. */
+.view-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+}
+.view-actions > .persist-button { margin-left: auto; }
+/* The overview's row, boxed like `.align-toolbar`; the map's stays on the page background. */
+.folder-view > .view-actions { border-color: var(--line); border-radius: 8px; background: var(--panel); }
 
 /* ---- alignment view (SPEC §6.2) ---- */
 
@@ -386,7 +403,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   border-radius: 8px;
   background: var(--panel);
 }
-.align-toolbar label, .align-toolbar .zoom {
+.align-toolbar .grouping, .align-toolbar .zoom {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -395,8 +412,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.align-toolbar select { font: inherit; text-transform: none; letter-spacing: 0; }
-.align-toolbar .primary { margin-left: auto; }
+.align-toolbar .back-to-overview { margin-left: auto; }
 
 .align-body { display: flex; align-items: flex-start; gap: 12px; }
 

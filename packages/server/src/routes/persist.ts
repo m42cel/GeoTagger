@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { OplogEntry, PersistPlan, PersistProgress, PersistRequest } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
-import { planFor, runPersist, type PersistContext } from '../write/persist.js';
+import { hasPendingChanges, planFor, runPersist, type PersistContext } from '../write/persist.js';
 import { APP_VERSION } from '../version.js';
 
 /**
@@ -51,7 +51,11 @@ export function registerPersistRoutes(app: FastifyInstance, sessions: SessionMan
   });
 }
 
-function contextFor(session: Session): PersistContext {
+export function pendingChangesIn(session: Session): boolean {
+  return hasPendingChanges(contextFor(session));
+}
+
+export function contextFor(session: Session): PersistContext {
   return {
     store: session.store,
     timeline: session.strips.timeline(),

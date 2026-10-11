@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { FileId, FilesResponse } from '@geotagger/shared';
 import type { SessionManager } from '../session.js';
+import { pendingChangesIn } from './persist.js';
 import { generateThumb, thumbPath, type ThumbTier } from '../thumbs/generator.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,6 +22,7 @@ export function registerFileRoutes(app: FastifyInstance, sessions: SessionManage
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      hasPendingChanges: pendingChangesIn(session),
     };
   });
 

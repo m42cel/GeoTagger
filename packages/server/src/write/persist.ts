@@ -15,7 +15,7 @@ import { exiftool, readRawTags } from '../metadata/reader.js';
 import { collectDateCandidates, collectGps } from '../metadata/exif-parse.js';
 import type { Timeline } from '../time/timeline.js';
 import { GEOTAGGER_GROUP } from './exiftool-config.js';
-import { buildPersistPlan, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
+import { buildPersistPlan, planEntryFor, type ConfirmedPositionEdit, type PlanContext } from './plan.js';
 import {
   ORIGINAL_ABSENT,
   buildWrite,
@@ -52,6 +52,12 @@ const WRITE_ARGS = ['-P', '-overwrite_original'];
 
 export function planFor(ctx: PersistContext): PersistPlan {
   return buildPersistPlan(planContext(ctx));
+}
+
+/** The plan's "anything to write?" alone: stops at the first file, so it stats at most one. */
+export function hasPendingChanges(ctx: PersistContext): boolean {
+  const plan = planContext(ctx);
+  return plan.files.some((file) => planEntryFor(file, plan) !== null);
 }
 
 function planContext(ctx: PersistContext): PlanContext {

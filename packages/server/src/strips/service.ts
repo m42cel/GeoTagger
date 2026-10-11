@@ -91,7 +91,8 @@ export class StripService {
     };
   }
 
-  timelineResponse(): TimelineResponse {
+  /** Everything but `hasPendingChanges`, which the route adds: it needs the files on disk. */
+  timelineResponse(): Omit<TimelineResponse, 'hasPendingChanges'> {
     const timeline = this.timeline();
     const rules = this.store.listUtcOffsetRules();
     return {

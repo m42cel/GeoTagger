@@ -17,6 +17,7 @@ import type {
   TimelineResponse,
 } from '@geotagger/shared';
 import type { SessionManager } from '../session.js';
+import { pendingChangesIn } from './persist.js';
 
 /**
  * The alignment view's API (SPEC §10.2).
@@ -27,7 +28,10 @@ import type { SessionManager } from '../session.js';
  * less would leave the view to guess, or to ask again immediately.
  */
 export function registerStripRoutes(app: FastifyInstance, sessions: SessionManager): void {
-  const timeline = (): TimelineResponse => sessions.require().strips.timelineResponse();
+  const timeline = (): TimelineResponse => {
+    const session = sessions.require();
+    return { ...session.strips.timelineResponse(), hasPendingChanges: pendingChangesIn(session) };
+  };
 
   app.get('/api/strips', async (): Promise<StripsResponse> => sessions.require().strips.strips());
 

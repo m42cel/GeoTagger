@@ -90,6 +90,8 @@ export interface FilesResponse {
    * different value than the current edit. A drag on top doesn't change that.
    */
   unpersistedFileIds: FileId[];
+  /** Whether persisting would write anything at all — a position or a time (SPEC §9.1). */
+  hasPendingChanges: boolean;
 }
 
 export interface StripsResponse {
@@ -119,6 +121,8 @@ export interface TimelineResponse extends StripsResponse {
    */
   needsUtcOffsetAnswer: boolean;
   folderUtcOffsetMinutes: number | null;
+  /** Whether persisting would write anything at all — a position or a time (SPEC §9.1). */
+  hasPendingChanges: boolean;
 }
 
 export interface RegroupRequest {

@@ -14,6 +14,7 @@ export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   // A reload mid-scan should land back in the open folder, not at the picker.
   useEffect(() => {
@@ -38,6 +39,16 @@ export function App() {
     void api.close().finally(() => setSession(null));
   }, []);
 
+  const rescan = useCallback(() => {
+    // Optimistic: blocks browsing immediately rather than waiting for the first SSE
+    // update, so no stale content flashes before the scan stream reports 'walking'.
+    setSession((s) => s && { ...s, scan: { ...s.scan, phase: 'walking' } });
+    api
+      .rescan()
+      .then(setSession)
+      .catch((err: unknown) => setError(errorText(err)));
+  }, []);
+
   return (
     <div className="app">
       <header className="app-bar">
@@ -48,6 +59,9 @@ export function App() {
         {session && (
           <>
             <span className="crumb">{session.relPath === '' ? '(photo root)' : session.relPath}</span>
+            <button type="button" className="ghost" disabled={scanning} onClick={rescan}>
+              Rescan
+            </button>
             <button type="button" className="ghost" onClick={closeFolder}>
               Choose another folder
             </button>
@@ -61,7 +75,7 @@ export function App() {
         {loading && !session ? (
           <p className="muted">Loading…</p>
         ) : session ? (
-          <FolderView session={session} onSessionChange={setSession} />
+          <FolderView session={session} onSessionChange={setSession} onScanningChange={setScanning} />
         ) : (
           <FolderPicker onOpen={openFolder} />
         )}
