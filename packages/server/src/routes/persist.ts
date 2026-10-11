@@ -51,11 +51,12 @@ export function registerPersistRoutes(app: FastifyInstance, sessions: SessionMan
   });
 }
 
+/** Whether persisting would write anything, for the responses that carry `hasPendingChanges`. */
 export function pendingChangesIn(session: Session): boolean {
   return hasPendingChanges(contextFor(session));
 }
 
-export function contextFor(session: Session): PersistContext {
+function contextFor(session: Session): PersistContext {
   return {
     store: session.store,
     timeline: session.strips.timeline(),

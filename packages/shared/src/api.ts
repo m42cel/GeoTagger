@@ -30,7 +30,7 @@ export interface RecentFolder {
 
 export type ScanPhase = 'idle' | 'walking' | 'reading-metadata' | 'thumbnails' | 'done' | 'failed';
 
-/** Reopen summary shown before continuing (SPEC §6.1 step 3). */
+/** What a scan found against the index; a change rebuilds the strips (SPEC §4.4, §6.1 step 3). */
 export interface ScanSummary {
   known: number;
   added: number;

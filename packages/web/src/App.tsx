@@ -6,9 +6,6 @@ import { FolderView } from './FolderView.js';
 
 /**
  * The startup flow of SPEC §6.1: pick a folder, scan it, then work in it.
- *
- * Phase 0 stops at the scan result — the timestamp question and the alignment view
- * it leads to arrive in phase 1, and the map in phase 2.
  */
 export function App() {
   const [session, setSession] = useState<SessionState | null>(null);

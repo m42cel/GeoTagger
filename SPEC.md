@@ -525,13 +525,10 @@ Consequences:
    straight at a folder via a command-line argument or URL, skipping the picker.
 2. **Scan** — recursive, incremental, with live progress. Nothing past this step is reachable
    until the scan, including thumbnail generation, finishes; a rescan re-blocks the same way.
-3. **Reopening a known folder** shows a summary before continuing:
-
-   ```
-   Italy2025 reopened
-     1,428 known · 12 new · 1 changed · 0 missing
-     34 confirmed changes still unpersisted        [ Continue ]
-   ```
+3. **Reopening a known folder** goes straight on once the scan finishes, with no summary screen.
+   The scan's known / new / changed / missing counts decide whether the strips are rebuilt
+   (§4.4), and changes still waiting to be written show as **Persist changes** being enabled
+   (§9.1).
 
 4. **Grouping question** — asked once per folder, before any strip exists, showing what the scan
    actually found so the choice isn't blind:
@@ -565,7 +562,7 @@ Consequences:
 No map. A shared, zoomable time axis with one lane per strip.
 
 ```
- grouping: [ by subfolder ▾ ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
+ group by: [ subfolder | device ]   zoom: [ trip · day · hour · minute ]   [ reset all ]
 
  iPhone 15 Pro · 412    [■]  │  ■■ ■▅   ■▅█▃      ■■■▆        │  ← [■] closed padlock: locked
  Offset [ 0 s         ] ↺    │                                │
@@ -898,7 +895,7 @@ NAS.
 
 Nothing is written until the user runs **Persist changes**. This keeps metadata writes to a
 minimum on slow storage, allows free experimentation, and makes the whole edit set reviewable
-before it becomes permanent.
+before it becomes permanent. The button is disabled while the plan below would write nothing.
 
 **What gets written is a per-tag difference.** For every tag GeoTagger writes (§9.2), the plan
 compares what the file says with what it should say, and a tag that differs is written. "What the

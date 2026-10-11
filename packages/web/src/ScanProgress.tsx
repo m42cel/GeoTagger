@@ -7,7 +7,7 @@ import type { ScanStatus } from '@geotagger/shared';
  * enough that the user needs to see it moving.
  */
 export function ScanProgress({ status }: { status: ScanStatus }) {
-  // A finished scan has nothing left to report; the folder's summary line takes over.
+  // A finished scan has nothing left to report.
   if (status.phase === 'done') return null;
   const idle = status.phase === 'idle' || status.phase === 'failed';
   const { label, value, max } = describe(status);
