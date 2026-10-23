@@ -1179,7 +1179,7 @@ mistakes, and it applies equally to reads and writes.
 ```yaml
 services:
   geotagger:
-    image: geotagger:latest
+    image: ghcr.io/m42cel/geotagger:latest
     ports: ["8080:8080"]
     environment:
       PHOTO_ROOT: /photos
@@ -1189,8 +1189,10 @@ services:
     restart: unless-stopped
 ```
 
-Image: `node:26-trixie-slim` plus `exiftool` (and perl), `ffmpeg`, `libvips-tools` and libheif's HEVC plugin. Built for
-`linux/arm64` and `linux/amd64`.
+Image: `node:26-trixie-slim` plus perl (for the ExifTool that `exiftool-vendored` ships),
+`libvips-tools` with libheif's HEVC plugin for HEIC, and `ffmpeg`. Built for `linux/arm64` and
+`linux/amd64`, and published to GHCR: `dev` from `main`, and `x.y.z`, `x.y`, `x` and `latest`
+from each `vx.y.z` tag.
 
 Local use:
 

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { OplogEntry, PersistPlan, PersistProgress, PersistRequest } from '@geotagger/shared';
 import type { Session, SessionManager } from '../session.js';
 import { hasPendingChanges, planFor, runPersist, type PersistContext } from '../write/persist.js';
-import { APP_VERSION } from '@geotagger/shared';
+import { APP_VERSION } from '../version.js';
 
 /**
  * Writing to files (SPEC §9) and the operation log (SPEC §10.3).
