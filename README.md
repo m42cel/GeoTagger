@@ -2,6 +2,11 @@
 
 *A tool to add missing GPS coordinates to vacation photos.*
 
+<p>
+  <a href="screenshots/alignment-view.png"><img src="screenshots/alignment-view.png" width="49%" alt="The alignment view: one filmstrip per camera on a shared time axis, with two photos side by side"></a>
+  <a href="screenshots/map-view.png"><img src="screenshots/map-view.png" width="49%" alt="The map view: thumbnails along the trip's path, known positions in green, estimates in red"></a>
+</p>
+
 Cameras that normally record GPS sometimes miss a fix, leaving gaps in an otherwise
 well-tagged trip. Because the files around a gap *do* have coordinates, and every file
 has a timestamp, the missing positions can be estimated: a photo taken one minute after
@@ -18,19 +23,16 @@ home server or NAS. Running it next to the files keeps scanning, thumbnailing an
 writing fast. Pointing it at photos on a network share works too, but every file is
 read across the network, which gets slow for a large folder.
 
-**Important:** GeoTagger has no authentication, because it's intended as local tool.
+**Important:** GeoTagger has no authentication, because it's intended as a local tool.
 Anyone who can reach it can read and modify the photos in `PHOTO_ROOT`. Run it only
-on your own machine or a trusted local network, and never it to the internet.
+on your own machine or a trusted local network, and never expose it to the internet.
 
-**AI Dislaimer:** This tool is written with heavy use of Claude Code. I decided how
-the UI looks and what the UX should feel like, what features should be there and how
+**AI Disclaimer:** This tool is written with heavy use of Claude Code. I still decided
+how the UI looks and what the UX should feel like, what features should be there and how
 they work, but Claude wrote 99% of the code. Doing this by hand would've taken me 
 weeks or months and I just wanted to have a tool that exactly fit my needs. I still
 spent many hours fine tuning, testing and guiding code changes and am pretty happy with
-the result.
-
-
-Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
+the result. :)
 
 ## Features
 
@@ -88,6 +90,8 @@ Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
   value is saved in the file itself under a `geotagger:` XMP namespace, along with
   what GeoTagger changed and which version did it. Files modified on disk since the
   scan are skipped instead of overwritten. File modification times are left alone.
+
+Supported formats: **JPEG, HEIC, PNG, MP4, MOV, M4V**.
 
 ## Running it
 
