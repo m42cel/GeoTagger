@@ -106,12 +106,11 @@ belongs to exactly one strip.
 **Lane** — a horizontal row holding one or more strips. Strips in different lanes may overlap
 in time; strips within a lane may not.
 
-**Group** — used for two things, never for a strip:
-- *a grouping mode's group* (§4.4): the files of one subfolder or one device. It depends on the
-  files alone, and it is what the grouping choices show — the grouping question and the file
-  overview's grouping panel list these for both modes, whatever has since been cut or hand-picked.
-- *a lane's group*: the file grid and the map's group filter show one group per lane (§6.2), so
-  the segments of a cut strip are one group until one of them sits in a lane of its own.
+**Group** — a grouping mode's group (§4.4): the files of one subfolder or one device, never a
+strip or a lane. It depends on the files alone. The grouping question and the file overview's
+grouping panel list the groups of both modes; the file grid and the map's group filter show the
+chosen mode's. Cuts, hand-picked strips and lanes are clock correction and stay in the alignment
+view: a promoted segment or a strip made from a selection is a new lane there, never a new group.
 
 ---
 
@@ -615,9 +614,9 @@ with a large preview of it.
 **Lanes can be reordered** with the up and down arrows (▲▼) beside the lock in their headers. A
 lane moves as a whole, every segment in it along, and since only the order of the rows changes,
 never a time, a locked lane moves too: the lock's "no lane move" (§4.3) is about pulling a strip
-out of its lane, not about where the lane sits in the stack. The order is the folder's group order everywhere — the file grid and the
-map's group filter list their groups, one per lane (§3), the same way — and like every strip edit it is undoable; a regroup
-or a rebuilding rescan (§4.4) starts over from the grouping mode's order.
+out of its lane, not about where the lane sits in the stack. Like every strip edit it is undoable; a regroup or a rebuilding rescan (§4.4) starts
+over from the grouping mode's order. The order is the alignment view's alone: the file grid and
+the map's group filter list the groups (§3) in the grouping mode's order.
 
 The strip's UTC offset override of §4.2 is the `TZ` field in its lane header. It is empty unless
 typed into: each photo then takes the offset inferred for when it was taken, and the photo card
@@ -735,8 +734,8 @@ over a representative thumbnail and expand on zoom.
 
 **Uncertainty circles:** drawn faintly on all unconfirmed items; always shown.
 
-**Filters:** by group and by status, purely a marker-visibility toggle. Each group (lane, with all
-the segments in it) can be shown or hidden; the group filter appears only when there is more than one. Status is one of
+**Filters:** by group and by status, purely a marker-visibility toggle. Each group (§3: a subfolder
+or a device, whatever its strips and lanes) can be shown or hidden; the group filter appears only when there is more than one. Status is one of
 *all*, *known* (camera GPS or confirmed, green), *interpolated* (an estimate) or *unpersisted* (a
 confirmed position not yet written to the file — exactly the position changes the persist window
 lists, §9). A file shows when its group is shown **and** it matches the status — with groups A and

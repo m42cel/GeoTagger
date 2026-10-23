@@ -17,10 +17,9 @@ import type {
   TimelineFile,
   TimelineResponse,
 } from '@geotagger/shared';
-import { canConfirm, shownPosition } from '@geotagger/shared';
+import { canConfirm, groupByMode, shownPosition } from '@geotagger/shared';
 import { api } from '../api.js';
 import { errorText } from '../App.js';
-import { laneGroups } from '../lane-groups.js';
 import { DetailPanel } from './DetailPanel.js';
 import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
@@ -93,10 +92,10 @@ export function MapView({
   const [filesResp, setFilesResp] = useState<FilesResponse | null>(null);
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // SPEC §6.3 filters: visibility-only, everything shown by default. A group is a lane,
-  // so the segments of a cut strip are shown or hidden together while they share one;
-  // lanes are kept as the hidden ones so a lane that appears later (a regroup) shows.
-  const [hiddenLanes, setHiddenLanes] = useState<ReadonlySet<number>>(new Set());
+  // SPEC §6.3 filters: visibility-only, everything shown by default. A group is the
+  // grouping mode's subfolder or device, whatever its strips and lanes; groups are kept as
+  // the hidden ones so a group that appears later (a regroup) shows.
+  const [hiddenGroups, setHiddenGroups] = useState<ReadonlySet<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>('all');
   const [satellite, setSatellite] = useState(false);
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
@@ -195,10 +194,10 @@ export function MapView({
     setMultiSelected((prev) => (prev.size === 0 ? prev : new Set()));
   }
 
-  function toggleLane(lane: number): void {
-    setHiddenLanes((prev) => {
+  function toggleGroup(key: string): void {
+    setHiddenGroups((prev) => {
       const next = new Set(prev);
-      if (!next.delete(lane)) next.add(lane);
+      if (!next.delete(key)) next.add(key);
       return next;
     });
   }
@@ -221,7 +220,10 @@ export function MapView({
     }));
   }, [filesResp, timeline]);
 
-  const lanes = useMemo(() => laneGroups(timeline?.strips ?? []), [timeline]);
+  const groups = useMemo(
+    () => (timeline && filesResp ? groupByMode(timeline.groupingMode, filesResp.files, filesResp.devices) : []),
+    [timeline, filesResp],
+  );
 
   const onMap = useMemo(() => items.filter((i) => shownPosition(i.position) !== null), [items]);
 
@@ -230,12 +232,11 @@ export function MapView({
   // unaffected by what's currently hidden. This is what markers actually get drawn
   // from.
   const visibleOnMap = useMemo(() => {
-    const assignments = timeline?.assignments ?? {};
-    const context = { assignments, unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
-    const hiddenStripIds = new Set(lanes.filter((g) => hiddenLanes.has(g.lane)).flatMap((g) => g.stripIds));
-    const filters = { hiddenStripIds, status };
+    const context = { unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
+    const hiddenFileIds = new Set(groups.filter((g) => hiddenGroups.has(g.key)).flatMap((g) => g.fileIds));
+    const filters = { hiddenFileIds, status };
     return onMap.filter((i) => isShown(i, context, filters));
-  }, [onMap, timeline, filesResp, lanes, hiddenLanes, status]);
+  }, [onMap, filesResp, groups, hiddenGroups, status]);
 
   const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
@@ -733,19 +734,19 @@ export function MapView({
             </div>
           </div>
           {/* With a single group, hiding it would just hide everything. */}
-          {lanes.length > 1 && (
+          {groups.length > 1 && (
             <div className="filter-group">
               <span className="filter-label">Show group:</span>
               <div className="toggle-chips">
-                {lanes.map(({ lane, label }) => {
-                  const on = !hiddenLanes.has(lane);
+                {groups.map(({ key, label }) => {
+                  const on = !hiddenGroups.has(key);
                   return (
                     <button
-                      key={lane}
+                      key={key}
                       type="button"
                       aria-pressed={on}
                       className={`toggle-chip${on ? ' on' : ''}`}
-                      onClick={() => toggleLane(lane)}
+                      onClick={() => toggleGroup(key)}
                     >
                       {label}
                     </button>

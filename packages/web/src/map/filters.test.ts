@@ -18,10 +18,10 @@ function item(
 }
 
 const context: FilterContext = {
-  assignments: { a: 1, b: 2, u: 1 } as Record<FileId, number>,
   unpersistedIds: new Set(['u' as FileId]),
 };
-const all: MapFilters = { hiddenStripIds: new Set(), status: 'all' };
+const all: MapFilters = { hiddenFileIds: new Set(), status: 'all' };
+const hidden = (...ids: string[]) => new Set(ids as FileId[]);
 
 describe('isShown', () => {
   it('shows everything with no filter applied', () => {
@@ -42,7 +42,7 @@ describe('isShown', () => {
   });
 
   it('intersects groups with status', () => {
-    const filters: MapFilters = { hiddenStripIds: new Set([2]), status: 'known' };
+    const filters: MapFilters = { hiddenFileIds: hidden('b'), status: 'known' };
     expect(isShown(item('a', 'camera-gps'), context, filters)).toBe(true);
     expect(isShown(item('b', 'camera-gps'), context, filters)).toBe(false);
   });
@@ -54,7 +54,7 @@ describe('isShown', () => {
     expect(isShown(item('a', 'camera-gps', true), context, interpolated)).toBe(false);
     expect(isShown(item('a', 'estimate', true), context, interpolated)).toBe(true);
     expect(isShown(item('a', 'estimate', true), context, known)).toBe(false);
-    expect(isShown(item('a', 'estimate', true), context, { ...all, hiddenStripIds: new Set([1]) })).toBe(false);
+    expect(isShown(item('a', 'estimate', true), context, { ...all, hiddenFileIds: hidden('a') })).toBe(false);
   });
 
   it('shows a drag with nothing underneath only under all', () => {
@@ -70,10 +70,6 @@ describe('isShown', () => {
     expect(isShown(item('u', 'confirmed', true), context, unpersisted)).toBe(true);
     expect(isShown(item('a', 'confirmed'), context, unpersisted)).toBe(false);
     expect(isShown(item('a', 'estimate', true), context, unpersisted)).toBe(false);
-    expect(isShown(item('u', 'confirmed'), context, { ...unpersisted, hiddenStripIds: new Set([1]) })).toBe(false);
-  });
-
-  it('does not hide a file no strip claims by group', () => {
-    expect(isShown(item('z', 'estimate'), context, { ...all, hiddenStripIds: new Set([1, 2]) })).toBe(true);
+    expect(isShown(item('u', 'confirmed'), context, { ...unpersisted, hiddenFileIds: hidden('u') })).toBe(false);
   });
 });
