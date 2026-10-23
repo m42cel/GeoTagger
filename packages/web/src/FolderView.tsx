@@ -7,6 +7,7 @@ import type {
   SessionState,
   StripsResponse,
 } from '@geotagger/shared';
+import { groupByMode } from '@geotagger/shared';
 import { api, subscribeScan } from './api.js';
 import { errorText } from './App.js';
 import { ScanProgress } from './ScanProgress.js';
@@ -46,7 +47,7 @@ export function FolderView({
   const [writeCount, setWriteCount] = useState(0);
   // Held here rather than in the grid so it survives a trip to the map or the alignment
   // view, which unmounts the grid; a reload starts with every group expanded again.
-  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<number | null>>(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string | null>>(() => new Set());
   const [selectedFileId, setSelectedFileId] = useState<FileId | null>(null);
   /** The file the map or alignment view opens on, when opened from a file's details. */
   const [focusFileId, setFocusFileId] = useState<FileId | null>(null);
@@ -210,6 +211,10 @@ export function FolderView({
   // Looked up by id so a refetch after a rescan or a write shows the file's new state,
   // and a file the rescan dropped simply stops being selected.
   const selectedFile = data?.files.find((f) => f.id === selectedFileId) ?? null;
+  const selectedGroup =
+    selectedFile === null || !strips || !data
+      ? null
+      : (groupByMode(strips.groupingMode, data.files, data.devices).find((g) => g.fileIds.includes(selectedFile.id))?.label ?? null);
 
   return (
     <section className="folder-view">
@@ -241,7 +246,7 @@ export function FolderView({
           {selectedFile && (
             <FileDetail
               file={selectedFile}
-              stripId={strips?.assignments[selectedFile.id] ?? null}
+              group={selectedGroup}
               onShowInAlignment={() => openView('alignment', selectedFile.id)}
               onShowOnMap={() => openView('map', selectedFile.id)}
             />
@@ -250,11 +255,12 @@ export function FolderView({
         <FileGrid
           files={data?.files ?? []}
           strips={strips}
+          devices={data?.devices ?? []}
           collapsed={collapsedGroups}
-          onToggle={(stripId) =>
+          onToggle={(key) =>
             setCollapsedGroups((current) => {
               const next = new Set(current);
-              if (!next.delete(stripId)) next.add(stripId);
+              if (!next.delete(key)) next.add(key);
               return next;
             })
           }

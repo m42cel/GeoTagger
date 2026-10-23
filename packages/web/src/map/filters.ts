@@ -12,21 +12,20 @@ export const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
 
 /** SPEC §6.3's marker filters: groups hidden by the user, and the chosen status. */
 export interface MapFilters {
-  hiddenStripIds: ReadonlySet<number>;
+  /** The files of the groups the user hid. */
+  hiddenFileIds: ReadonlySet<FileId>;
   status: StatusFilter;
 }
 
 /** What the filters are judged against, from the server's latest responses. */
 export interface FilterContext {
-  assignments: Readonly<Record<FileId, number>>;
   /** Files whose confirmed position isn't written yet — the persist window's position changes. */
   unpersistedIds: ReadonlySet<FileId>;
 }
 
 /**
  * Whether a file's marker shows under `filters` (SPEC §6.3): its group must not be
- * hidden, and it must match the chosen status. A file no strip claims has no group to
- * hide.
+ * hidden, and it must match the chosen status.
  *
  * A pending drag is judged by the file's own position underneath it: it shows exactly
  * when discarding the move would leave the file showing, so a dragged camera-GPS photo
@@ -41,8 +40,7 @@ export function isShown(
   context: FilterContext,
   filters: MapFilters,
 ): boolean {
-  const stripId = context.assignments[item.file.id];
-  if (stripId !== undefined && filters.hiddenStripIds.has(stripId)) return false;
+  if (filters.hiddenFileIds.has(item.file.id)) return false;
   switch (filters.status) {
     case 'all':
       return true;
