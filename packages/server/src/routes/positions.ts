@@ -6,8 +6,12 @@ import { isFileId } from './files.js';
 import { pendingChangesIn } from './persist.js';
 
 /**
- * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, confirm, discard move,
- * reset, and a multi-select bulk confirm.
+ * Editing a file's position (SPEC §5.5, §5.6, §6.5): drag, force interpolation,
+ * confirm, discard move, reset, and a multi-select bulk confirm.
+ *
+ * Force interpolation is a drag the server places: it moves the file to where the
+ * track would put it without its camera GPS, as a pending drag like any other — so
+ * the camera GPS stays the ghost and the anchor until the move is confirmed.
  *
  * Discard move and reset are deliberately two different routes, not one: discarding
  * a move cancels only a drag in progress, falling back to whatever was underneath it (camera GPS, a
@@ -48,6 +52,16 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       return badRequest(reply, 'lat and lon must be numbers.');
     }
     session.store.setDraggedPosition(id, lat, lon);
+    return filesResponse(session);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/files/:id/force-interpolation', async (req, reply) => {
+    const session = sessions.require();
+    const id = parseId(req.params.id);
+    if (id === null || !session.store.getFile(id)) return notFound(reply, req.params.id);
+    const target = session.positions.estimateIgnoringKnown(id);
+    if (target === null) return badRequest(reply, 'There are not enough other anchors to interpolate this file from.');
+    session.store.setDraggedPosition(id, target.lat, target.lon);
     return filesResponse(session);
   });
 

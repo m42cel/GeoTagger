@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComputedPosition, FileId, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
-import { resetTarget } from './reset-target.js';
+import { hasEstimateWithoutOwnAnchor, resetTarget } from './reset-target.js';
 
 function file(id: string, gps = false): FileRecord {
   return { id: id as FileId, origGpsPresent: gps, origLat: gps ? 1 : null, origLon: gps ? 1 : null } as FileRecord;
@@ -35,5 +35,13 @@ describe('resetTarget', () => {
     const items = [item('a', 'confirmed'), item('b', 'camera-gps'), item('c', 'camera-gps', null)];
     expect(resetTarget(file('a'), timed, items)).toBe('none');
     expect(resetTarget(file('a'), { effectiveMs: null } as TimelineFile, [...items, item('d', 'camera-gps')])).toBe('none');
+  });
+});
+
+describe('hasEstimateWithoutOwnAnchor', () => {
+  it('needs two dated anchors besides the file itself', () => {
+    const items = [item('a', 'camera-gps'), item('b', 'camera-gps'), item('c', 'confirmed')];
+    expect(hasEstimateWithoutOwnAnchor('a' as FileId, timed, items)).toBe(true);
+    expect(hasEstimateWithoutOwnAnchor('a' as FileId, timed, items.slice(0, 2))).toBe(false);
   });
 });

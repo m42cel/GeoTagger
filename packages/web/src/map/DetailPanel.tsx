@@ -7,7 +7,8 @@ import { RESET_LABEL, type ResetTarget } from './reset-target.js';
 /**
  * Detail for the map's selected thumbnail (SPEC §6.3's side panel): the large
  * preview, the corrected timestamp, where the file currently sits, and — for a
- * single selection — the confirm/discard move/reset controls of SPEC §6.5.
+ * single selection — the confirm/discard move/reset/force interpolation controls of
+ * SPEC §6.5.
  *
  * Discard move and reset are two different depths of undo: discarding a move cancels
  * only a drag in progress, falling back to whatever is underneath it (camera GPS, a confirmed
@@ -27,7 +28,9 @@ export function DetailPanel({
   onConfirm,
   onDiscardMove,
   onReset,
+  onForceInterpolation,
   resetTarget,
+  canForceInterpolation: forceable,
   busy,
   multiSelectedItems,
   onSelectOne,
@@ -38,8 +41,11 @@ export function DetailPanel({
   onConfirm: () => void;
   onDiscardMove: () => void;
   onReset: () => void;
+  onForceInterpolation: () => void;
   /** What a reset would fall back to; only asked for a selected file. */
   resetTarget: ResetTarget;
+  /** Whether the track could place the selected file without its own anchor. */
+  canForceInterpolation: boolean;
   busy: boolean;
   multiSelectedItems: { file: FileRecord; position: ComputedPosition }[];
   onSelectOne: (fileId: FileId) => void;
@@ -74,6 +80,9 @@ export function DetailPanel({
   // Camera GPS and an estimate come from the file and the anchors, not the edit store
   // — only a confirmation is there to discard.
   const canReset = position?.base?.source === 'confirmed';
+  // Camera GPS too far off to trust: move the file to where the track would put it, as a
+  // drag. Once dragged, Discard move and Confirm take over.
+  const canForce = forceable && position?.base?.source === 'camera-gps' && position.pending === null;
 
   return (
     <aside className="detail-panel">
@@ -117,6 +126,13 @@ export function DetailPanel({
         <div className="detail-actions">
           <button type="button" className="ghost" disabled={busy} onClick={onReset}>
             {RESET_LABEL[resetTarget]}
+          </button>
+        </div>
+      )}
+      {canForce && (
+        <div className="detail-actions">
+          <button type="button" className="force" disabled={busy} onClick={onForceInterpolation}>
+            Force interpolation
           </button>
         </div>
       )}

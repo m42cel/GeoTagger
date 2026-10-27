@@ -1,4 +1,4 @@
-import type { BasePosition, ComputedPosition, FileId, FileRecord, KnownPosition, PositionInput } from '@geotagger/shared';
+import type { BasePosition, ComputedPosition, FileId, FileRecord, KnownPosition, LatLon, PositionInput } from '@geotagger/shared';
 import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
@@ -22,11 +22,28 @@ export class PositionService {
   constructor(private readonly store: FolderStore, private readonly strips: StripService) {}
 
   compute(files: readonly FileRecord[]): ComputedPosition[] {
+    return [...computePositions(this.inputs(files), DEFAULT_INTERPOLATION_PARAMS).values()];
+  }
+
+  /**
+   * Where the track would place a file if it had no known position of its own — the
+   * target of Force interpolation, for camera GPS too far off to trust. Its own anchor is
+   * left out of the anchor set, so it needs two *other* dated anchors; null without them.
+   */
+  estimateIgnoringKnown(fileId: FileId): LatLon | null {
+    const inputs = this.inputs(this.store.listFiles()).map((input) =>
+      input.fileId === fileId ? { ...input, known: null } : input,
+    );
+    const base = computePositions(inputs, DEFAULT_INTERPOLATION_PARAMS).get(fileId)?.base ?? null;
+    return base === null ? null : { lat: base.lat, lon: base.lon };
+  }
+
+  private inputs(files: readonly FileRecord[]): PositionInput[] {
     const timeline = this.strips.timeline();
     const confirmed = this.store.listConfirmedPositions();
     const pending = this.store.listPendingPositions();
 
-    const inputs: PositionInput[] = files.map((f) => {
+    return files.map((f) => {
       const conf = confirmed.get(f.id);
       const cameraGps = f.origGpsPresent && f.origLat !== null && f.origLon !== null;
       const known: KnownPosition | null = conf
@@ -41,8 +58,6 @@ export class PositionService {
         pending: pending.get(f.id) ?? null,
       };
     });
-
-    return [...computePositions(inputs, DEFAULT_INTERPOLATION_PARAMS).values()];
   }
 
   /**
