@@ -177,6 +177,30 @@ describe('PositionService.compute', () => {
   });
 });
 
+describe('PositionService.estimateIgnoringKnown', () => {
+  it('places a file between its neighbours as if it had no camera GPS', () => {
+    const TOKYO = { lat: 35.6762, lon: 139.6503 };
+    addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const mid = addFile('mid.jpg', '2024-07-12T09:30:00', { gps: TOKYO });
+    addFile('c.jpg', '2024-07-12T10:00:00', { gps: MILAN });
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    const target = positions.estimateIgnoringKnown(mid)!;
+    expect(target.lat).toBeGreaterThan(Math.min(ROME.lat, MILAN.lat));
+    expect(target.lat).toBeLessThan(Math.max(ROME.lat, MILAN.lat));
+  });
+
+  it('gives nothing when the file is one of only two anchors', () => {
+    const a = addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    addFile('c.jpg', '2024-07-12T10:00:00', { gps: MILAN });
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    expect(positions.estimateIgnoringKnown(a)).toBeNull();
+  });
+});
+
 describe('PositionService.unpersistedFileIds (SPEC §6.3)', () => {
   /** What the writer would have recorded for a file it wrote this position to. */
   function recordWritten(fileId: FileId, lat: number, lon: number): void {

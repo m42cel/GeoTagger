@@ -68,7 +68,7 @@ describe('position routes — malformed file id', () => {
     });
     expect(drag.statusCode).toBe(404);
 
-    for (const action of ['confirm', 'discard-move', 'reset-position']) {
+    for (const action of ['force-interpolation', 'confirm', 'discard-move', 'reset-position']) {
       const res = await built.app.inject({ method: 'POST', url: `/api/files/not-a-uuid/${action}` });
       expect(res.statusCode).toBe(404);
     }

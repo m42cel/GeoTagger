@@ -1358,6 +1358,14 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .detail-actions .confirm:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 .detail-actions .placeholder { visibility: hidden; }
+/* Red like the unconfirmed marker the file becomes: it gives up a known position for an estimate. */
+.detail-actions .force {
+  background: transparent;
+  color: var(--unconfirmed);
+  border: 1px solid var(--unconfirmed);
+  padding: 5px 10px;
+}
+.detail-actions .force:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 
 .map-thumb-icon img {
   width: 100%;

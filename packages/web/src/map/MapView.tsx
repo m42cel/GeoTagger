@@ -23,7 +23,7 @@ import { errorText } from '../App.js';
 import { DetailPanel } from './DetailPanel.js';
 import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
-import { resetTarget } from './reset-target.js';
+import { hasEstimateWithoutOwnAnchor, resetTarget } from './reset-target.js';
 import { isShown, STATUS_FILTERS, type StatusFilter } from './filters.js';
 import { pathVertices } from './path.js';
 
@@ -159,6 +159,10 @@ export function MapView({
 
   function handleReset(): void {
     if (selectedId !== null) void editPosition(() => api.resetPosition(selectedId));
+  }
+
+  function handleForceInterpolation(): void {
+    if (selectedId !== null) void editPosition(() => api.forceInterpolation(selectedId));
   }
 
   // Tray drag-onto-map (SPEC §6.4): dragging a tray item onto the map sets its
@@ -805,7 +809,11 @@ export function MapView({
           onConfirm={handleConfirm}
           onDiscardMove={handleDiscardMove}
           onReset={handleReset}
+          onForceInterpolation={handleForceInterpolation}
           resetTarget={selected ? resetTarget(selected.file, selected.timelineFile, items) : 'none'}
+          canForceInterpolation={
+            selected ? hasEstimateWithoutOwnAnchor(selected.file.id, selected.timelineFile, items) : false
+          }
           busy={busy}
           multiSelectedItems={multiSelectedItems}
           onSelectOne={handleSelectOne}

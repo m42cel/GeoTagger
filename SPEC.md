@@ -768,11 +768,13 @@ what makes it an anchor and places everything else (§5.5).
 | Confirm position on selected thumbnail | Confirms → green, anchor, neighbours recompute, eligible for persist |
 | Multi-select (shift-click / rubber band) | Confirm the selection together |
 | Discard move on selected thumbnail | Cancels a drag in progress, falling back to whatever is underneath it — camera GPS, a confirmed position or the estimate. Available whenever a drag is pending |
+| Force interpolation on selected thumbnail | For camera GPS too far off to trust: moves the file to where the track would place it without its own camera GPS, as a drag — unconfirmed (red), ghosting the camera GPS, which keeps anchoring everyone else until the move is confirmed. Discard move and Reset to camera GPS undo it like any drag. Offered for camera GPS with no drag pending, when two other dated anchors exist |
 | Reset on selected thumbnail | Discards a confirmed position — and any drag on top of it — back to camera GPS if the file has it, else to a derived estimate or no position at all. On its own row, and named for what it falls back to: *Reset to camera GPS*, *Reset to interpolated position* or *Reset to no position* |
 | Persist changes | Writes all confirmed changes to files (§9) |
 
 The detail panel shows only the actions that apply to the selected file: Confirm position for a
-drag or an estimate, Discard move while a drag is pending, Reset for a confirmed position.
+drag or an estimate, Discard move while a drag is pending, Reset for a confirmed position, Force
+interpolation for camera GPS.
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
 both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.

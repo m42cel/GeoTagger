@@ -91,6 +91,7 @@ export const api = {
   // ---- map view editing (SPEC §5.6, §6.5) --------------------------------
 
   dragPosition: (fileId: FileId, lat: number, lon: number) => postFiles(`/api/files/${fileId}/position`, { lat, lon }),
+  forceInterpolation: (fileId: FileId) => postFiles(`/api/files/${fileId}/force-interpolation`, {}),
   confirmPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/confirm`, {}),
   discardMove: (fileId: FileId) => postFiles(`/api/files/${fileId}/discard-move`, {}),
   resetPosition: (fileId: FileId) => postFiles(`/api/files/${fileId}/reset-position`, {}),

@@ -14,14 +14,27 @@ export function resetTarget(
   items: readonly { file: { id: FileId }; position: ComputedPosition; timelineFile: TimelineFile | null }[],
 ): ResetTarget {
   if (file.origGpsPresent && file.origLat !== null && file.origLon !== null) return 'camera-gps';
-  if (timelineFile?.effectiveMs === null || timelineFile?.effectiveMs === undefined) return 'none';
+  return hasEstimateWithoutOwnAnchor(file.id, timelineFile, items) ? 'estimate' : 'none';
+}
+
+/**
+ * Whether the track could place a file with its own anchor left out: it needs a capture
+ * time and two other dated anchors (SPEC §5.4). Decides both Reset's fallback and
+ * whether Force interpolation is offered.
+ */
+export function hasEstimateWithoutOwnAnchor(
+  fileId: FileId,
+  timelineFile: TimelineFile | null,
+  items: readonly { file: { id: FileId }; position: ComputedPosition; timelineFile: TimelineFile | null }[],
+): boolean {
+  if (timelineFile?.effectiveMs === null || timelineFile?.effectiveMs === undefined) return false;
   let otherAnchors = 0;
   for (const item of items) {
-    if (item.file.id === file.id || !isAnchor(item.position)) continue;
+    if (item.file.id === fileId || !isAnchor(item.position)) continue;
     if (item.timelineFile?.effectiveMs === null || item.timelineFile?.effectiveMs === undefined) continue;
-    if (++otherAnchors >= 2) return 'estimate';
+    if (++otherAnchors >= 2) return true;
   }
-  return 'none';
+  return false;
 }
 
 export const RESET_LABEL: Record<ResetTarget, string> = {
