@@ -1197,7 +1197,9 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 .toggle-chip.on { border-color: var(--accent); color: var(--accent); }
 
 /* Leaflet's own control styling, so it reads as part of the map like the zoom buttons. */
-.satellite-switch {
+.map-switches { display: flex; gap: 6px; }
+.map-switches .map-switch { margin: 0; }
+.map-switch {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1207,7 +1209,7 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   font: 600 12px/1 sans-serif;
   cursor: pointer;
 }
-.satellite-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.map-switch input { position: absolute; opacity: 0; pointer-events: none; }
 .switch-track {
   position: relative;
   width: 26px;
@@ -1227,9 +1229,9 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
   background: #fff;
   transition: transform 0.15s;
 }
-.satellite-switch input:checked + .switch-track { background: #2f6fd0; }
-.satellite-switch input:checked + .switch-track::after { transform: translateX(12px); }
-.satellite-switch input:focus-visible + .switch-track { outline: 2px solid #2f6fd0; outline-offset: 2px; }
+.map-switch input:checked + .switch-track { background: #2f6fd0; }
+.map-switch input:checked + .switch-track::after { transform: translateX(12px); }
+.map-switch input:focus-visible + .switch-track { outline: 2px solid #2f6fd0; outline-offset: 2px; }
 
 .map-legend.leaflet-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #fff; color: #333; font-size: 12px; }
 
