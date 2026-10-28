@@ -25,7 +25,7 @@ import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
 import { hasEstimateWithoutOwnAnchor, resetTarget } from './reset-target.js';
 import { isShown, STATUS_FILTERS, type StatusFilter } from './filters.js';
-import { pathVertices } from './path.js';
+import { pathSegments, pathVertices, segmentTooltip, speedColor, type PathSegment } from './path.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
@@ -98,6 +98,7 @@ export function MapView({
   const [hiddenGroups, setHiddenGroups] = useState<ReadonlySet<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>('all');
   const [satellite, setSatellite] = useState(false);
+  const [speedColors, setSpeedColors] = useState(false);
   const [selectedId, setSelectedId] = useState<FileId | null>(focusFileId);
   const [multiSelected, setMultiSelected] = useState<Set<FileId>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -106,6 +107,8 @@ export function MapView({
   // (below) can read the latest selection without depending on it — that effect only
   // needs to depend on the *data*, since selection highlighting is applied in place
   // by a separate, cheap effect further down instead of by rebuilding every marker.
+  const speedColorsRef = useRef(speedColors);
+  speedColorsRef.current = speedColors;
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const multiSelectedRef = useRef(multiSelected);
@@ -285,7 +288,8 @@ export function MapView({
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const circlesRef = useRef<L.LayerGroup | null>(null);
   const ghostsRef = useRef<L.LayerGroup | null>(null);
-  const pathRef = useRef<L.Polyline | null>(null);
+  const pathRef = useRef<L.LayerGroup | null>(null);
+  const pathSegmentLinesRef = useRef<{ line: L.Polyline; segment: PathSegment }[]>([]);
   const pathArrowsRef = useRef<L.PolylineDecorator | null>(null);
   const didFitRef = useRef(false);
   const markersRef = useRef<MarkerWithFile[]>([]);
@@ -317,19 +321,13 @@ export function MapView({
       esri: L.tileLayer(BASE_LAYERS.esri.url, { attribution: BASE_LAYERS.esri.attribution, maxZoom: BASE_LAYERS.esri.maxZoom }),
     };
     layers.osm.addTo(map);
-    const satelliteControl = new L.Control({ position: 'topright' });
-    satelliteControl.onAdd = () => {
-      const label = L.DomUtil.create('label', 'leaflet-bar satellite-switch');
-      const input = L.DomUtil.create('input', '', label);
-      input.type = 'checkbox';
-      input.setAttribute('role', 'switch');
-      L.DomUtil.create('span', 'switch-track', label);
-      label.append('Satellite');
-      L.DomEvent.on(input, 'change', () => setSatellite(input.checked));
-      L.DomEvent.disableClickPropagation(label);
-      return label;
+    const switches = new L.Control({ position: 'topright' });
+    switches.onAdd = () => {
+      const row = L.DomUtil.create('div', 'map-switches');
+      row.append(mapSwitch('Show track speed', setSpeedColors), mapSwitch('Satellite', setSatellite));
+      return row;
     };
-    satelliteControl.addTo(map);
+    switches.addTo(map);
     const legend = new L.Control({ position: 'bottomleft' });
     legend.onAdd = () => {
       const box = L.DomUtil.create('div', 'leaflet-bar map-legend');
@@ -356,6 +354,12 @@ export function MapView({
     map.removeLayer(hidden);
     shown.addTo(map);
   }, [satellite]);
+
+  // Restyled in place rather than by rebuilding the path, which the effect below only
+  // does along with every marker.
+  useEffect(() => {
+    for (const { line, segment } of pathSegmentLinesRef.current) styleSegment(line, segment, speedColors);
+  }, [speedColors]);
 
   // Multi-select (SPEC §6.5): shift+drag starting on empty map draws a rubber band
   // and replaces the selection with everything inside it once released. A marker's
@@ -637,10 +641,23 @@ export function MapView({
     if (path.length > 1) {
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
       // not the app background. Geodesic so each segment follows the same great
-      // circle the estimates on it were placed along (SPEC §5.1).
-      const line = new GeodesicLine(path.map((v) => [v.lat, v.lon]), { color: '#333333', weight: 2, opacity: 0.7 });
-      line.addTo(map);
-      pathRef.current = line;
+      // circle the estimates on it were placed along (SPEC §5.1). One line per
+      // segment, so each can take the color of the speed it was travelled at.
+      const segments = L.layerGroup();
+      pathSegmentLinesRef.current = pathSegments(path).map((segment) => {
+        const line = new GeodesicLine(
+          [
+            [segment.from.lat, segment.from.lon],
+            [segment.to.lat, segment.to.lon],
+          ],
+          { weight: 2, opacity: 0.8 },
+        );
+        styleSegment(line, segment, speedColorsRef.current);
+        line.addTo(segments);
+        return { line, segment };
+      });
+      segments.addTo(map);
+      pathRef.current = segments;
 
       // Direction arrowheads (SPEC §6.3), kept subtle enough to ship on by default
       // rather than behind a toggle: small and low-opacity so they read as a hint of
@@ -652,7 +669,12 @@ export function MapView({
       // pixel spacing means more arrows appear as the path stretches out on screen
       // while zooming in, instead of the whole trip's fixed handful going mostly
       // off-screen.
-      const arrows = L.polylineDecorator(line, {
+      //
+      // Laid along the whole path rather than per segment, so the spacing runs on
+      // across corners instead of restarting at each — short segments would otherwise
+      // get none. The line itself is never added to the map, only measured.
+      const whole = new GeodesicLine(path.map((v) => [v.lat, v.lon]));
+      const arrows = L.polylineDecorator(whole, {
         patterns: [
           {
             repeat: 80,
@@ -668,6 +690,7 @@ export function MapView({
       pathArrowsRef.current = arrows;
     } else {
       pathRef.current = null;
+      pathSegmentLinesRef.current = [];
       pathArrowsRef.current = null;
     }
 
@@ -868,6 +891,27 @@ type MarkerWithFile = L.Marker & {
   geotaggerSize?: [number, number];
   geotaggerUncertaintyM?: number | null;
 };
+
+/** A switch in Leaflet's own control styling, so it reads as part of the map like the zoom buttons. */
+function mapSwitch(text: string, onChange: (checked: boolean) => void): HTMLLabelElement {
+  const label = L.DomUtil.create('label', 'leaflet-bar map-switch');
+  const input = L.DomUtil.create('input', '', label);
+  input.type = 'checkbox';
+  input.setAttribute('role', 'switch');
+  L.DomUtil.create('span', 'switch-track', label);
+  label.append(text);
+  L.DomEvent.on(input, 'change', () => onChange(input.checked));
+  L.DomEvent.disableClickPropagation(label);
+  return label;
+}
+
+/** SPEC §6.3: with track speed off, every segment is the plain line, with nothing on hover. */
+function styleSegment(line: L.Polyline, segment: PathSegment, speedColors: boolean): void {
+  line.setStyle({ color: speedColor(speedColors ? segment.speedKmh : null) });
+  line.unbindTooltip();
+  const tooltip = speedColors ? segmentTooltip(segment) : null;
+  if (tooltip) line.bindTooltip(tooltip, { sticky: true });
+}
 
 function ghostTooltip(filename: string, base: BasePosition): string {
   return `${filename} — ${base.source === 'estimate' ? 'estimated position' : 'previous position'}`;
