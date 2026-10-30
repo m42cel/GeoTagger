@@ -917,9 +917,13 @@ function ghostTooltip(filename: string, base: BasePosition): string {
   return `${filename} — ${base.source === 'estimate' ? 'estimated position' : 'previous position'}`;
 }
 
-/** SPEC §5.2's faint circle. */
+/**
+ * SPEC §5.2's faint circle. Not interactive, so hovering the path line underneath
+ * still shows its speed — the circles are redrawn over it whenever the clusters
+ * re-animate, and a ghost's sits in the pane above it.
+ */
 function uncertaintyCircle(center: L.LatLng, radiusM: number): L.Circle {
-  return L.circle(center, { radius: radiusM, color: '#d1453b', weight: 1, fillOpacity: 0.08, opacity: 0.35 });
+  return L.circle(center, { radius: radiusM, color: '#d1453b', weight: 1, fillOpacity: 0.08, opacity: 0.35, interactive: false });
 }
 
 /** SPEC §5.6's ghost: the faint marker at a dragged file's own position plus the thin line to the drag. */
