@@ -232,8 +232,8 @@ definite number of seconds.
 - Grabbing a strip's **body** shifts every file in it by a constant offset.
 - A live readout shows the exact offset while dragging (`+1h 02m 12s`), and every strip has an
   editable offset field in its lane header for exact entry.
-- Keyboard nudging reaches precision the mouse cannot: `←`/`→` 1 second, `Shift` 1 minute,
-  `Ctrl`/`Cmd` 1 hour.
+- Keyboard nudging reaches precision the mouse cannot: `Alt`+`←`/`→` 1 second, with `Shift`
+  1 minute, with `Ctrl`/`Cmd` 1 hour. Plain `←`/`→` belong to stepping through photos (§6.2).
 - **Magnetic snapping** pulls a strip into alignment when its photos come close to lining up
   with photos in another lane, and additionally when the offset approaches a whole minute or a
   whole hour — timezone errors are exactly whole hours, so that snap is worth having. Holding
@@ -629,6 +629,10 @@ count and separate as you zoom in. Double-clicking a stack zooms in just far eno
 widest gap, centred on that gap but never losing the photo clicked; a part that is still a stack
 splits again the same way, and a burst too tight to separate stops at the deepest zoom. The zoom
 buttons centre on the selected photo, or on the middle of the view while none is selected.
+`←`/`→` select the previous or next photo in the selected strip, starting from the one nearest
+the middle of the view when none of that strip is selected. They step through a stack one photo
+at a time, the stack showing whichever is selected, and never change the zoom: the view pans
+only when the photo would otherwise be out of sight.
 
 **Rendering is virtualised**: only files inside the visible time window are drawn, so a lane
 holding thousands of files stays responsive.

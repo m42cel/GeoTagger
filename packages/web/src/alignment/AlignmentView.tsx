@@ -36,6 +36,7 @@ import {
   type AlignPreviewSlot,
 } from './align-preview.js';
 import { PreviewPane } from './PreviewPane.js';
+import { stepPhoto } from './photo-step.js';
 import { LaneHeader } from './LaneHeader.js';
 import { parseLocalTime, SelectionPanel } from './SelectionPanel.js';
 import { TimeAxis } from './TimeAxis.js';
@@ -599,6 +600,25 @@ export function AlignmentView({
       return;
     }
 
+    // Plain ←/→ step to the neighboring photo in the selected strip — through a stack one
+    // photo at a time — at the zoom the view already has, panning only to keep it in sight.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && plain && !e.shiftKey) {
+      const files = selectedStrip === null ? undefined : stripFiles.get(selectedStrip.id);
+      if (selectedStrip === null || files === undefined) return;
+      e.preventDefault();
+      const from = selectedLine?.stripId === selectedStrip.id ? selectedFileId : null;
+      const centerMs = scale.startMs + (scale.msPerPx * scale.widthPx) / 2;
+      const index = stepPhoto(files, from, e.key === 'ArrowLeft' ? -1 : 1, centerMs);
+      if (index === null) return;
+      selectFile((files.files[index] as TimelineFile).id, selectedStrip.id, false);
+      const targetMs = files.instants[index] as number;
+      const x = xOf(scale, targetMs);
+      if (x < STRIP_THUMB_HALF_PX || x > scale.widthPx - STRIP_THUMB_HALF_PX) {
+        setScale((s) => ({ ...s, startMs: targetMs - (s.msPerPx * s.widthPx) / 2 }));
+      }
+      return;
+    }
+
     if (selectedStrip === null || selectedStrip.locked) return;
 
     // `c` cuts where the pointer is, without the round trip to the button that made
@@ -610,7 +630,8 @@ export function AlignmentView({
       return;
     }
 
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    // Alt-←/→ nudge the strip, Shift and Ctrl/Cmd scaling the step.
+    if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || !e.altKey) return;
     e.preventDefault();
     // A pinned strip does not shift (SPEC §4.3).
     if (selectedStrip.pinnedFileIds.length > 0) return;
@@ -654,6 +675,10 @@ export function AlignmentView({
 
   const selectFile = (fileId: FileId, stripId: number, additive: boolean): void => {
     setSelectedStripId(stripId);
+    // The keys live on the canvas. A clicked thumbnail would otherwise hold focus, and a
+    // stack's button is replaced whenever the photo on top changes — as ←/→ through it
+    // do — dropping focus to the page, whose arrows then scroll instead of stepping.
+    canvasRef.current?.focus({ preventScroll: true });
 
     // A browser holds an <img>'s previous frame on screen until its new src finishes
     // loading. Committing the compare pane straight away would, whenever that src isn't
