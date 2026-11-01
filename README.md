@@ -40,8 +40,10 @@ the result. :)
 
 - **Alignment view.** Every camera gets its own filmstrip on a shared, zoomable time
   axis. Drag a strip to shift all of its files by one offset. It snaps onto photos in
-  other strips and onto whole minutes and hours (hold `Alt` to turn snapping off). Arrow
-  keys nudge by a second, a minute with `Shift`, or an hour with `Ctrl`/`Cmd`.
+  other strips and onto whole minutes and hours (hold `Alt` to turn snapping off).
+  `Alt`+arrow keys nudge by a second, a minute with `Shift`, or an hour with
+  `Ctrl`/`Cmd`. Plain arrow keys step through the strip's photos, stacks included,
+  without changing the zoom.
 - **Stacks and lane order.** Photos too close together to show apart collapse into a
   stack. Double-click it to zoom in just far enough to split it. The arrows in a lane's
   header move the lane up or down.
