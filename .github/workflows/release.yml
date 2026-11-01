@@ -21,15 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # APP_VERSION, written into every file GeoTagger changes, comes from the root
-      # package.json, so a tag that disagrees with it would ship mislabelled files.
-      - name: Check tag against package.json
-        run: |
-          PKG="$(node -p "require('./package.json').version")"
-          if [ "v$PKG" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG"
-            exit 1
-          fi
+      # v1.2.3 → 1.2.3, the version the app reports and writes into every file it changes.
+      - name: Determine release version
+        id: release_version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -64,6 +59,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # The tag is the release version; package.json only holds `dev-local`.
+          build-args: APP_VERSION=${{ steps.release_version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

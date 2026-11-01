@@ -1205,6 +1205,12 @@ Image: `node:26-trixie-slim` plus perl (for the ExifTool that `exiftool-vendored
 `linux/amd64`, and published to GHCR: `dev` from `main`, and `x.y.z`, `x.y`, `x` and `latest`
 from each `vx.y.z` tag.
 
+The version the app reports, and writes as `geotagger:AppVersion` (§9.3), is set by the build, not
+kept in the repository: the checked-in `package.json` files hold the placeholder `dev-local`. A
+release image carries `x.y.z` from its tag, a `main` image `dev-<short sha>`, and a manually built
+branch image `<tag>-<short sha>`, so no file written by an unreleased build claims a release
+number.
+
 Local use:
 
 ```

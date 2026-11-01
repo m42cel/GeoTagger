@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const API_TARGET = process.env.GEOTAGGER_API ?? 'http://127.0.0.1:8080';
 
-// The root package.json holds the one version, the same one the server reads.
+// The root package.json holds the one version, the same one the server reads:
+// `dev-local`, unless the Docker build has stamped the real one in.
 const APP_VERSION: string = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 ).version;

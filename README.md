@@ -199,16 +199,16 @@ packages/web      React UI: alignment view, map, persist dialog
 
 ### Releasing
 
-Set `version` in the root `package.json` and the three under `packages/`, run
-`npm install` to update the lockfile, and merge. Then tag `main` and push the tag:
+The tag is the version: the `package.json` files hold the placeholder `dev-local` and
+are never bumped. Tag `main` and push the tag:
 
 ```sh
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-The release workflow checks the tag against `package.json` and runs the tests. It then
-publishes the Docker image as `1.0.0`, `1.0`, `1` and `latest` and creates a GitHub
-release with generated notes.
+The release workflow runs the tests, builds the image with `1.0.0` as the version the app
+reports and writes into files, publishes it as `1.0.0`, `1.0`, `1` and `latest`, and creates
+a GitHub release with generated notes. Images built from `main` report `dev-<short sha>`.
 
 ## License
 

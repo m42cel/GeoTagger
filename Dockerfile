@@ -21,6 +21,12 @@ COPY packages/server/package.json packages/server/
 COPY packages/web/package.json    packages/web/
 RUN npm ci
 
+# The checked-in version is the placeholder `dev-local`; CI passes the real one
+# (a release number, or dev/branch plus commit). The server and the web build both
+# read it from the root package.json, which is also what the runtime stage copies.
+ARG APP_VERSION
+RUN if [ -n "$APP_VERSION" ]; then npm pkg set version="$APP_VERSION"; fi
+
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages ./packages
 RUN npm run build
