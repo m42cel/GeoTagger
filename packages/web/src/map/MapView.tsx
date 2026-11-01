@@ -239,7 +239,10 @@ export function MapView({
   // unaffected by what's currently hidden. This is what markers actually get drawn
   // from.
   const visibleOnMap = useMemo(() => {
-    const context = { unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []) };
+    const context = {
+      unpersistedIds: new Set(filesResp?.unpersistedFileIds ?? []),
+      suspiciousIds: new Set(filesResp?.suspiciousGps.map((s) => s.fileId) ?? []),
+    };
     const hiddenFileIds = new Set(groups.filter((g) => hiddenGroups.has(g.key)).flatMap((g) => g.fileIds));
     const filters = { hiddenFileIds, status };
     return onMap.filter((i) => isShown(i, context, filters));
@@ -248,6 +251,10 @@ export function MapView({
   const tray = useMemo(() => items.filter((i) => shownPosition(i.position) === null), [items]);
   const selected = useMemo(() => items.find((i) => i.file.id === selectedId) ?? null, [items, selectedId]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.file.id, i])), [items]);
+  const suspiciousById = useMemo(
+    () => new Map((filesResp?.suspiciousGps ?? []).map((s) => [s.fileId, s])),
+    [filesResp],
+  );
 
   // Same eligibility as the single-file confirm button (SPEC §6.5): camera GPS and
   // an already-confirmed position with no drag on top are already anchors, with
@@ -508,12 +515,14 @@ export function MapView({
       const { base, pending } = item.position;
       const shown = shownPosition(item.position) as LatLon;
       const borderClass = borderClassFor(item.position);
+      const suspicious = suspiciousById.has(item.file.id);
       const size = markerSize(item.file.width, item.file.height, THUMB_SIZE_PX);
       const marker = L.marker([shown.lat, shown.lon], {
         icon: thumbIcon(
           item.file.id,
           size,
           borderClass,
+          suspicious,
           item.file.id === selectedIdRef.current,
           multiSelectedRef.current.has(item.file.id),
         ),
@@ -523,6 +532,7 @@ export function MapView({
       const markerWithFile = marker as MarkerWithFile;
       markerWithFile.geotaggerFileId = item.file.id;
       markerWithFile.geotaggerBorderClass = borderClass;
+      markerWithFile.geotaggerSuspicious = suspicious;
       markerWithFile.geotaggerSize = size;
       // A dragged file's circle belongs to the estimate it is overriding, drawn on
       // its ghost below, not to where the drag has put it.
@@ -723,7 +733,7 @@ export function MapView({
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
       }
     }
-  }, [visibleOnMap, path]);
+  }, [visibleOnMap, path, suspiciousById]);
 
   // Selection highlighting is applied in place, not by rebuilding the marker layer
   // above: `Marker.setIcon`/`DivIcon.createIcon` reuse the existing DOM node instead
@@ -745,7 +755,9 @@ export function MapView({
       const borderClass = marker.geotaggerBorderClass;
       const size = marker.geotaggerSize;
       if (fileId === undefined || borderClass === undefined || size === undefined) continue;
-      marker.setIcon(thumbIcon(fileId, size, borderClass, fileId === selectedId, multiSelected.has(fileId)));
+      marker.setIcon(
+        thumbIcon(fileId, size, borderClass, marker.geotaggerSuspicious === true, fileId === selectedId, multiSelected.has(fileId)),
+      );
     }
     cluster.refreshClusters();
   }, [selectedId, multiSelected]);
@@ -846,6 +858,7 @@ export function MapView({
           onReset={handleReset}
           onForceInterpolation={handleForceInterpolation}
           resetTarget={selected ? resetTarget(selected.file, selected.timelineFile, items) : 'none'}
+          suspicious={selected ? (suspiciousById.get(selected.file.id) ?? null) : null}
           canForceInterpolation={
             selected ? hasEstimateWithoutOwnAnchor(selected.file.id, selected.timelineFile, items) : false
           }
@@ -899,6 +912,8 @@ function Tray({
 type MarkerWithFile = L.Marker & {
   geotaggerFileId?: FileId;
   geotaggerBorderClass?: 'known' | 'unconfirmed';
+  /** Camera GPS that is likely wrong (SPEC §6.3): the marker carries a warning badge. */
+  geotaggerSuspicious?: boolean;
   /** The marker's `[width, height]` in pixels, from `markerSize` (SPEC §6.3). */
   geotaggerSize?: [number, number];
   geotaggerUncertaintyM?: number | null;
@@ -970,10 +985,14 @@ function createGhost(
  * Selection highlight (SPEC §6.3) is a ring layered on top of the border colour, not a replacement for it.
  * Leaflet centres the icon on its point from `iconSize` alone, so a non-square `size` needs no anchor of its own.
  */
+/** The warning on a marker or stack holding camera GPS that is likely wrong (SPEC §6.3). */
+const SUSPICIOUS_BADGE = '<span class="suspicious-badge" title="Camera GPS looks wrong">!</span>';
+
 function thumbIcon(
   fileId: FileId,
   size: [number, number],
   borderClass: 'known' | 'unconfirmed',
+  suspicious: boolean,
   selected: boolean,
   multiSelected: boolean,
 ): L.DivIcon {
@@ -982,7 +1001,7 @@ function thumbIcon(
   if (multiSelected) classes.push('multi-selected');
   return L.divIcon({
     className: classes.join(' '),
-    html: `<img src="/api/files/${fileId}/thumb" loading="lazy" />`,
+    html: `<img src="/api/files/${fileId}/thumb" loading="lazy" />${suspicious ? SUSPICIOUS_BADGE : ''}`,
     iconSize: size,
   });
 }
@@ -997,7 +1016,8 @@ function thumbIcon(
  * Selection highlights (§6.3, §6.5) carry through the same way: a stack that
  * contains the detail panel's selection, or any multi-selected file, shows that
  * ring on the cluster icon too — collapsing a stack should not make a selected file
- * look deselected.
+ * look deselected. So does the warning badge of suspicious camera GPS: a stack with
+ * one in it shows the badge too.
  */
 function clusterIcon(markers: L.Marker[], selectedId: FileId | null, multiSelected: Set<FileId>): L.DivIcon {
   const withFile = markers as MarkerWithFile[];
@@ -1009,9 +1029,10 @@ function clusterIcon(markers: L.Marker[], selectedId: FileId | null, multiSelect
   if (withFile.some((m) => m.geotaggerFileId !== undefined && multiSelected.has(m.geotaggerFileId))) {
     classes.push('multi-selected');
   }
+  const badge = withFile.some((m) => m.geotaggerSuspicious) ? SUSPICIOUS_BADGE : '';
   return L.divIcon({
     className: classes.join(' '),
-    html: `<img src="/api/files/${fileId}/thumb" loading="lazy" /><span class="cluster-count">${markers.length}</span>`,
+    html: `<img src="/api/files/${fileId}/thumb" loading="lazy" /><span class="cluster-count">${markers.length}</span>${badge}`,
     iconSize: first?.geotaggerSize ?? [THUMB_SIZE_PX, THUMB_SIZE_PX],
   });
 }

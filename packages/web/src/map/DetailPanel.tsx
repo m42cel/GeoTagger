@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { ComputedPosition, FileId, FileRecord, PositionSource, TimelineFile } from '@geotagger/shared';
+import type { ComputedPosition, FileId, FileRecord, PositionSource, SuspiciousGps, TimelineFile } from '@geotagger/shared';
 import { canConfirm as confirmable, formatInstant, formatUtcOffset, shownPosition } from '@geotagger/shared';
 import { borderClassFor } from './marker-status.js';
+import { suspiciousText } from './suspicious-text.js';
 import { RESET_LABEL, type ResetTarget } from './reset-target.js';
 
 /**
@@ -14,6 +15,9 @@ import { RESET_LABEL, type ResetTarget } from './reset-target.js';
  * only a drag in progress, falling back to whatever is underneath it (camera GPS, a confirmed
  * position, or the estimate); reset discards a confirmed position too, back to camera
  * GPS, a derived estimate or no position at all (SPEC §5.6, §6.5).
+ *
+ * Camera GPS that is likely wrong (SPEC §6.3) gets a warning saying why, right above
+ * Force interpolation, the action that fixes it.
  *
  * While the map's multi-selection (SPEC §6.5) is non-empty, this panel shows a grid
  * of small thumbnails instead — the single-file view doesn't make sense for several
@@ -30,6 +34,7 @@ export function DetailPanel({
   onReset,
   onForceInterpolation,
   resetTarget,
+  suspicious,
   canForceInterpolation: forceable,
   busy,
   multiSelectedItems,
@@ -44,6 +49,8 @@ export function DetailPanel({
   onForceInterpolation: () => void;
   /** What a reset would fall back to; only asked for a selected file. */
   resetTarget: ResetTarget;
+  /** Why the selected file's camera GPS looks wrong, or null when it doesn't. */
+  suspicious: SuspiciousGps | null;
   /** Whether the track could place the selected file without its own anchor. */
   canForceInterpolation: boolean;
   busy: boolean;
@@ -129,6 +136,7 @@ export function DetailPanel({
           </button>
         </div>
       )}
+      {suspicious !== null && <p className="detail-suspicious">{suspiciousText(suspicious)}</p>}
       {canForce && (
         <div className="detail-actions">
           <button type="button" className="force" disabled={busy} onClick={onForceInterpolation}>

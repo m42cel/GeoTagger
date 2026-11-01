@@ -39,6 +39,7 @@ export function registerPositionRoutes(app: FastifyInstance, sessions: SessionMa
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      suspiciousGps: session.positions.suspiciousGps(files),
       hasPendingChanges: pendingChangesIn(session),
     };
   };

@@ -201,6 +201,22 @@ describe('PositionService.estimateIgnoringKnown', () => {
   });
 });
 
+describe('PositionService.suspiciousGps (SPEC §6.3)', () => {
+  it('flags camera GPS far off its neighbors on the effective timeline, until it is confirmed', () => {
+    const TOKYO = { lat: 35.6762, lon: 139.6503 };
+    addFile('a.jpg', '2024-07-12T09:00:00', { gps: ROME });
+    const mid = addFile('mid.jpg', '2024-07-12T09:01:00', { gps: TOKYO });
+    addFile('c.jpg', '2024-07-12T09:02:00', { gps: ROME });
+    strips.refreshUtcOffsetRules();
+    strips.regroup('device');
+
+    expect(positions.suspiciousGps(store.listFiles()).map((s) => s.fileId)).toEqual([mid]);
+
+    settlePosition(mid, ROME.lat, ROME.lon, true);
+    expect(positions.suspiciousGps(store.listFiles())).toEqual([]);
+  });
+});
+
 describe('PositionService.unpersistedFileIds (SPEC §6.3)', () => {
   /** What the writer would have recorded for a file it wrote this position to. */
   function recordWritten(fileId: FileId, lat: number, lon: number): void {

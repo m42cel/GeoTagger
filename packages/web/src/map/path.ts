@@ -148,11 +148,14 @@ export function segmentTooltip(segment: PathSegment): string | null {
   if (!segment.from.anchor || !segment.to.anchor) return null;
   const distance = formatDistance(segment.distanceM);
   if (segment.speedKmh === null) return `${distance} · same time`;
-  const speed = segment.speedKmh < 10 ? segment.speedKmh.toFixed(1) : Math.round(segment.speedKmh).toString();
-  return `≈ ${speed} km/h · ${distance} in ${formatDuration(segment.durationMs)}`;
+  return `${formatSpeed(segment.speedKmh)} · ${distance} in ${formatDuration(segment.durationMs)}`;
 }
 
-function formatDistance(m: number): string {
+export function formatSpeed(kmh: number): string {
+  return `≈ ${kmh < 10 ? kmh.toFixed(1) : Math.round(kmh).toString()} km/h`;
+}
+
+export function formatDistance(m: number): string {
   if (m < 1000) return `${Math.round(m)} m`;
   return m < 100_000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000)} km`;
 }

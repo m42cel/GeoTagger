@@ -697,6 +697,21 @@ side panel.
 | **Green** | Position known — camera GPS, or confirmed by the user |
 | **Red** | Interpolated or extrapolated, not yet confirmed |
 
+**Suspicious camera GPS:** a single camera-GPS fix the track has to leave and come straight back
+to, faster than anyone travels on the ground, is likely wrong. A camera-GPS anchor is suspicious
+when reaching it from the previous anchor and leaving it for the next — anchors in effective-time
+order, camera GPS or confirmed — both imply at least `v_cap` (§5.2, 200 km/h) *and* more than twice
+the speed of going straight from the previous anchor to the next. Speed alone is not enough: it
+would flag every flight and train ride, where the track keeps going rather than coming back.
+Positions closer than 250 m count as the same place, so GPS jitter within a burst taken in the same
+second implies no speed at all. The first and last anchors have only one neighbor and are never
+flagged; neither is a confirmed position, which the user vouched for. Only single bad fixes are
+caught — two neighboring ones back each other up. Such a marker, and any cluster holding one, gets
+an amber `!` badge in its top-left corner; the detail panel says why, e.g. *Camera GPS looks wrong:
+≈ 3012 km/h from the previous photo and ≈ 2994 km/h to the next, which are 120 m apart*, right above
+Force interpolation (§6.5), the action that fixes it. A pending Force interpolation leaves the flag
+in place until the move is confirmed, since the camera GPS underneath still anchors everyone else.
+
 **Selection highlight:** the selected thumbnail gets a ring distinct from the border colour, so it
 reads at a glance regardless of whether the border underneath is green or red. Multi-selected
 thumbnails (§6.5) get a second, differently-coloured ring of their own — a thumbnail can carry
@@ -747,22 +762,22 @@ over a representative thumbnail and expand on zoom.
 
 **Filters:** by group and by status, purely a marker-visibility toggle. Each group (§3: a subfolder
 or a device, whatever its strips and lanes) can be shown or hidden; the group filter appears only when there is more than one. Status is one of
-*all*, *known* (camera GPS or confirmed, green), *interpolated* (an estimate) or *unpersisted* (a
+*all*, *known* (camera GPS or confirmed, green), *interpolated* (an estimate), *unpersisted* (a
 confirmed position not yet written to the file — exactly the position changes the persist window
-lists, §9). A file shows when its group is shown **and** it matches the status — with groups A and
+lists, §9) or *suspicious* (camera GPS that is likely wrong, see above). A file shows when its group is shown **and** it matches the status — with groups A and
 B shown and *known*, only the green files of A and B are on the map. A pending drag is judged by
 the file's own position underneath it: it shows exactly when discarding the move would leave the
 file showing, so a dragged camera-GPS photo stays under *known* and a dragged estimate under
 *interpolated*, and a drag placed from the tray shows only under *all*. Under *unpersisted* it
 shows only on top of a confirmed position that isn't written yet, since Persist writes the
-confirmation, never the drag. A shown drag always keeps its ghost. Confirming a file makes it known, so it disappears at once under *interpolated*.
+confirmation, never the drag. Under *suspicious* a drag shows on top of the flagged camera GPS. A shown drag always keeps its ghost. Confirming a file makes it known, so it disappears at once under *interpolated*.
 
 The path line is unaffected and always runs through the full track regardless of what is currently
 hidden. Where one of its corners belongs to a hidden file — an anchor, or the end of an
 extrapolated tail — a small non-interactive dot marks the spot, smaller than §5.6's re-drag ghost.
 A hidden file's re-drag ghost and its connecting line are hidden with it; its old anchor is still a
-corner of the line and gets the dot. (Time-range and confidence filters are explicitly not in
-scope.)
+corner of the line and gets the dot. (Time-range filters, and confidence filters on the
+uncertainty of estimates (§5.2), are explicitly not in scope.)
 
 ### 6.4 Tray
 
@@ -785,7 +800,7 @@ what makes it an anchor and places everything else (§5.5).
 
 The detail panel shows only the actions that apply to the selected file: Confirm position for a
 drag or an estimate, Discard move while a drag is pending, Reset for a confirmed position, Force
-interpolation for camera GPS.
+interpolation for camera GPS — under the warning for suspicious camera GPS (§6.3).
 
 Dragging deliberately does **not** auto-confirm: confirmation stays a single, explicit gesture
 both for anchoring other files' estimates (§5.5) and for everything that reaches the disk.

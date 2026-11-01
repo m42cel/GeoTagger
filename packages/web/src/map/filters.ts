@@ -1,13 +1,14 @@
 import { isAnchor, type ComputedPosition, type FileId } from '@geotagger/shared';
 
 /** SPEC §6.3's status filter: exactly one is chosen. */
-export type StatusFilter = 'all' | 'known' | 'interpolated' | 'unpersisted';
+export type StatusFilter = 'all' | 'known' | 'interpolated' | 'unpersisted' | 'suspicious';
 
 export const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'known', label: 'Known' },
   { id: 'interpolated', label: 'Interpolated' },
   { id: 'unpersisted', label: 'Unpersisted' },
+  { id: 'suspicious', label: 'Suspicious' },
 ];
 
 /** SPEC §6.3's marker filters: groups hidden by the user, and the chosen status. */
@@ -21,6 +22,8 @@ export interface MapFilters {
 export interface FilterContext {
   /** Files whose confirmed position isn't written yet — the persist window's position changes. */
   unpersistedIds: ReadonlySet<FileId>;
+  /** Files whose camera GPS is likely wrong. */
+  suspiciousIds: ReadonlySet<FileId>;
 }
 
 /**
@@ -33,7 +36,8 @@ export interface FilterContext {
  * underneath (placed from the tray) would go back to the tray, so only all shows it.
  * Unpersisted shows exactly what the persist window would write as a position — the
  * confirmation, never the drag — so a drag shows there only on top of a confirmed
- * position that isn't written yet.
+ * position that isn't written yet. Suspicious judges the camera GPS underneath too, so a
+ * file stays there while Force interpolation's move waits to be confirmed.
  */
 export function isShown(
   item: { file: { id: FileId }; position: ComputedPosition },
@@ -46,6 +50,8 @@ export function isShown(
       return true;
     case 'unpersisted':
       return context.unpersistedIds.has(item.file.id);
+    case 'suspicious':
+      return context.suspiciousIds.has(item.file.id);
     case 'known':
       return isAnchor(item.position);
     case 'interpolated':
