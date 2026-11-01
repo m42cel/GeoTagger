@@ -7,4 +7,5 @@ export * from './grouping.js';
 export * from './persist.js';
 export * from './geo.js';
 export * from './positions.js';
+export * from './plausibility.js';
 export * from './api.js';

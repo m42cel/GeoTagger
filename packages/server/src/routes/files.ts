@@ -22,6 +22,7 @@ export function registerFileRoutes(app: FastifyInstance, sessions: SessionManage
       devices: session.store.listDevices(),
       positions,
       unpersistedFileIds: session.positions.unpersistedFileIds(positions),
+      suspiciousGps: session.positions.suspiciousGps(files),
       hasPendingChanges: pendingChangesIn(session),
     };
   });

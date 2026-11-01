@@ -1,5 +1,5 @@
-import type { BasePosition, ComputedPosition, FileId, FileRecord, KnownPosition, LatLon, PositionInput } from '@geotagger/shared';
-import { computePositions, DEFAULT_INTERPOLATION_PARAMS } from '@geotagger/shared';
+import type { BasePosition, ComputedPosition, FileId, FileRecord, KnownPosition, LatLon, PositionInput, SuspiciousGps } from '@geotagger/shared';
+import { computePositions, DEFAULT_INTERPOLATION_PARAMS, findSuspiciousGps } from '@geotagger/shared';
 import type { FolderStore } from '../db/store.js';
 import type { StripService } from '../strips/service.js';
 import { coordsFromTags, formatCoord } from '../write/tags.js';
@@ -36,6 +36,11 @@ export class PositionService {
     );
     const base = computePositions(inputs, DEFAULT_INTERPOLATION_PARAMS).get(fileId)?.base ?? null;
     return base === null ? null : { lat: base.lat, lon: base.lon };
+  }
+
+  /** Camera GPS that is likely wrong (SPEC §6.3), judged against the same anchors `compute` places files with. */
+  suspiciousGps(files: readonly FileRecord[]): SuspiciousGps[] {
+    return findSuspiciousGps(this.inputs(files), DEFAULT_INTERPOLATION_PARAMS);
   }
 
   private inputs(files: readonly FileRecord[]): PositionInput[] {

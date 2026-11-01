@@ -14,10 +14,11 @@
    * Map marker border colours (SPEC §6.5). Fixed rather than themed like the rest of
    * this block — they sit on map imagery, not the app background, and have to read
    * the same over satellite and street tiles regardless of light/dark mode, so
-   * there's no dark-mode override for these two below.
+   * there's no dark-mode override for these below.
    */
   --known: #2e9e44;
   --unconfirmed: #d1453b;
+  --suspicious: #f0a202;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -1360,6 +1361,14 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
 }
 .detail-actions .confirm:disabled { opacity: 0.4; border-color: var(--line); color: var(--muted); cursor: not-allowed; }
 .detail-actions .placeholder { visibility: hidden; }
+/* Amber like the marker's warning badge. */
+.detail-suspicious {
+  margin: 10px 0 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--suspicious);
+  background: var(--panel);
+  font-size: 12px;
+}
 /* Red like the unconfirmed marker the file becomes: it gives up a known position for an estimate. */
 .detail-actions .force {
   background: transparent;
@@ -1392,6 +1401,23 @@ button { font: inherit; cursor: pointer; border-radius: 6px; }
    both rings at once (shift-clicking the currently-selected one, say) and each has
    to stay legible on its own. */
 .map-thumb-icon.multi-selected img { box-shadow: 0 0 0 3px #2e7dd7; }
+/* Camera GPS that is likely wrong (SPEC §6.3), on a marker or a stack holding one: top
+   left, clear of a stack's count badge. */
+.suspicious-badge {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  background: var(--suspicious);
+  color: #000;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
 
 /* The rubber-band selection box (SPEC §6.5), drawn over the map while shift-dragging. */
 .map-select-box {

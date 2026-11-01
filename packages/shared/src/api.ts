@@ -1,6 +1,7 @@
 import type { FileRecord, DeviceRecord, FileId } from './media.js';
 import type { GroupingMode, StripRecord, TimelineFile, UtcOffsetRule } from './strips.js';
 import type { ComputedPosition } from './positions.js';
+import type { SuspiciousGps } from './plausibility.js';
 
 /** One entry in the server-side folder browser (SPEC §6.1). */
 export interface FolderEntry {
@@ -90,6 +91,8 @@ export interface FilesResponse {
    * different value than the current edit. A drag on top doesn't change that.
    */
   unpersistedFileIds: FileId[];
+  /** Camera GPS that is likely wrong (SPEC §6.3's "suspicious" status), with why. */
+  suspiciousGps: SuspiciousGps[];
   /** Whether persisting would write anything at all — a position or a time (SPEC §9.1). */
   hasPendingChanges: boolean;
 }

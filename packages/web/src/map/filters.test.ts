@@ -19,6 +19,7 @@ function item(
 
 const context: FilterContext = {
   unpersistedIds: new Set(['u' as FileId]),
+  suspiciousIds: new Set(['s' as FileId]),
 };
 const all: MapFilters = { hiddenFileIds: new Set(), status: 'all' };
 const hidden = (...ids: string[]) => new Set(ids as FileId[]);
@@ -71,5 +72,13 @@ describe('isShown', () => {
     expect(isShown(item('a', 'confirmed'), context, unpersisted)).toBe(false);
     expect(isShown(item('a', 'estimate', true), context, unpersisted)).toBe(false);
     expect(isShown(item('u', 'confirmed'), context, { ...unpersisted, hiddenFileIds: hidden('u') })).toBe(false);
+  });
+
+  it('shows exactly the suspicious files for suspicious, drag or not', () => {
+    const suspicious: MapFilters = { ...all, status: 'suspicious' };
+    expect(isShown(item('s', 'camera-gps'), context, suspicious)).toBe(true);
+    expect(isShown(item('s', 'camera-gps', true), context, suspicious)).toBe(true);
+    expect(isShown(item('a', 'camera-gps'), context, suspicious)).toBe(false);
+    expect(isShown(item('s', 'camera-gps'), context, { ...suspicious, hiddenFileIds: hidden('s') })).toBe(false);
   });
 });
