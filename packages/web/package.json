@@ -1,6 +1,6 @@
 {
   "name": "@geotagger/web",
-  "version": "1.0.0",
+  "version": "dev-local",
   "private": true,
   "type": "module",
   "scripts": {

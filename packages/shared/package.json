@@ -1,6 +1,6 @@
 {
   "name": "@geotagger/shared",
-  "version": "1.0.0",
+  "version": "dev-local",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

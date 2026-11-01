@@ -61,6 +61,14 @@ jobs:
           TAG="${TAG:0:128}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      # The version the app reports and writes into files: `dev-<sha>` for main,
+      # `<tag>-<sha>` for a manual build, so neither passes for a release.
+      - name: Determine app version
+        id: app_version
+        run: |
+          PREFIX="${{ steps.manual_tag.outputs.tag || 'dev' }}"
+          echo "version=$PREFIX-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       # Only tag `dev` on pushes to the default branch, and never `latest` —
       # release.yml sets that when a version tag is pushed.
       - name: Docker metadata
@@ -81,5 +89,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: APP_VERSION=${{ steps.app_version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
