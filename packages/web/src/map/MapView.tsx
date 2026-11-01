@@ -25,7 +25,7 @@ import { borderClassFor } from './marker-status.js';
 import { markerSize } from './marker-size.js';
 import { hasEstimateWithoutOwnAnchor, resetTarget } from './reset-target.js';
 import { isShown, STATUS_FILTERS, type StatusFilter } from './filters.js';
-import { pathSegments, pathVertices, segmentTooltip, speedColor, type PathSegment } from './path.js';
+import { geodesicSteps, pathSegments, pathVertices, segmentTooltip, speedColor, type PathSegment } from './path.js';
 
 /**
  * The map view (SPEC §5, §6.3, §7, §6.5): every file plotted at its known or
@@ -641,8 +641,10 @@ export function MapView({
     if (path.length > 1) {
       // Fixed rather than themed, like the marker borders: this sits on map imagery,
       // not the app background. Geodesic so each segment follows the same great
-      // circle the estimates on it were placed along (SPEC §5.1). One line per
-      // segment, so each can take the color of the speed it was travelled at.
+      // circle the estimates on it were placed along (SPEC §5.1), drawn more finely
+      // the longer it is so a long flight doesn't cut inside the curve, away from
+      // them. One line per segment, so each can take the color of the speed it was
+      // travelled at.
       const segments = L.layerGroup();
       pathSegmentLinesRef.current = pathSegments(path).map((segment) => {
         const line = new GeodesicLine(
@@ -650,7 +652,7 @@ export function MapView({
             [segment.from.lat, segment.from.lon],
             [segment.to.lat, segment.to.lon],
           ],
-          { weight: 2, opacity: 0.8 },
+          { weight: 2, opacity: 0.8, steps: geodesicSteps(segment.distanceM) },
         );
         styleSegment(line, segment, speedColorsRef.current);
         line.addTo(segments);
@@ -672,8 +674,18 @@ export function MapView({
       //
       // Laid along the whole path rather than per segment, so the spacing runs on
       // across corners instead of restarting at each — short segments would otherwise
-      // get none. The line itself is never added to the map, only measured.
-      const whole = new GeodesicLine(path.map((v) => [v.lat, v.lon]));
+      // get none. Joined from the segments' own drawn lines, so the arrows follow
+      // each at its own density; they only come apart where a line is split at the
+      // antimeridian. The joined line is never added to the map, only measured.
+      const runs: L.LatLng[][] = [];
+      for (const { line } of pathSegmentLinesRef.current) {
+        for (const piece of line.getLatLngs() as L.LatLng[][]) {
+          const run = runs[runs.length - 1];
+          if (run?.[run.length - 1]?.equals(piece[0] as L.LatLng)) run.push(...piece.slice(1));
+          else runs.push([...piece]);
+        }
+      }
+      const whole = L.polyline(runs);
       const arrows = L.polylineDecorator(whole, {
         patterns: [
           {

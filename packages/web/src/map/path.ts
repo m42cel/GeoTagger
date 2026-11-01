@@ -111,6 +111,21 @@ export function pathSegments(vertices: readonly PathVertex[]): PathSegment[] {
   return segments;
 }
 
+/** The longest straight piece a segment is drawn with; the error grows with its square. */
+const MAX_CHORD_M = 20_000;
+
+/**
+ * leaflet.geodesic's `steps` for a segment, which draws it with `2^(steps+1)`
+ * straight pieces. Leaflet draws those straight on the Mercator map, where the great
+ * circle curves, so the library's fixed default of 3 cuts kilometers inside the curve
+ * on a long flight — beside the estimates placed on it (SPEC §5.1). Never below that
+ * default, and capped at the library's own limit of 8 (513 vertices, ~10,000 km).
+ */
+export function geodesicSteps(distanceM: number): number {
+  const steps = Math.ceil(Math.log2(distanceM / MAX_CHORD_M)) - 1;
+  return Math.min(8, Math.max(3, steps));
+}
+
 const SLOW_KMH = 3;
 const FAST_KMH = 150;
 /** For segments without a speed, so "unknown" never reads as "slow". */

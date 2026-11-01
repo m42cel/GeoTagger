@@ -722,7 +722,9 @@ thumbnail.
 **Path line:** a single plain geodesic line through every anchor — camera GPS and confirmed
 positions — in effective-time order across all devices, one collective timeline, no per-device
 separation, never broken by time gaps. Each segment follows the great circle
-(§5.1), so every interpolated file lies on the line without being a vertex of it. At either end it
+(§5.1), so every interpolated file lies on the line without being a vertex of it. It is drawn
+finely enough (straight pieces of about 20 km at most) that files on a long flight sit visibly on
+the curve rather than beside it. At either end it
 continues to the farthest extrapolated file (§5.3), which keeps the extrapolated files on it too. A file with a pending drag and no anchor underneath
 sits off to the side instead of bending the line toward it, the same way it does not anchor its
 neighbours (§5.5). A file being *re*-dragged still has its old anchor doing that work (§5.6's

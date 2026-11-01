@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ComputedPosition, FileId, PositionSource, TimelineFile } from '@geotagger/shared';
-import { pathSegments, pathVertices, segmentTooltip, speedColor, type PathVertex } from './path.js';
+import { geodesicSteps, pathSegments, pathVertices, segmentTooltip, speedColor, type PathVertex } from './path.js';
 
 let nextId = 0;
 
@@ -139,6 +139,24 @@ describe('pathSegments', () => {
   it('is empty for fewer than two corners', () => {
     expect(pathSegments([])).toEqual([]);
     expect(pathSegments([vertex(0, 0, 0)])).toEqual([]);
+  });
+});
+
+describe('geodesicSteps', () => {
+  it('keeps the library default for short segments', () => {
+    expect(geodesicSteps(0)).toBe(3);
+    expect(geodesicSteps(50_000)).toBe(3);
+  });
+
+  it('adds steps so no drawn piece is longer than 20 km', () => {
+    expect(geodesicSteps(640_000)).toBe(4);
+    expect(geodesicSteps(1_280_000)).toBe(5);
+    expect(geodesicSteps(1_300_000)).toBe(6);
+  });
+
+  it('stops at the library limit', () => {
+    expect(geodesicSteps(6_200_000)).toBe(8);
+    expect(geodesicSteps(20_000_000)).toBe(8);
   });
 });
 
