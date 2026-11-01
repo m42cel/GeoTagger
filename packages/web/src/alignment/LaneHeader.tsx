@@ -282,7 +282,7 @@ function OffsetField({
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur();
         if (e.key === 'Escape') setText(formatOffset(value));
-        // The lanes beside nudge on arrow keys; inside a text field they belong to the
+        // The lanes beside step and nudge on arrow keys; inside a text field they belong to the
         // caret.
         e.stopPropagation();
       }}
